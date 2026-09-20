@@ -21,14 +21,34 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from src.cn import agent_service
+from src.cn import document_service
 from src.cn import workbench_service as service
 from src.cn.demo_data import BLOCKED_DEMO_SNAPSHOT_ID, DEMO_SNAPSHOT_ID
 from src.cn.daily_review.report import render_report_html
+# Cost figures are only money when their unit of account is known; the registry
+# (pure data, no SDK) is the single place that can answer that.
+from src.llms.model_registry import cost_currency
+
+# --- CARD-15 挂载：Demo 页面（新增代码全部在 workbench/demo/ 内）-------------
+# 既有页面函数一行未动，这里只做挂载。导入失败**不静默**：错误会显示在侧栏，
+# 且 tests/test_cn_demo_ui.py 会断言这些标签确实挂上了 —— 悄悄少掉 8 个页面
+# 比报错更糟。
+try:
+    from workbench.demo import mount_demo_pages
+
+    _DEMO_PAGES = mount_demo_pages()
+    _DEMO_IMPORT_ERROR = ""
+except Exception as _demo_exc:  # noqa: BLE001 - 降级而不是让整个工作台打不开
+    _DEMO_PAGES = []
+    _DEMO_IMPORT_ERROR = f"{type(_demo_exc).__name__}: {_demo_exc}"
+
+_DEMO_RENDER = {page.label: page.render for page in _DEMO_PAGES}
 
 # Streamlit can keep imported modules alive across script reruns.  Reload the
 # local service module so a changed UI cannot call a stale service contract.
 service = importlib.reload(service)
 agent_service = importlib.reload(agent_service)
+document_service = importlib.reload(document_service)
 REQUIRED_SERVICE_FUNCTIONS = (
     "research_summary", "research_peer_valuation", "research_readiness",
     "research_evidence", "research_validation", "research_market",
@@ -38,22 +58,45 @@ REQUIRED_SERVICE_FUNCTIONS = (
     "start_daily_review", "acquire_live_daily_review",
 )
 REQUIRED_AGENT_FUNCTIONS = ("start_agent_research", "get_agent_task", "agent_task_events")
+REQUIRED_DOCUMENT_FUNCTIONS = (
+    "list_documents", "document_detail", "document_facts", "jump_target",
+    "document_source", "page_image", "document_analysis",
+)
 
 
 def service_contract_ready() -> bool:
     """Prevent a stale process from exposing a traceback to the user."""
     missing = [name for name in REQUIRED_SERVICE_FUNCTIONS if not callable(getattr(service, name, None))]
     agent_missing = [name for name in REQUIRED_AGENT_FUNCTIONS if not callable(getattr(agent_service, name, None))]
-    if missing or agent_missing:
+    document_missing = [name for name in REQUIRED_DOCUMENT_FUNCTIONS if not callable(getattr(document_service, name, None))]
+    if missing or agent_missing or document_missing:
         st.error("工作台组件版本不一致。请重启本地工作台后重试。")
-        st.caption(f"Missing service functions: {', '.join(missing + agent_missing)}")
+        st.caption(f"Missing service functions: {', '.join(missing + agent_missing + document_missing)}")
         return False
     return True
 
 
 ROOT = Path(__file__).resolve().parent
 
-NAVIGATION = ["案例演示", "AI Agent 研究", "研究总览", "市场与行情", "财务表现", "同行估值", "证据与校验", "Agent 执行轨迹", "研究报告", "研究任务", "评测与消融", "每日复盘"]
+NAVIGATION = [
+    "案例演示", "AI Agent 研究", "研究总览", "市场与行情", "财务表现", "财务分析",
+    "同行估值", "证据与校验", "文档智能", "Agent 执行轨迹", "研究报告", "研究任务",
+    "评测与消融", "每日复盘",
+    # CARD-15：清单按 DEMO_FLOW.md v3.2 校正（步骤 4b/6+7/7b/9+10/10b/F9/收尾/F1–F8）
+    *[page.label for page in _DEMO_PAGES],
+]
+
+#: CARD-03 vocabulary rendered in Chinese. Kept in the UI layer so the engine's
+#: tokens stay stable for the API, the ledger and the benchmark.
+_COMPARISON_LABELS = {"yoy": "同比", "qoq": "环比", "level": "水平值", "none": "—"}
+_SEMANTIC_LABELS = {
+    "normal": "正常（可出百分比）",
+    "turnaround": "扭亏为盈（只给绝对变动）",
+    "to_loss": "由盈转亏（只给绝对变动）",
+    "loss_widening": "亏损扩大（只给绝对变动）",
+    "loss_narrowing": "亏损收窄（只给绝对变动）",
+    "not_computable": "不可计算",
+}
 
 DEMO_CASES = {
     "成功研究：贵州茅台": {
@@ -986,6 +1029,491 @@ def report(snapshot: dict) -> None:
     st.text_area("只读报告预览", report[:12000], height=560, disabled=True)
 
 
+def documents() -> None:
+    """CARD-01 反向跳转：报告数字 → document_id → 原始 PDF 页（bbox 高亮）。"""
+    st.markdown("#### 文档智能 · 报告数字 → 原始 PDF 页")
+    st.caption(
+        "每一行都来自真实解析坐标（页码 + bbox），界面不重新推导、不猜测数值。"
+        "点击左侧任一数字行，右侧跳转到它所在的原始页面并高亮该单元格。"
+    )
+    listing = document_service.list_documents()
+    if not listing["items"]:
+        st.info(
+            "尚未注册任何文档。可在项目根目录运行 `python scripts/bootstrap_documents.py` "
+            "载入随仓库提供的合成语料，或用 `ingest_cn_document` 工具摄入真实年报 PDF。"
+        )
+        return
+
+    labels: dict[str, str] = {}
+    for item in listing["items"]:
+        flags = []
+        if item["status"] != "ok":
+            flags.append(item["status"])
+        if item["suspected_injection"]:
+            flags.append("疑似注入")
+        suffix = f" · {'/'.join(flags)}" if flags else ""
+        labels[f"{item['filename']}{suffix}"] = item["document_id"]
+    picked = st.selectbox("已注册文档", list(labels), key="document_picker")
+    document_id = labels[picked]
+    if st.session_state.get("document_fact_document") != document_id:
+        # A fact ID is only meaningful inside its own document.
+        st.session_state["document_fact_document"] = document_id
+        st.session_state.pop("document_fact_id", None)
+    detail = document_service.document_detail(document_id)
+
+    top = st.columns(5)
+    top[0].metric("解析状态", detail["status"])
+    top[1].metric("页数", detail["page_count"] or "—")
+    top[2].metric("事实总数", detail["fact_count"])
+    top[3].metric("可反向定位", detail["jumpable_fact_count"])
+    top[4].metric("解析器", detail["parser"])
+
+    guards = st.columns(3)
+    guards[0].write({"类型": detail["document_type"], "公司": detail["company"] or "—", "报告期": detail["report_period"] or "—"})
+    guards[1].write({"来源": detail["source"], "披露日": detail["publication_date"] or "—", "登记时间": detail["ingested_at"]})
+    integrity = detail["integrity"]
+    guards[2].write({
+        "原文存在": integrity["file_exists"], "全文哈希一致": not integrity["tampered"],
+        "失效事实数": integrity["facts_invalidated"],
+    })
+
+    if detail["suspected_injection"]:
+        st.warning(
+            f"该文档命中 {len(detail['injection_segments'])} 处疑似注入特征，已记录审计；"
+            "文档文本始终只作为数据，不改变系统行为。"
+        )
+    if detail["type_mismatch_warning"]:
+        st.warning(detail["type_mismatch_warning"])
+    if detail["status"] == "degraded":
+        st.error("该文档解析失败页比例过高：仅供参考，不可作为事实来源。")
+
+    with st.expander("解析摘要（逐页）", expanded=False):
+        events = detail["parse_events"]
+        if events:
+            st.dataframe(
+                pd.DataFrame(events).rename(columns={
+                    "page": "页码", "parser": "解析器", "status": "状态", "note": "说明",
+                }),
+                width="stretch", hide_index=True,
+            )
+        else:
+            st.caption("该文档未记录逐页事件。")
+        if detail["notes"]:
+            for note in detail["notes"]:
+                st.caption(f"· {note}")
+
+    facts_payload = document_service.document_facts(document_id)
+    fact_rows = facts_payload["facts"]
+    left, right = st.columns([1.2, 1])
+
+    with left:
+        st.markdown("##### 结构化事实（可点击数字）")
+        if not fact_rows:
+            st.caption("该文档没有可数值化的事实（可能是扫描页或纯文本公告）。")
+            selected_fact = None
+        else:
+            frame = pd.DataFrame([{
+                "页码": row["page"] or "—",
+                "项目": row["row_label"],
+                "列": row["column_label"] or "—",
+                "列语义": row["column_role"],
+                "数值": row["raw_value"],
+                "单位": row["unit"] or "—",
+                "标准指标": row["metric"] or "未收录",
+                "所在表": row["table"] or "—",
+            } for row in fact_rows])
+            event = st.dataframe(
+                frame, width="stretch", hide_index=True, height=420, on_select="rerun",
+                selection_mode="single-row", key=f"document_facts_{document_id}",
+            )
+            if event.selection.rows:
+                st.session_state["document_fact_id"] = fact_rows[event.selection.rows[0]]["fact_id"]
+            selected_fact = st.session_state.get("document_fact_id")
+            unknown = sum(1 for row in fact_rows if not row["metric"])
+            if unknown:
+                st.caption(f"{unknown}/{len(fact_rows)} 行不在 CARD-02 指标字典内，保持原始名称，未强行映射。")
+
+    with right:
+        st.markdown("##### 原始页面定位")
+        if not fact_rows:
+            st.caption("无可定位事实。")
+            return
+        if not selected_fact:
+            st.info("点击左侧任一数字行，这里会显示页码、bbox 与该数值的原文切片。")
+            return
+        try:
+            target = document_service.jump_target(document_id, selected_fact)
+        except (KeyError, ValueError) as exc:
+            st.warning(f"该事实无法定位：{exc}")
+            return
+
+        st.write({
+            "项目": target["row_label"], "列": target["column_label"] or "—",
+            "列语义": target["column_role"], "页码": f"第 {target['page']} 页",
+        })
+        st.write({
+            "标准指标": target["metric"] or "未收录", "原文切片": repr(target["raw_text"]),
+            "披露单位": target["unit"] or "—", "币种": target["currency"] or "—",
+            "bbox": target["bbox"],
+        })
+        if not target["metric_known"] and target["metric_note"]:
+            st.caption(f"指标未映射：{target['metric_note']}")
+        try:
+            image = document_service.page_image(document_id, target["page"], highlights=[target["bbox"]])
+            st.image(image, caption=f"第 {target['page']} 页 · 红框即该数值所在 bbox", width="stretch")
+        except ValueError as exc:
+            st.caption(f"页面渲染不可用：{exc}")
+
+        _document_source_actions(document_id, target["page"], detail["filename"])
+
+
+def _document_source_actions(document_id: str, page: int, filename: str) -> None:
+    """Offer the original file without adding a viewer dependency.
+
+    The page image above renders the *actual* page and outlines the exact bbox,
+    so the locator needs no third-party component. The download button is how a
+    reviewer opens the whole filing to check the surrounding context.
+    """
+    try:
+        payload, media_type = document_service.document_source(document_id)
+    except (KeyError, ValueError) as exc:
+        st.caption(f"原文下载不可用：{exc}")
+        return
+    st.caption(f"该数值位于第 {page} 页；以下是原文全文，供核对上下文。")
+    st.download_button(
+        f"下载原文 · {filename}（{len(payload) / 1e3:.1f} KB）",
+        data=payload,
+        file_name=filename or f"{document_id}.pdf",
+        mime=media_type,
+        key=f"document_download_{document_id}",
+    )
+
+
+def _analysis_picker_order(items: list[dict]) -> list[dict]:
+    """Order the picker for the analysis page only — the document list is unchanged.
+
+    Financial statements come first (newest report period first), because those
+    are the documents this page can actually analyse; announcements and research
+    drafts carry no statement structure and will honestly report 0 metrics. This
+    is a presentation default, not a filter: nothing is hidden.
+
+    Implemented as three stable sorts because the group and the period sort in
+    opposite directions, which a single composite key cannot express cleanly.
+    """
+    statement_types = {"annual", "quarterly", "semiannual", "interim"}
+    ordered = sorted(items, key=lambda item: item["filename"])
+    ordered.sort(key=lambda item: str(item.get("report_period") or ""), reverse=True)
+    ordered.sort(key=lambda item: 0 if item["document_type"] in statement_types else 1)
+    return ordered
+
+
+def financial_analysis() -> None:
+    """CARD-03：指标表（每行可展开公式与输入证据）+ 诊断信号徽章。
+
+    The page owns no arithmetic. Every number it renders is either a level the
+    engine produced or a comparison the engine recorded, and the expandable
+    detail is the *registry's* formula + operands + its own re-derived value.
+    """
+    st.markdown("#### 财务分析 · 指标与诊断信号")
+    st.caption(
+        "全部数值由确定性引擎产出（CARD-02 规范化事实 → 计算注册表），不是模型输出。"
+        "每一行都可展开公式、输入证据 id 与引擎重算值；亏损基期的同比只给绝对变动，"
+        "缺失输入登记在「未产出」中，绝不插值或替代。"
+    )
+    listing = document_service.list_documents()
+    if not listing["items"]:
+        st.info(
+            "尚未注册任何文档。可在项目根目录运行 `python scripts/bootstrap_documents.py` "
+            "载入随仓库提供的合成语料，或用 `ingest_cn_document` 工具摄入真实年报 PDF。"
+        )
+        return
+
+    labels: dict[str, str] = {}
+    for item in _analysis_picker_order(listing["items"]):
+        flags = [item["status"]] if item["status"] != "ok" else []
+        if item["suspected_injection"]:
+            flags.append("疑似注入")
+        suffix = f" · {'/'.join(flags)}" if flags else ""
+        labels[f"{item['filename']}{suffix}"] = item["document_id"]
+    picked = st.selectbox("已注册文档", list(labels), key="analysis_document_picker")
+    document_id = labels[picked]
+    if st.session_state.get("analysis_fact_document") != document_id:
+        st.session_state["analysis_fact_document"] = document_id
+        st.session_state.pop("analysis_metric_row", None)
+
+    try:
+        payload = document_service.document_analysis(document_id)
+    except KeyError as exc:
+        st.error(f"无法分析该文档：{exc}")
+        return
+
+    top = st.columns(5)
+    top[0].metric("报告期", payload["report_period"] or "—")
+    top[1].metric("口径", payload["scope"] or "—")
+    top[2].metric("指标数", payload["metric_count"])
+    top[3].metric("缺失（阻断）", sum(1 for row in payload["missing"] if row["blocking"]))
+    top[4].metric("数据完整", "是" if payload["data_complete"] else "否")
+
+    _analysis_comparability(payload)
+
+    if payload["validation_errors"]:
+        st.error(
+            "计算复核未通过，以下记录无法重算，结论不应采信：\n\n"
+            + "\n".join(f"- {item}" for item in payload["validation_errors"])
+        )
+    elif not payload["metrics"]:
+        st.warning(
+            "该文档产不出任何指标：没有形成可计算的报表结构"
+            "（缺单位声明、期间语义不可判定，或事实不在标准指标字典内）。"
+        )
+    elif not payload["data_complete"]:
+        st.warning("部分指标因缺失输入未产出；已产出的指标仍然可逐行复核。")
+
+    _analysis_signals(payload["signals"])
+
+    if payload["metrics"]:
+        left, right = st.columns([1.35, 1])
+        with left:
+            st.markdown("##### 指标表（点击行查看计算过程）")
+            frame = pd.DataFrame([_analysis_row(row) for row in payload["metrics"]])
+            event = st.dataframe(
+                frame, width="stretch", hide_index=True, height=430, on_select="rerun",
+                selection_mode="single-row", key=f"analysis_metrics_{document_id}",
+            )
+            if event.selection.rows:
+                st.session_state["analysis_metric_row"] = event.selection.rows[0]
+            selected = st.session_state.get("analysis_metric_row")
+        with right:
+            st.markdown("##### 计算过程")
+            _analysis_calculation(payload["metrics"], st.session_state.get("analysis_metric_row"))
+
+    _analysis_gaps(payload)
+    _analysis_warnings(payload)
+
+
+def _analysis_comparability(payload: dict) -> None:
+    """CARD-04 §14：可比性警告横幅（可展开到公告/页/期间/决策）。
+
+    The banner is deliberately the *first* thing under the summary counters,
+    because everything below it — including the percentage column — has to be
+    read in its light. It renders three states and never conflates them:
+
+    * a decision (横幅 + 可展开的依据);
+    * detected-but-no-signal (一条 caption，说明"未命中 ≠ 不存在");
+    * not assessed (no CARD-04 payload at all) — shown, not hidden.
+    """
+    signals = payload.get("scope_signals") or []
+    banner = payload.get("comparability_banner")
+    if banner is None:
+        if payload.get("comparability") is None:
+            st.caption(
+                "可比性：CARD-04 未命中任何会计口径/重述规则 —— 这是"
+                "『未匹配到种子关键词表与表格版本列』，不等于文档不存在口径变化；"
+                "覆盖范围见 `src/cn/analysis/scope_signals.detection_coverage()`。"
+            )
+        return
+
+    decision = banner["decision"]
+    headline = (
+        f"可比性警告 · {banner['decision_label']}（{decision}）：{banner['message']}"
+    )
+    if decision == "block_yoy":
+        st.error(headline)
+    else:
+        st.warning(headline)
+
+    with st.expander("展开：哪个公告、哪一页、影响哪些期间、系统做了什么决策", expanded=False):
+        st.write({
+            "文档": payload.get("filename") or payload.get("document_id"),
+            "文档类型": payload.get("document_type") or "—",
+            "决策": f"{banner['decision_label']}（{decision}）",
+            "受影响期间": "、".join(banner["periods_affected"]) or "文档未指明具体期间",
+            "涉及页面": "、".join(f"第 {page} 页" for page in banner["pages"]) or "不可定位",
+            "信号类型": "、".join(banner["signal_types"]) or "—",
+        })
+        st.caption(
+            "决策由确定性规则表得出（`scope_signals.DECISION_RULES`，多信号取最严），"
+            "模型不参与判定。"
+            + (
+                "本次未输出任何同比百分比：水平值仍然展示，因为它们是事实；"
+                "但两端不可比时给出百分比即为误算。"
+                if banner["blocked"]
+                else "比较值已按该决策取调整后/重述后版本。"
+            )
+        )
+
+        st.markdown("###### 信号明细与证据")
+        for index, signal in enumerate(signals):
+            pages = "、".join(f"第 {page} 页" for page in signal["pages"]) or "不可定位"
+            st.write(
+                f"**{index + 1}. {signal['label']}** · {signal['decision_label']} · "
+                f"严重度 {signal['severity']} · 页 {pages} · 规则 `{signal['detector_rule']}`"
+            )
+            st.caption(
+                f"来源面：{'、'.join(signal['surfaces']) or '—'} ｜ "
+                f"影响期间：{'、'.join(signal['periods_affected']) or '文档未指明'} ｜ "
+                f"调整后数据可得：{'是' if signal['adjusted_data_available'] else '否'}"
+            )
+            st.caption(f"原文：{signal['detail']}")
+            evidence = signal["evidence"]
+            if not evidence:
+                st.caption("该信号未绑定证据 —— 不应出现，请核对 `validation_errors`。")
+                continue
+            for item in evidence:
+                page_label = f"第 {item['page']} 页" if item["page"] else "无页码"
+                locatable = "可定位" if item["jumpable"] else "不可定位（已失效）"
+                st.caption(f"· `{item['fact_id']}` {page_label} · {locatable}")
+
+
+def _analysis_row(row: dict) -> dict:
+    """Flatten one metric payload for the table (display only, no arithmetic)."""
+    return {
+        "指标": row["label"] or row["metric"],
+        "期间": row["period_key"] or "—",
+        "口径": row["period_basis"] or "—",
+        "数值": row["value"],
+        "单位": row["unit"],
+        "比较": _COMPARISON_LABELS.get(row["comparison"] or "", row["comparison"] or "—"),
+        "语义": _SEMANTIC_LABELS.get(row["comparison_semantic"] or "", "—"),
+        "绝对变动": row["delta_abs"],
+        "变动%": row["delta_pct"],
+        "备注": row["note"] or "—",
+    }
+
+
+def _analysis_signals(signals: list[dict]) -> None:
+    """Diagnostic signals as badges, each expandable to its triggering numbers."""
+    st.markdown("##### 诊断信号")
+    if not signals:
+        st.caption("本次分析未触发任何诊断信号（信号只表达背离，不表达因果）。")
+        return
+    for signal in signals:
+        badge, detail = st.columns([0.28, 0.72])
+        with badge:
+            st.badge(signal["label"], color="orange")
+        with detail:
+            st.write(signal["detail"])
+        with st.expander(f"触发依据 · {signal['signal_id']}", expanded=False):
+            st.write({
+                "期间": "、".join(signal["periods"]) or "—",
+                "阈值": signal["threshold"],
+                "观测值": signal["observed"],
+            })
+            st.caption(
+                "指标计算记录："
+                + ("、".join(signal["metric_calculation_ids"]) or "—")
+            )
+            st.caption(
+                "信号只说明数值出现背离，需要进一步核查；报告不得把它写成确定因果，"
+                "因果表述必须另有独立证据。"
+            )
+
+
+def _analysis_calculation(metrics: list[dict], index: int | None) -> None:
+    if not metrics:
+        return
+    if index is None or index >= len(metrics):
+        st.info("点击左侧任一指标行，这里显示公式、输入证据与引擎重算值。")
+        return
+    row = metrics[index]
+    calculation = row.get("calculation")
+    st.write({
+        "指标": row["label"], "期间": row["period_key"], "口径": row["period_basis"],
+        "数值": row["value"], "单位": row["unit"],
+    })
+    if not calculation:
+        st.caption("该行是水平值，没有记录计算过程。")
+        return
+    st.code(calculation["formula"], language="text")
+    st.write({
+        "运算": calculation["operation"], "记录数值": calculation["value"],
+        "引擎重算": calculation["recalculated"],
+        "口径": calculation["period_basis"], "来源": calculation["source"],
+        "计算 id": row["calculation_id"],
+    })
+    st.dataframe(
+        pd.DataFrame([{
+            "输入类型": {"evidence": "证据", "calculation": "中间计算", "constant": "公式常量"}.get(
+                operand["kind"], operand["kind"]
+            ),
+            "输入 id": operand["id"],
+            "数值": operand["value"],
+            "说明": operand["label"] or "—",
+        } for operand in calculation["operands"]]),
+        width="stretch", hide_index=True,
+    )
+    if calculation.get("note"):
+        st.caption(calculation["note"])
+    if row.get("note"):
+        st.caption(f"口径说明：{row['note']}")
+
+
+def _analysis_gaps(payload: dict) -> None:
+    """Missing metrics, split by *why* they are missing."""
+    blocking = [row for row in payload["missing"] if row["blocking"]]
+    not_applicable = [row for row in payload["missing"] if not row["blocking"]]
+    if not payload["missing"]:
+        return
+    with st.expander(
+        f"未产出的指标（阻断 {len(blocking)} · 不适用 {len(not_applicable)}）", expanded=False
+    ):
+        if blocking:
+            st.markdown("**缺失输入（阻断，使 data_complete=False）**")
+            st.dataframe(
+                pd.DataFrame([{
+                    "指标": row["metric"], "期间": row["period_key"] or "—",
+                    "需要输入": "、".join(row["required_inputs"]) or "—", "原因": row["reason"],
+                } for row in blocking]),
+                width="stretch", hide_index=True,
+            )
+        if not_applicable:
+            st.markdown("**结构性不适用（不阻断）**")
+            st.dataframe(
+                pd.DataFrame([{
+                    "指标": row["metric"], "期间": row["period_key"] or "—", "原因": row["reason"],
+                } for row in not_applicable]),
+                width="stretch", hide_index=True,
+            )
+
+
+def _analysis_warnings(payload: dict) -> None:
+    messages = list(payload["warnings"]) + list(payload["normalization_warnings"])
+    if not messages:
+        return
+    with st.expander(f"警告与口径提示（{len(messages)}）", expanded=False):
+        for message in messages:
+            st.caption(f"· {message}")
+
+
+def _currency_of(detail_or_model) -> str | None:
+    """Unit of account a cost is denominated in, or ``None`` when unknown.
+
+    Accepts either a model name or an evaluation artifact (a stored
+    ``cost_currency`` wins, then the ``model`` it records).  ``None`` is a real
+    answer here: it is what an unpriced model, or an artifact that predates cost
+    currency tracking, actually knows.  Rendering it as "USD" or as ``$0.00``
+    would turn "unknown" into a number, which is the one thing a cost column
+    must never do.
+    """
+    if isinstance(detail_or_model, str):
+        try:
+            return cost_currency(detail_or_model)
+        except KeyError:
+            return None
+    detail = detail_or_model or {}
+    currency = detail.get("cost_currency")
+    if currency is None:
+        currency = (detail.get("metadata") or {}).get("cost_currency")
+    if currency is None:
+        model = detail.get("model") or (detail.get("metadata") or {}).get("model")
+        if model:
+            try:
+                currency = cost_currency(str(model))
+            except KeyError:
+                currency = None
+    return currency
+
+
 def evaluations() -> None:
     st.markdown("### 评测与消融")
     st.caption("仅展示本地已落盘的评测产物；未测量指标不会以 0 代替。")
@@ -1001,6 +1529,12 @@ def evaluations() -> None:
         rows = detail.get("variants", [])
         if rows:
             st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+            _ablation_currency = _currency_of(detail)
+            st.caption(
+                f"成本单位：{_ablation_currency}"
+                if _ablation_currency
+                else "成本单位未知（该模型未定价）：成本列不可作为金额解读。"
+            )
         missing = detail.get("missing_variants", [])
         if missing:
             st.warning(f"未测量配置：{', '.join(missing)}")
@@ -1018,10 +1552,12 @@ def evaluations() -> None:
             st.json({key: value for key, value in selected.items() if key not in {"report"}})
         return
     summary = detail.get("summary", {})
+    currency = _currency_of(detail)
+    cost_label = f"总成本（{currency}）" if currency else "总成本（币种未知）"
     metric_labels = {
         "tool_f1": "工具路由准确率", "parameter_accuracy": "参数准确率",
         "evidence_coverage": "Evidence 覆盖率", "e2e_success_rate": "任务成功率",
-        "avg_latency_seconds": "平均延迟（秒）", "total_cost_usd": "总成本（USD）",
+        "avg_latency_seconds": "平均延迟（秒）", "total_cost_usd": cost_label,
         "numeric_accuracy": "数字正确率", "conclusion_leakage_rate": "结论泄漏率",
         "failure_recovery_rate": "失败恢复率",
     }
@@ -1327,10 +1863,21 @@ def _agent_validator(public: dict) -> None:
 
 def _agent_cost(public: dict) -> None:
     usage = public.get("usage") or {}
+    currency = _currency_of(public.get("model_name") or "")
+    raw_cost = usage.get("cost_usd")
+    if currency is None:
+        # Unpriced model: the number exists but is not money, so it must not be
+        # dressed up with a currency symbol.
+        cost_value = "未定价" if raw_cost is None else f"{raw_cost}（未知单位）"
+        cost_label = "成本（未定价）"
+    else:
+        symbol = {"USD": "$", "CNY": "¥"}.get(str(currency).upper(), f"{currency} ")
+        cost_value = f"{symbol}{raw_cost or 0.0}"
+        cost_label = f"成本 ({currency})"
     metric_cols = st.columns(4)
     metric_cols[0].metric("LLM 调用", usage.get("llm_calls") or 0)
     metric_cols[1].metric("工具调用", usage.get("tool_calls") or 0)
-    metric_cols[2].metric("成本 (USD)", usage.get("cost_usd") or 0.0)
+    metric_cols[2].metric(cost_label, cost_value)
     metric_cols[3].metric("延迟 (s)", usage.get("latency_seconds") or 0.0)
     metadata = [
         ("任务 ID", public.get("id")), ("状态", public.get("status")),
@@ -1695,8 +2242,21 @@ def main() -> None:
     if page == "AI Agent 研究":
         agent_research()
         return
+    if page == "文档智能":
+        documents()
+        return
+    if page == "财务分析":
+        financial_analysis()
+        return
     if page == "每日复盘":
         daily_review()
+        return
+    if _DEMO_IMPORT_ERROR:
+        st.warning(f"CARD-15 Demo 页面未能挂载：{_DEMO_IMPORT_ERROR}")
+    if page in _DEMO_RENDER:
+        # Demo 页面自带语料选择器，不走快照选择器 —— 它们分析的是文档与 run，
+        # 不是行情快照。所以在这里早返回，不调用 load_research。
+        _DEMO_RENDER[page]()
         return
     snapshot, metadata = load_research(choices[selected_label])
     header(snapshot, metadata)

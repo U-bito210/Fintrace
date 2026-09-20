@@ -1,0 +1,26 @@
+{
+  "document_id": "SYN-DRAFT-SCOPE",
+  "filename": "draft_05_planted_scope.pdf",
+  "title": "示例材料股份有限公司 2025 年度业绩点评（草稿，含口径问题）",
+  "note": "CARD-04 判定 block_yoy：出现同比百分比即为 scope_error；同一份草稿里的水平值仍然允许（误报控制的边界）。",
+  "as_of": "2026-05-01",
+  "references": [
+    "annual_05_reclassification.pdf"
+  ],
+  "uses_market_document": false,
+  "lines": [
+    "公司2025年营业收入同比增长11.1%。（来源：annual_05_reclassification.pdf#p1）",
+    "公司2025年营业收入为100万元。（来源：annual_05_reclassification.pdf#p1）",
+    "公司已披露重分类事项，同比口径存在变化。"
+  ],
+  "expected_claims": 2,
+  "expected": [
+    {
+      "check_type": "scope_error",
+      "claim_index": 0,
+      "severity": "error",
+      "expected_contains": "不得给出同比",
+      "note": "重分类披露下两端不可比，百分比不得出具。"
+    }
+  ]
+}

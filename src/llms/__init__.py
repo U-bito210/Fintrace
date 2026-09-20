@@ -7,7 +7,11 @@ This package provides unified interfaces for different LLM providers:
 
 All functions follow the same interface:
 - Input: List of messages, temperature
-- Output: Tuple of (response_text, cost_in_usd)
+- Output: Tuple of (response_text, cost)
+- Cost unit: whatever ``ModelInfo.price_currency`` says.  It is ``"USD"`` for
+  every currently priced model, and ``None`` for an unpriced model (百炼/qwen),
+  where the cost is unknown rather than zero.  Ask
+  ``model_registry.cost_currency(name)`` before presenting a cost as money.
 - Error handling: Retry logic with exponential backoff
 - Logging: Integrated with the stock analyst logger
 
@@ -32,8 +36,14 @@ from .claude import (
     calculate_cost as calculate_claude_cost
 )
 
-# OpenAI-compatible providers (DeepSeek, etc.)
-from .openai_compatible import deepseek_v4_flash, deepseek_v4_pro
+# OpenAI-compatible providers (DeepSeek, Alibaba Cloud Model Studio / 百炼, etc.)
+from .openai_compatible import (
+    deepseek_v4_flash,
+    deepseek_v4_pro,
+    qwen3_max,
+    qwen_plus,
+    qwen_flash,
+)
 
 # Configuration and utilities
 from .config import (
@@ -62,6 +72,11 @@ __all__ = [
     # DeepSeek (OpenAI-compatible)
     'deepseek_v4_flash',
     'deepseek_v4_pro',
+
+    # Alibaba Cloud Model Studio / 百炼 (OpenAI-compatible, unpriced)
+    'qwen3_max',
+    'qwen_plus',
+    'qwen_flash',
 
     # Configuration
     'init_llm',

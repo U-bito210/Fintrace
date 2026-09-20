@@ -1,0 +1,19 @@
+{
+  "document_id": "SYN-DRAFT-CLEAN-01",
+  "filename": "draft_01_clean_summary.pdf",
+  "title": "示例制造股份有限公司 2025 年度经营情况摘要（草稿）",
+  "note": "好草稿：全部数值与引用均正确，用于零误报基线。",
+  "as_of": "2026-05-01",
+  "references": [
+    "annual_04_restated_comparative.pdf"
+  ],
+  "uses_market_document": false,
+  "lines": [
+    "公司2025年实现营业收入110万元，同比增长10.0%。（来源：annual_04_restated_comparative.pdf#p1）",
+    "营业成本为70万元，同比下降2.78%。（来源：annual_04_restated_comparative.pdf#p1）",
+    "上述财务数据均取自公司2025年年度报告。",
+    "风险提示：行业竞争加剧、原材料价格波动。"
+  ],
+  "expected_claims": 2,
+  "expected": []
+}

@@ -1,0 +1,156 @@
+{
+  "document_id": "SYN-ANNUAL-07",
+  "filename": "annual_07_acme_constraint_break.pdf",
+  "document_type": "annual",
+  "note": "植入约束违规：小计勾稽(期末) + 正文/表格毛利率变动不一致",
+  "expect_status": "ok",
+  "expect_scan_page": null,
+  "expect_injection": false,
+  "expect_facts_degraded": false,
+  "records": [
+    {
+      "document_id": "SYN-ANNUAL-07",
+      "metric": "流动资产合计",
+      "period": null,
+      "expected_value": 6000000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 1
+    },
+    {
+      "document_id": "SYN-ANNUAL-07",
+      "metric": "流动资产合计",
+      "period": null,
+      "expected_value": 5500000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 1
+    },
+    {
+      "document_id": "SYN-ANNUAL-07",
+      "metric": "非流动资产合计",
+      "period": null,
+      "expected_value": 4000000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 1
+    },
+    {
+      "document_id": "SYN-ANNUAL-07",
+      "metric": "非流动资产合计",
+      "period": null,
+      "expected_value": 3900000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 1
+    },
+    {
+      "document_id": "SYN-ANNUAL-07",
+      "metric": "资产总计",
+      "period": null,
+      "expected_value": 11000000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 1
+    },
+    {
+      "document_id": "SYN-ANNUAL-07",
+      "metric": "资产总计",
+      "period": null,
+      "expected_value": 9400000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 1
+    },
+    {
+      "document_id": "SYN-ANNUAL-07",
+      "metric": "负债合计",
+      "period": null,
+      "expected_value": 6000000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 1
+    },
+    {
+      "document_id": "SYN-ANNUAL-07",
+      "metric": "负债合计",
+      "period": null,
+      "expected_value": 5400000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 1
+    },
+    {
+      "document_id": "SYN-ANNUAL-07",
+      "metric": "归母净资产",
+      "period": null,
+      "expected_value": 5000000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 1
+    },
+    {
+      "document_id": "SYN-ANNUAL-07",
+      "metric": "归母净资产",
+      "period": null,
+      "expected_value": 4000000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 1
+    },
+    {
+      "document_id": "SYN-ANNUAL-07",
+      "metric": "营业收入",
+      "period": null,
+      "expected_value": 20000000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 2
+    },
+    {
+      "document_id": "SYN-ANNUAL-07",
+      "metric": "营业收入",
+      "period": null,
+      "expected_value": 17000000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 2
+    },
+    {
+      "document_id": "SYN-ANNUAL-07",
+      "metric": "营业成本",
+      "period": null,
+      "expected_value": 13400000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 2
+    },
+    {
+      "document_id": "SYN-ANNUAL-07",
+      "metric": "营业成本",
+      "period": null,
+      "expected_value": 10700000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 2
+    },
+    {
+      "document_id": "SYN-ANNUAL-07",
+      "metric": "归母净利润",
+      "period": null,
+      "expected_value": 3600000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 2
+    },
+    {
+      "document_id": "SYN-ANNUAL-07",
+      "metric": "归母净利润",
+      "period": null,
+      "expected_value": 2800000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 2
+    }
+  ]
+}

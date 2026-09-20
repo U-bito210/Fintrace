@@ -7,7 +7,7 @@
 | 对应赛题 | 全链路的骨架；"事实、推论与观点区分"的直接实现 |
 | 依赖 | CARD-01（证据定位）、CARD-03（计算）、CARD-07（run 关联） |
 | 实现复杂度 | 高（约 5–6 人日） |
-| 状态 | ☐ 未开始 |
+| 状态 | 🟡 初赛版已落地（图谱/传播/校验器/两工具/50 测试全绿；§14 工作台图谱展开页已随 CARD-15 落地，见 §16） |
 | Skill 要求 | 动手前加载 financial-data-provenance |
 
 ## 1. 目标
@@ -170,14 +170,32 @@ Demo 压轴：点击备忘录任一结论 → 图谱逐层展开 → 落到 PDF 
 
 ## 15. 验收标准
 
-- [ ] 图构建/trace/三类检测全部有测试
-- [ ] fact/inference/opinion 绑定规则 validator 强制
-- [ ] 序列化导出与 UI 展开链路打通
-- [ ] 失败注入 #6（删证据→claim blocked）可现场复现
-- [ ] 全部测试离线通过
+- [x] 图构建/trace/三类检测全部有测试
+- [x] fact/inference/opinion 绑定规则 validator 强制
+- [x] 序列化导出与 UI 展开链路打通
+- [x] 失败注入 #6（删证据→claim blocked）可现场复现
+- [x] 全部测试离线通过 ← **原未勾**：CARD-09 新增 50 测试全绿，但全量离线游标仍有 **23 项既有失败** → **已于 2026-09-20 达成**（tushare 快照真实重建，全量离线 **0 failed / 1531 passed**，原 23 项阻塞解除）
+      （全部来自缺失的 Tushare 快照，非本卡引入）。判据 = **失败集合逐条不变**，已核对与基线一致。
+      ⚠️ 措辞修正：「序列化导出」已完成；**UI 展开链路（§14 工作台图谱页）未接**——见 §16 未闭合项。
 
 ## 16. 执行备注（agent 填写）
 
 | 日期 | 记录 |
 |---|---|
-|  |  |
+| 2026-09-19 | 新建 `src/cn/graph/`：`models.py`（`Claim`/`Thesis`/`DependencyRef`/`CalculationNode`/`EvidenceNode`/`TraceNode`/`DetectionReport`/`RevalidationReport`/`ClaimGraph` + 全部词表常量）、`builder.py`（`build_graph`/`build_graph_from_analysis`/`claims_from_analysis`/`evidence_index_from_ledger`/`detect_cycles`/`assert_acyclic`）、`propagation.py`（§7b 表驱动传播 + `downstream_closure`）、`revalidation.py`（`deactivate_evidence`/`revalidate`/`mark_stale`）。校验器 `src/validation/graph_validator.py`（六类规则）。工具 `TraceCnClaimTool`（`trace_cn_claim`）与 `DeactivateCnEvidenceTool`（`deactivate_cn_evidence`）接入 `build_cn_snapshot_tools`。测试 `tests/test_cn_graph.py` **50 项全绿**。 |
+| 2026-09-19 | **偏差 1（复用而非重造）**：§5 给了一张独立的 `Calculation` 模型（含 `formula_version`/`code_version`/`validation_status`）。按 MASTER_PLAN §8「不得重复造」+ 项目约定，**CARD-03 `CalculationRegistry` 仍是唯一计算器**；graph 里存的是 `CalculationNode`——由 CARD-03 记录构造的**可序列化视图**。`formula_version` = `"card03.v1"`（版本化 operand/operation **模式**，非 git commit）；`code_version` 缺省 `"unknown"`，**绝不编造 git hash**。 |
+| 2026-09-19 | **偏差 2（derived fact 的证据展开）**：§7 要求「fact 必须直接绑定 Evidence」。CARD-03 的导出型指标（`free_cash_flow` 等）`MetricResult.inputs` 里只有**计算 id**、没有直接证据 id。若照字面判定，这些合法指标会被打成 orphan。做法：`claims_from_analysis` 把该指标所用计算的**证据操作数（传递闭包）读出来**回填进 `evidence_ids`（常量跳过、不可解析的计算跳过），于是「直接绑定证据」成立且不新增任何来源。`detect_orphan_claims` 因此仍是严格版（无 `evidence_ids` 即 orphan）。 |
+| 2026-09-19 | **偏差 3（`MetricResult.inputs` 的二分）**：`inputs` 既可含 CARD-02 规范化事实 id、也可含 CARD-03 中间计算 id。构建时按**注册表实际认识谁**二分（`known_calculations`），否则一个计算 id 会伪装成悬空证据。有专门测试守此不变式。 |
+| 2026-09-19 | **偏差 4（角色覆盖语义）**：`evidence_ids`/`calculation_ids`/`derived_from` **默认 REQUIRED**（它们就是 §7 绑定规则本身）；显式 `dependency_metadata` 条目**覆盖**该目标的角色（故 inference 可把某条 fact 声明为 SUPPORTING）；同一目标重复登记时取**最严角色**（防止靠重列降级）。 |
+| 2026-09-19 | **偏差 5（stale 是外部触发）**：§7b 的 STALE 无法从图结构推出（来自更正公告/更新披露）。故新增**只追加**的 `ClaimGraph.stale_claims` 标记 + `mark_stale()`，传播读它。这是留给 **CARD-25 Temporal Revalidation** 的接缝；文档已注明。 |
+| 2026-09-19 | **偏差 6（revalidate 的 diff 基线）**：§6 要 `deactivate_evidence` 返回「revalidate 后的 impacted 列表」，即撤销后立刻读到 blocked。故 `deactivate_evidence` 内部**当即传播**；为保证随后 `revalidate()` 仍能报出真实旧→新 diff，撤销记录携带 `status_before` 快照，`revalidate` 以**最早快照**为 diff 基线（否则第二次传播会「看起来没变」）。 |
+| 2026-09-19 | **偏差 7（`deactivate_evidence` 形参）**：§6 写的是 `(run_id, evidence_id, reason)`。因 run 级图谱持久化归 CARD-12，本卡实现为 `(graph, evidence_id, reason)`——`run_id` 在 `ClaimGraph.run_id` 上。返回 impacted claim ids（下游闭包）。空 reason / 未知证据 id **抛 `GraphError`**，不静默。 |
+| 2026-09-19 | **测试**：§11 全部覆盖——指令原文算例（C18→C11→CAL12→E51(P118)/E37(P96)）构建 + trace 到两页；三类绑定规则正反例；撤销→blocked 传播；环引用拒绝；JSON 往返保真；§7b 传播表（REQUIRED 阻断 / SUPPORTING 只降覆盖度 / OPTIONAL 完全不影响 / CONFLICTED→BLOCKED / STALE→下游 stale）；Thesis 四态各一例。§12：`annual_06_equity_shares.pdf` 上 CARD-01→02→03→09 全链 **detection 零 orphan/unsupported/missing 且 validator valid**；引擎三信号（盈利质量/非经常性/应收）进图是 **inference**；失败注入 #6 现场复现。工具用例覆盖 trace/未知 claim/撤回/空 reason。 |
+| 2026-09-19 | 全量离线 **814 passed / 23 failed / 0 errors / 2 skipped**，失败集合与基线逐条一致（passed 净增 50）。冒烟 14/14 clean，`git diff --check` clean，新增文件行尾空白扫描无命中。 |
+| 2026-09-19 | **未闭合**：§14 工作台「点击结论 → 图谱逐层展开 → 落到 PDF 页」**页面未接** `workbench.py`（服务/工具层 `trace_cn_claim` 已可直接产出 `trace_tree`，含 page+bbox）；§13 Evidence Coverage / Unsupported Claims 指标未接 CARD-11（`ClaimGraph.coverage()` 已就绪）。 |
+| 2026-09-19 | **语义澄清（由 CARD-23 施工，本卡记账，无产品改动）**：一条 inference 若**只有 `dependency_metadata` 的 SUPPORTING claim 边、没有 `derived_from`**，它在 `structural_status` 阶段就是 `unsupported` —— 传播**根本没走到 §7b 的 SUPPORTING 那一行**。CARD-23 初版据此形状测试「SUPPORTING 上游失效只降覆盖、不阻断」，测到的其实是绑定规则而非 §7b（`verify_dependencies` 看边、结论是对的，但整条判决会先被 `unsupported` 拉成 BLOCKED）。代码行为经复核**正确、未改**；改的是测试构造（新增 `_supporting_lapse_graph()`：真带 REQUIRED 派生 + 另一条 SUPPORTING 边）并在测试里显式断言前提 `validation_status == supported`。**写下来是因为这个形状很容易被再写一次**：§7b 的 SUPPORTING 行只在 claim 自身**结构上成立**时才有观察意义。 |
+| 2026-09-19 | **下游消费者登记**：CARD-23 Financial Claim Passport 是本卡 §7b 的第一个外部消费者 —— 它**不读** `claim.validation_status` 存储值，而是每轮 `verify_claim()` 用 `claim_status()`/`upstream_state()` **重算**，并与护照里记下的快照比对（`verify_validator_state` 的 `drifted` / `validate_proof` 的一致性规则）。含义有两条：① 本卡的传播结果必须是**纯函数**（同图同结果），任何缓存写回都会让护照的重算与原值打架；② 护照是**只读消费者**，不新增、不修改本卡任何状态。CARD-23 已用 `test_withdrawn_evidence_blocks_the_claim_through_the_engine` 与 `test_card09_claim_traces_and_verifies_from_the_same_id` 守这两条。 |
+| 2026-09-19 | **语义澄清（由 CARD-24 施工，本卡记账，无产品改动）**：① **本卡传播表里没有 AND 门** —— `claim_status` 遇到**任一** REQUIRED 上游不可用即返回 BLOCKED，`thesis_status` 对 REQUIRED 成员同样是**任一倒下即倒**（合取项）。沿依赖边往上看，整棵树全是 OR 门，因此**不存在冗余路径**：任何单个位于必需祖先链上的节点失效都会一路传到 Thesis。CARD-24 §7B 的「最小割集」据此**恒为单元素集**（卡例 {E01,E02,C02} 成立但非极小），这是本卡 fail-closed 设计的必然推论，不是 CARD-24 的算法选择。CARD-24 已把这条写成不变式并用**完整性规则**（割集必须恰好等于"单独击穿集"，真值由本卡传播现场算出）守住。② **假设边永不阻断**：`upstream_state` 对 `TARGET_ASSUMPTION` 是 `UPSTREAM_OK if target_id else UPSTREAM_MISSING`，而 `resolve_targets` 只产出非空 id，故假设边对判决**恒为 OK**；同时 `detect_missing_*` 也不检查假设。后果是**解析不出的假设 id 会被静默判为 OK**——本卡没有假设索引，判不了"这份假设是否登记过"，所以这不是本卡能独立修的缺陷。CARD-24 因此把假设排除出割集，改由 `identify_fragile_assumptions` 作为"逻辑站不住"报告（不给 CARD-08 注册表时一律记 `unverified`）。若将来要把"未登记的 REQUIRED 假设"判成阻断，需先在本卡引入假设索引。③ **计算节点的输入证据在传播上不承重**：`CalculationNode.validation_status` 由 CARD-03 注册表在**构图时**定下，之后撤掉某个输入证据**不会**改变它，所以"计算 → 输入证据"这条边对 `upstream_state` 无影响。CARD-24 据此**不下钻计算节点**（否则会产出"纸面上能割、实际割不动"的假割集）。 |
+| 2026-09-19 | **语义澄清（由 CARD-26 施工，本卡记账，无产品改动）**：CARD-26 把本卡当作**对抗变异的被测目标之一**（`GraphValidatorTarget`），读数位置的选择本身就是一条契约 —— 它读**节点上的 `validation_status`**，**不是**图报告对象上的 `.valid`：后者是整份图的汇总判决，对"**这一条** claim 有没有被拦下"没有分辨率，拿它当检测结果会让所有样本看起来同生共死。另一条同样重要的约束是**引用 → 支撑只映射 fact 的 `evidence_ids`，绝不映射 `derived_from`** —— `derived_from` 是 claim→claim 的推论边，拿它当"支撑"会让**每一条推论看起来都被支持**，于是引用类篡改在图上恒判通过（一个永远不报错的检测器）。实测该目标独立贡献 32 次命中，通路是活的。另：CARD-26 的引用类样本用的是 `annual_04_…pdf#p1` 这种**带 `#pN` 的引用串**，与本卡 `source_references` 的既有格式一致；比对文件名时须先剥掉 `#pN`（CARD-26 侧 `_reference_filename` 负责）。 |
+| 2026-09-20 | **§14 工作台图谱展开页已落地（由 CARD-15 施工，本卡记账）**：新增「主张-证据图谱」页（`workbench/demo/graph.py`）。四层逐层展开：结论 → 依赖的计算 → 输入证据 → 原始页码。三个读数与本卡的传播语义保持一致：① claim 的 `propagated_status` 由 `claim_status()` **现场重算**，不是读存储值；② `reasons` 全列（为什么 BLOCKED / 哪条上游不可用）；③ 证据节点带 `page` 才标 `jumpable`，定位不到就显示"不可定位"而非猜页码。跳转所需的 `{id: {document_id, page}}` 索引由页面从图节点构造（规范化事实 `nf_…` id 不在 CARD-01 原始 fact 表里，只查注册表会查不到）。 |
+| 2026-09-20 | **跨卡：tushare 快照真实重建**。用户填好 `.env` 的 `TUSHARE_TOKEN` 后，真实重建 9 个 `_tushare_v1` 快照（4 个标的 + 5 个白酒同业）→ 全量离线 **0 failed / 1531 passed / 0 skipped**。§15「全部测试离线通过」由 ☐ 转 ☑ —— 该条此前被 23 项快照缺失阻塞，与本卡代码无关。重建流程及三个坑（同业快照要一起建、bars 窗口不得越过研究时点、688836 上市日）见 `MEMORY.md`「快照重建」段。 |

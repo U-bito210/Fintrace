@@ -1,0 +1,11 @@
+{
+  "document_id": "SYN-DRAFT-03",
+  "filename": "report_draft_03_industry.pdf",
+  "document_type": "report_draft",
+  "note": "研报草稿：行业观察",
+  "expect_status": "ok",
+  "expect_scan_page": null,
+  "expect_injection": false,
+  "expect_facts_degraded": false,
+  "records": []
+}

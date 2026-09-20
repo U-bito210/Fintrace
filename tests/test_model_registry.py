@@ -8,6 +8,7 @@ Uses normal package imports (anthropic SDK is installed).
 import os
 import sys
 from dataclasses import FrozenInstanceError
+from types import SimpleNamespace
 
 import pytest
 
@@ -21,9 +22,11 @@ if _SRC not in sys.path:
 from llms.model_registry import (
     MODEL_REGISTRY,
     ModelInfo,
+    cost_currency,
     get_model_info,
     list_models,
     list_available_models,
+    serves_registered_pricing,
 )
 from llms.config import LLMProvider, init_llm, get_llm
 
@@ -113,7 +116,7 @@ def test_all_prices_are_non_negative():
 # ============================================================================
 # 7. 所有 provider 和 api_style 取值合法
 # ============================================================================
-_VALID_PROVIDERS = {"openai", "anthropic", "deepseek"}
+_VALID_PROVIDERS = {"openai", "anthropic", "deepseek", "dashscope"}
 _VALID_API_STYLES = {"openai", "anthropic"}
 
 
@@ -336,9 +339,9 @@ def test_model_info_is_frozen():
 # Extra: list_models includes all expected models
 # ============================================================================
 def test_list_models_contains_all_expected():
-    """All 5 currently supported models are in the list."""
+    """All currently supported models are in the list."""
     models = list_models()
-    expected = {"gpt-4o-mini", "gpt-5.4-mini", "claude-3.5-sonnet", "claude-3.5-haiku", "claude-3-opus", "deepseek-v4-flash", "deepseek-v4-pro"}
+    expected = {"gpt-4o-mini", "gpt-5.4-mini", "claude-3.5-sonnet", "claude-3.5-haiku", "claude-3-opus", "deepseek-v4-flash", "deepseek-v4-pro", "qwen3-max", "qwen-plus", "qwen-flash"}
     assert set(models) == expected
 
 
@@ -350,6 +353,7 @@ def test_model_info_accessible(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-ds-test")
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "sk-qwen-test")
 
     for model_name in MODEL_REGISTRY:
         provider = init_llm(model_name)
@@ -1140,3 +1144,324 @@ def test_non_deepseek_provider_no_extra_body(monkeypatch):
         "DeepSeek provider must receive extra_body"
     )
     assert "reasoning_effort" not in create_kwargs
+
+
+# ============================================================================
+# Cost unit of account — a price without a unit is not a price
+# ============================================================================
+
+def test_every_registered_model_declares_its_cost_unit():
+    """The invariant that keeps a cost total from becoming fiction.
+
+    Either a model states the currency its numbers are denominated in, or it
+    carries no numbers at all.  ``0.0`` with no unit is the one combination that
+    lets "unknown" be summed as if it were money.
+    """
+    for name, info in MODEL_REGISTRY.items():
+        has_rate = bool(
+            info.prompt_price_per_1m_usd
+            or info.completion_price_per_1m_usd
+            or info.cache_hit_price_per_1m_usd
+        )
+        if info.price_currency is None:
+            assert not has_rate, f"{name}: an unpriced model must not carry a rate"
+            assert info.price_source is None, f"{name}: an unpriced model has no source to cite"
+        else:
+            assert info.priced is True, name
+            assert info.price_source, f"{name}: a priced model must cite where the price came from"
+
+
+def test_priced_models_are_quoted_in_usd():
+    """Every quotable price in this ledger is USD today.
+
+    Registered so that introducing a second currency is a deliberate act that
+    has to change this test, rather than a silent change of meaning for every
+    ``total_cost_usd`` ever printed.
+    """
+    for name, info in MODEL_REGISTRY.items():
+        if info.priced:
+            assert info.price_currency == "USD", f"{name}: {info.price_currency}"
+
+
+def test_dashscope_models_are_callable_but_unpriced():
+    """百炼 models: usable, and honestly un-costed.
+
+    百炼 bills in CNY while this ledger's unit is USD, and the official Alibaba
+    pages do not agree on the same model's CNY list price.  A converted or
+    "reference" number would be laundered into the cost column as fact, so the
+    model is registered with no price at all.
+    """
+    for name in ("qwen3-max", "qwen-plus", "qwen-flash"):
+        info = get_model_info(name)
+        assert info.provider == "dashscope", name
+        assert info.api_style == "openai", name
+        assert info.api_model_id == name, name
+        assert info.api_key_env == "DASHSCOPE_API_KEY", name
+        assert info.base_url_env == "DASHSCOPE_BASE_URL", name
+        assert info.default_base_url == "https://dashscope.aliyuncs.com/compatible-mode/v1", name
+        assert info.priced is False, name
+        assert cost_currency(name) is None, name
+
+
+def test_unpriced_model_cost_currency_is_unknown_not_usd(monkeypatch):
+    monkeypatch.delenv("DASHSCOPE_BASE_URL", raising=False)
+    assert cost_currency("qwen-plus") is None
+
+
+def test_resold_model_id_voids_the_registered_price(monkeypatch):
+    """The same model id can be resold on other terms, in another currency.
+
+    DeepSeek served through 百炼 bills in CNY, so the registered USD rate no
+    longer describes what the caller is charged — and a budget ceiling built on
+    it would fail open, which is worse than having no ceiling.
+    """
+    monkeypatch.setenv("DEEPSEEK_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+    assert serves_registered_pricing("deepseek-v4-flash") is False
+    assert cost_currency("deepseek-v4-flash") is None
+
+
+def test_explicitly_stating_the_official_endpoint_keeps_the_price(monkeypatch):
+    """Spelling out the vendor's own URL is not a resale."""
+    monkeypatch.setenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+    assert serves_registered_pricing("deepseek-v4-flash") is True
+    assert cost_currency("deepseek-v4-flash") == "USD"
+
+
+def test_vendors_without_a_base_url_are_unaffected(monkeypatch):
+    """OpenAI and Anthropic keep the SDK default → nothing is overridden."""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    assert serves_registered_pricing("gpt-4o-mini") is True
+    assert cost_currency("gpt-4o-mini") == "USD"
+    assert cost_currency("claude-3.5-sonnet") == "USD"
+
+
+def test_every_registered_provider_is_routable():
+    """No model may be registrable and unroutable.
+
+    ``AsyncLLMProvider`` routes on the declared wire protocol, so an entry whose
+    provider is neither the native client nor an OpenAI-wire vendor would raise
+    at call time.  Fail at the data layer instead.
+    """
+    for name, info in MODEL_REGISTRY.items():
+        assert info.provider in ("openai", "anthropic") or info.api_style == "openai", (
+            f"{name}: provider '{info.provider}' with api_style '{info.api_style}' has no route"
+        )
+
+
+# ============================================================================
+# DashScope — sync client (Mock — zero real API calls)
+# ============================================================================
+
+def test_qwen_client_uses_dashscope_key_and_endpoint(monkeypatch):
+    """The DashScope client is built from DASHSCOPE_API_KEY and the compatible-mode URL."""
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "sk-qwen-mock")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai-should-not-be-used")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-deepseek-should-not-be-used")
+    monkeypatch.delenv("DASHSCOPE_BASE_URL", raising=False)
+
+    captured_kwargs = {}
+    create_calls = []
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            create_calls.append(kwargs)
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content="mock"))],
+                usage=SimpleNamespace(prompt_tokens=10, completion_tokens=20, total_tokens=30),
+            )
+
+    class FakeChat:
+        def __init__(self):
+            self.completions = FakeCompletions()
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            captured_kwargs.update(kwargs)
+            self.chat = FakeChat()
+
+    import llms.openai_compatible as oc_module
+    monkeypatch.setattr(oc_module, "OpenAI", FakeOpenAI)
+
+    from llms.openai_compatible import qwen_plus
+
+    text, _cost = qwen_plus([{"role": "user", "content": "Hello"}])
+
+    assert text == "mock"
+    assert captured_kwargs["api_key"] == "sk-qwen-mock"
+    assert captured_kwargs["base_url"] == "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    assert create_calls[0]["model"] == "qwen-plus"
+    # CRITICAL: ``thinking`` is DeepSeek's field.  A vendor that does not know it
+    # answers with a 400, so it must not be sent to 百炼.
+    assert "extra_body" not in create_calls[0]
+    assert "reasoning_effort" not in create_calls[0]
+
+
+def test_qwen_client_missing_key_raises(monkeypatch):
+    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+    from llms.openai_compatible import qwen3_max
+    with pytest.raises(ValueError, match="DASHSCOPE_API_KEY"):
+        qwen3_max([{"role": "user", "content": "Test"}])
+
+
+def test_init_llm_with_dashscope_key(monkeypatch):
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "sk-qwen-test-mock")
+    provider = init_llm("qwen3-max")
+    assert provider.current_model == "qwen3-max"
+    assert provider.model_info.provider == "dashscope"
+    assert provider.model_info.api_style == "openai"
+    assert callable(provider.current_llm)
+
+
+def test_qwen_models_are_in_sync_functions():
+    from llms.config import _SYNC_MODEL_FUNCTIONS
+    for name in ("qwen3-max", "qwen-plus", "qwen-flash"):
+        assert callable(_SYNC_MODEL_FUNCTIONS[name]), name
+
+
+def test_qwen_listed_as_available_with_dashscope_key(monkeypatch):
+    for info in MODEL_REGISTRY.values():
+        monkeypatch.delenv(info.api_key_env, raising=False)
+
+    assert list_available_models() == []
+
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "sk-qwen-test")
+    available = list_available_models()
+    assert "qwen3-max" in available
+    assert "qwen-plus" in available
+    assert "deepseek-v4-flash" not in available
+
+
+# ============================================================================
+# DashScope — async path (the one the real Agent evaluation uses)
+# ============================================================================
+
+def _fake_async_openai(captured_client, create_kwargs, content="空"):
+    """A stand-in AsyncOpenAI that records how it was built and called."""
+
+    class FakeAsyncOpenAI:
+        def __init__(self, **kwargs):
+            captured_client.update(kwargs)
+            self.chat = SimpleNamespace(
+                completions=SimpleNamespace(create=self._create)
+            )
+
+        async def _create(self, **kwargs):
+            create_kwargs.update(kwargs)
+            return SimpleNamespace(
+                choices=[SimpleNamespace(
+                    message=SimpleNamespace(content=content, tool_calls=[])
+                )],
+                usage=SimpleNamespace(prompt_tokens=3, completion_tokens=4, total_tokens=7),
+            )
+
+    return FakeAsyncOpenAI
+
+
+@pytest.mark.asyncio
+async def test_async_routes_dashscope_by_wire_protocol(monkeypatch):
+    """A new OpenAI-wire vendor needs no routing code — only a registry entry.
+
+    DashScope is picked up because it declares ``api_style="openai"``, builds its
+    own client from DASHSCOPE_API_KEY, and receives no DeepSeek-only ``extra_body``.
+    """
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "sk-qwen-async")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-deepseek-async")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai-async")
+    monkeypatch.setenv("DEEPSEEK_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+    monkeypatch.delenv("DASHSCOPE_BASE_URL", raising=False)
+
+    import openai as openai_module
+    import llms.async_client as ac
+
+    monkeypatch.setattr(ac, "_async_compatible", None, raising=False)
+    monkeypatch.setattr(ac, "_async_compatible_model", None, raising=False)
+
+    captured_client, create_kwargs = {}, {}
+    monkeypatch.setattr(
+        openai_module, "AsyncOpenAI", _fake_async_openai(captured_client, create_kwargs)
+    )
+
+    provider = ac.AsyncLLMProvider("qwen-plus")
+    response = await provider.call_with_tools(
+        [{"role": "user", "content": "hi"}], tools=[]
+    )
+
+    assert response.text == "空"
+    assert captured_client["api_key"] == "sk-qwen-async"
+    assert captured_client["base_url"] == "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    assert create_kwargs["model"] == "qwen-plus"
+    assert "extra_body" not in create_kwargs
+
+
+@pytest.mark.asyncio
+async def test_async_compatible_path_still_disables_deepseek_thinking(monkeypatch):
+    """Generalising the path must not quietly drop DeepSeek's thinking switch."""
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-deepseek-async-only")
+    monkeypatch.setenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+
+    import openai as openai_module
+    import llms.async_client as ac
+
+    monkeypatch.setattr(ac, "_async_compatible", None, raising=False)
+    monkeypatch.setattr(ac, "_async_compatible_model", None, raising=False)
+
+    captured_client, create_kwargs = {}, {}
+    monkeypatch.setattr(
+        openai_module, "AsyncOpenAI", _fake_async_openai(captured_client, create_kwargs)
+    )
+
+    provider = ac.AsyncLLMProvider("deepseek-v4-flash")
+    await provider.call_with_tools([{"role": "user", "content": "hi"}], tools=[])
+
+    assert captured_client["api_key"] == "sk-deepseek-async-only"
+    assert captured_client["base_url"] == "https://api.deepseek.com"
+    assert create_kwargs["extra_body"] == {"thinking": {"type": "disabled"}}
+
+
+@pytest.mark.asyncio
+async def test_async_resold_deepseek_client_follows_the_override(monkeypatch):
+    """Pointing DeepSeek at 百炼 must actually move the traffic there."""
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-deepseek-via-bailian")
+    monkeypatch.setenv("DEEPSEEK_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+
+    import openai as openai_module
+    import llms.async_client as ac
+
+    monkeypatch.setattr(ac, "_async_compatible", None, raising=False)
+    monkeypatch.setattr(ac, "_async_compatible_model", None, raising=False)
+
+    captured_client, create_kwargs = {}, {}
+    monkeypatch.setattr(
+        openai_module, "AsyncOpenAI", _fake_async_openai(captured_client, create_kwargs)
+    )
+
+    provider = ac.AsyncLLMProvider("deepseek-v4-flash")
+    await provider.call_with_tools([{"role": "user", "content": "hi"}], tools=[])
+
+    assert captured_client["base_url"] == "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    # ...and the registered USD price no longer applies to this run.
+    assert cost_currency("deepseek-v4-flash") is None
+
+
+# ============================================================================
+# Logging — "unknown" must not print as "$0.000000"
+# ============================================================================
+
+def test_logger_states_unknown_cost_instead_of_zero(tmp_path, monkeypatch):
+    from logger import StockAnalystLogger
+
+    logger = StockAnalystLogger("COST-LABEL-TEST", tmp_path)
+    messages = []
+    # monkeypatch (not bare assignment): logging.getLogger caches by name, so a
+    # leaked patch would follow this logger into every other test using it.
+    monkeypatch.setattr(logger.logger, "info", messages.append, raising=False)
+
+    logger.llm_call("qwen-plus", 0.0, 12, currency=None)
+    assert "未定价" in messages[-1]
+    assert "$" not in messages[-1]
+
+    logger.llm_call("gpt-4o-mini", 0.001234, 12, currency="USD")
+    assert "$0.001234" in messages[-1]
+
+    logger.llm_call("qwen-plus", 0.5, 12, currency="CNY")
+    assert "¥0.500000" in messages[-1]

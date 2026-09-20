@@ -8,6 +8,13 @@ Run from the project root:
     .venv\\Scripts\\python.exe scripts\\smoke_workbench.py
 
 Exit code is 0 when every page renders cleanly, 1 otherwise.
+
+**Page list is discovered, not duplicated.** The old version kept a hand-written
+``PAGES`` list with a "must stay in sync with NAVIGATION" comment — a second
+source of truth that silently rots the moment a page is added (which is exactly
+what CARD-15 does: +8 pages). The list now comes from the sidebar radio's own
+options, i.e. from the running app. A separate assertion pins the CARD-15 labels
+so a failed demo import cannot quietly shrink the tested surface.
 """
 
 from __future__ import annotations
@@ -19,22 +26,23 @@ from streamlit.testing.v1 import AppTest
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKBENCH = str(ROOT / "workbench.py")
+#: The workbench is executed as a script by AppTest, but importing the demo page
+#: package directly needs the repo root importable.
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-# Must stay in sync with NAVIGATION in workbench.py
-PAGES = [
-    "案例演示",
-    "AI Agent 研究",
-    "研究总览",
-    "市场与行情",
-    "财务表现",
-    "同行估值",
-    "证据与校验",
-    "Agent 执行轨迹",
-    "研究报告",
-    "研究任务",
-    "评测与消融",
-    "每日复盘",
-]
+#: CARD-15 §5 (as corrected against DEMO_FLOW.md v3.2). Their absence means the
+#: demo surface shrank, which must fail loudly rather than reduce the page count.
+EXPECTED_DEMO_PAGES = (
+    "研报纠错",
+    "ACME 约束",
+    "结论护照",
+    "主张-证据图谱",
+    "逻辑脆弱性",
+    "时间重验证",
+    "审计回放",
+    "对抗注入",
+)
 
 
 def _check_snapshots() -> None:
@@ -51,14 +59,37 @@ def _check_snapshots() -> None:
           f"(pages still render with 未覆盖 placeholders if 0)")
 
 
+def discover_pages() -> list[str]:
+    """Read the page labels off the app's own sidebar radio."""
+    at = AppTest.from_file(WORKBENCH, default_timeout=120)
+    at.run()
+    for radio in at.radio:
+        if radio.key == "workbench_page":
+            return [str(item) for item in radio.options]
+    return []
+
+
 def main() -> int:
     print(f"Smoke test: {WORKBENCH}\n")
     _check_snapshots()
     print()
 
+    pages = discover_pages()
+    if not pages:
+        print("[FAIL] 未能从工作台读到页面清单（侧栏 radio 不存在）")
+        return 1
+
+    missing = [label for label in EXPECTED_DEMO_PAGES if label not in pages]
+    if missing:
+        print(f"[FAIL] CARD-15 Demo 页面缺失：{', '.join(missing)}")
+        print("       （挂载失败仍会渲染，但被测页面变少 —— 必须显式失败。）")
+        return 1
+    print(f"  · 页面 {len(pages)} 个（含 CARD-15 Demo {len(EXPECTED_DEMO_PAGES)} 个）")
+    print()
+
     fails: list[tuple[str, str]] = []
-    for page in PAGES:
-        at = AppTest.from_file(WORKBENCH, default_timeout=30)
+    for page in pages:
+        at = AppTest.from_file(WORKBENCH, default_timeout=120)
         at.session_state["workbench_page"] = page
         at.run()
         if at.exception:
@@ -69,7 +100,7 @@ def main() -> int:
         else:
             print(f"[ OK ] {page}")
 
-    total = len(PAGES)
+    total = len(pages)
     passed = total - len(fails)
     print(f"\n{passed}/{total} pages clean")
     if fails:

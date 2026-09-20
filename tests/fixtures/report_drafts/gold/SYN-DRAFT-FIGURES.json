@@ -1,0 +1,57 @@
+{
+  "document_id": "SYN-DRAFT-FIGURES",
+  "filename": "draft_03_planted_figures.pdf",
+  "title": "示例制造股份有限公司 2025 年度业绩点评（草稿，含植入错误）",
+  "note": "植入 数值／单位／期间／重述／复算 五类错误。第二页用于验证 finding 的草稿页码。",
+  "as_of": "2026-05-01",
+  "references": [
+    "annual_04_restated_comparative.pdf"
+  ],
+  "uses_market_document": false,
+  "lines": [
+    "公司2025年实现营业收入150万元。（来源：annual_04_restated_comparative.pdf#p1）",
+    "公司2025年营业成本为700,000万元。（来源：annual_04_restated_comparative.pdf#p1）",
+    "公司2024年营业收入为110万元。（来源：annual_04_restated_comparative.pdf#p1）",
+    "公司2025年营业收入为90万元。（来源：annual_04_restated_comparative.pdf#p3）",
+    "公司2025年营业收入同比增长25%。（来源：annual_04_restated_comparative.pdf#p1）",
+    "本页结论仅基于公开披露，不构成投资建议。"
+  ],
+  "expected_claims": 5,
+  "expected": [
+    {
+      "check_type": "numeric_error",
+      "claim_index": 0,
+      "severity": "error",
+      "expected_contains": "1,100,000元",
+      "note": "草稿写 150 万元，披露 110 万元。"
+    },
+    {
+      "check_type": "unit_error",
+      "claim_index": 1,
+      "severity": "error",
+      "expected_contains": "700,000元",
+      "note": "草稿写 700,000 万元，量级差 10^4；数字对、单位错，不得判 numeric_error。"
+    },
+    {
+      "check_type": "period_error",
+      "claim_index": 2,
+      "severity": "error",
+      "expected_contains": "2025FY",
+      "note": "2024 年列的数值被写成 2024 年，但 110 万元是 2025FY 的披露。"
+    },
+    {
+      "check_type": "revision_superseded",
+      "claim_index": 3,
+      "severity": "error",
+      "expected_contains": "1,000,000元",
+      "note": "引用了第 3 页「调整前」列的 90 万元，已被同表「调整后」列取代。"
+    },
+    {
+      "check_type": "calculation_error",
+      "claim_index": 4,
+      "severity": "error",
+      "expected_contains": "+10.00%",
+      "note": "草稿称同比 +25%，按披露复算为 +10%。"
+    }
+  ]
+}

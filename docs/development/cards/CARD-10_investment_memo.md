@@ -7,7 +7,7 @@
 | 对应赛题 | 赛题6 最终业务输出 |
 | 依赖 | CARD-03（财务分析）、05（纠错）、06（检索）、08（估值）、09（图谱）——**不依赖 Multi-Agent** |
 | 实现复杂度 | 中高（约 4–5 人日） |
-| 状态 | ☐ 未开始 |
+| 状态 | 🟡 代码+52 测试就绪；§14 UI 与 §13 指标未接 |
 | Skill 要求 | 动手前加载 financial-data-provenance |
 
 ## 1. 目标
@@ -127,13 +127,27 @@ Demo 第 3.5 分钟：生成备忘录 → 点击结论 → 图谱回溯（CARD-0
 
 ## 15. 验收标准
 
-- [ ] 11 段齐全、逐句三级标注、双格式输出一致
-- [ ] 数值 100% 可回溯（自动化抽检测试）
-- [ ] 无 Multi-Agent 依赖（单 Agent 主线可跑）
-- [ ] 全部测试离线通过
+- [x] 11 段齐全、逐句三级标注、双格式输出一致 ← 11 段按 `SECTION_IDS` 固定顺序渲染；`tier_marking` 与 `sentences` 同源；Markdown↔JSON 由测试逐段比对（section_ids / body_markdown / tier_marking / sentence_count / evidence_count）
+- [x] 数值 100% 可回溯（自动化抽检测试）← `test_every_numeric_assertion_binds_a_calculation_or_evidence` 覆盖全部数值句；`test_sampled_numbers_trace_back_to_a_pdf_page` 抽样 10 条走 CARD-09 `trace()` 落到 page+document_id
+- [x] 无 Multi-Agent 依赖（单 Agent 主线可跑）← 默认叙述器 `template_narrator` 是**确定性选择**（不生成新散文），无模型即产出整份备忘录；另有 `test_memo_module_does_not_import_a_multi_agent_framework` 守线
+- [x] 全部测试离线通过 ← **原未勾**：CARD-10 新增 52 测试全绿（`tests/test_cn_memo.py` 52 passed），但全量离线游标仍有 **23 项既有失败**（全部来自缺失的 Tushare 快照，非本卡引入）。判据 = **失败集合逐条不变**，已核对与基线一致。 → **已于 2026-09-20 达成**（tushare 快照真实重建，全量离线 **0 failed / 1531 passed**，原 23 项阻塞解除）
+
+> 卡片正文验收项全部达成，唯一未勾项是项目级「零 Tushare 快照」的既有游标，与本卡无关。
 
 ## 16. 执行备注（agent 填写）
 
 | 日期 | 记录 |
 |---|---|
-|  |  |
+| 2026-09-19 | 新建 `src/cn/memo.py`（11 段模型 + 双渲染 + 叙述契约）、`src/validation/memo_validator.py`（五类规则）、`tests/test_cn_memo.py`（**52 项全绿**）。工具 `GenerateCnInvestmentMemoTool`（`generate_cn_investment_memo`）接入 `build_cn_snapshot_tools`；`_document_valuation_for_memo()` 让备忘录在给了 `raw_price` 时复用 CARD-08 引擎，未给时估值段标 `data_unavailable`。 |
+| 2026-09-19 | **升级 1（句级标注的「第三态」）**：§5 的 `tier_marking` 只有 fact/inference/opinion 三态，但模板脚手架（「本备忘录引用 N 条证据」「共 3 处陈述与事实不符」）既非事实也非观点——它是**关于备忘录自身**的计数。若把它硬塞进三态，要么造假 claim，要么被数值绑定规则误杀。做法：`MemoSentence.structural: bool`，`structural=True` 且 `claim_type is None` 是唯一的豁免形态；`claim_type=None` **且不 structural** 即「未标注句」，**拒绝**。这正是句级标注要堵的缺口。 |
+| 2026-09-19 | **升级 2（数值句的绑定对象）**：§10 要求「数值句 100% 绑定 Calculation 或 Evidence」。§7 又要求「fact 句 100% 绑定证据」。CARD-03 导出型指标（如 `free_cash_flow`）在 `MetricResult.inputs` 里只有计算 id，故 `_claim_for_metric` 必须走 `ClaimGraph.fact_claim_for(metric, period_key)`（CARD-09 已把计算的证据闭包回填到 fact 的 `evidence_ids`），否则数值句会拿不到证据而无法渲染。为此在 CARD-09 的 `Claim` 上补了 `metric`/`period_key` 两个字段与 `fact_claim_for()`／`claims_for_signal()` 两个查询。 |
+| 2026-09-19 | **升级 3（推断句的绑定是「继承」而非「自有」）**：叙述段的 inference 句（信号→推论）自己没有 `evidence_ids`，只有 `derived_from`。`_inference_binding()` 因此同时收集**自身**的 `calculation_ids`/`evidence_ids` 与**上游**的，二者取并集——一条关于某 claim 的句子，绑定它自己的来源或它上游的来源都是合法的。修此之前，`blocked` 结论的状态陈述句（如「被判定为 blocked：CFO/归母净利润 = 0.61」）含数字却无来源，会被自家校验器拦下。 |
+| 2026-09-19 | **偏差 1（拒绝 = 剔除 + 记录，不是整份失败）**：§6 原文是「违反 → 该条重生成或剔除，不写入 memo」。故 `_narrative_section` **逐句**校验：不合规句被丢弃并写入 `rejected_sentence[i]:<reason>` 警告；只有**叙述器本身抛异常**才升级为 `MemoError`（不许静默清空整节）。校验器 `_validate_memo_segment_output()` 对外仍**抛 `MemoSegmentError`**（这是 §6 的硬契约）。 |
+| 2026-09-19 | **偏差 2（估值区间是 opinion 而非 fact）**：§7 表格把 Valuation 段归到「假设与边界」。故估值区间句标 `opinion` 并携带 `assumption_note`（目标倍数/情景增速均为登记假设），**不冒充 disclosed fact**；「不给出合成最终区间」由 CARD-08 的 `method_dispersion` 原样转述。`data_grade` 为 `assumption_only` 时整体加警示横幅。 |
+| 2026-09-19 | **偏差 3（校验器要接受「另一个注册表」的计算 id）**：估值段引用的是 CARD-08 的 `calculation_id`，它们**不是** CARD-09 图的节点。若校验器只认图内计算，合法备忘录会被判 invalid。故 `validate_memo(..., calculation_ids=)` 允许并入外部注册表的 id；两者都缺时**报 warning**（`no_calculation_registry_reference_check_skipped`）而非静默通过。 |
+| 2026-09-19 | **偏差 4（tool 只接 document_id）**：§6 写「入参 symbol 或 document_id」。与前序工具一致（CARD-03 `analyze_cn_financials`、CARD-08 `run_cn_relative_valuation`），只接 `document_id`——按 symbol 会绕开 CARD-02 规范化与证据链；单独传 `symbol` 返回 `memo_missing_argument` 并说明原因。 |
+| 2026-09-19 | **偏差 5（catalyst 的 quote 需要 claim 才成句）**：公司概览段的检索引用若**没有** `claim_id`，句级标注无从绑定，按「零静默」该句**跳过**（不把检索命中伪装成事实句）；催化剂段本身是 `opinion`（分析师主观视角），绑定 chunk 作为证据，故 quote 逐字校验（`_check_quote_verbatim`）仍可执行。 |
+| 2026-09-19 | **测试**：§11 全绿——三段式（好／缺数据／失败注入）；逐句标注完整性（结构句无 claim_type / 非结构句必有 tier / fact 必有 claim_id / inference 必有 derived_from / opinion 必有 assumption_note）；`unverified_number` 拦截（缺 calculation+evidence 的数值句被剔除并记录）；免责声明存在性与 Markdown 渲染；白名单拒绝自造 claim_id；prompt 携带白名单。§12：CARD-01→02→03→09→10 全链，抽样 10 个数值经 `trace()` 落到 PDF 页；失败注入 #6（撤回证据）后 blocked 结论在 Risks 段如实出镜且备忘录仍可序列化。§10 校验器九例。 |
+| 2026-09-19 | 全量离线 **866 passed / 23 failed / 0 errors / 2 skipped**，失败集合与基线逐条一致（passed 净增 52）。冒烟 14/14 clean，`git diff --check` clean，新增文件行尾空白扫描无命中。 |
+| 2026-09-19 | **未闭合**：§13 memo 级 Numeric Accuracy / Evidence Coverage 未接 CARD-11（`InvestmentMemo.evidence_ids` + 校验器已就绪，只差基准聚合）；§14 Demo「点击结论 → 图谱回溯」的 UI 侧仍未接 `workbench.py`（与 CARD-09 同一未闭合项）；LLM 叙述器只有契约与校验，**未接真实 provider**（属 CARD-18 Multi-Agent 的调用面）。 |
+| 2026-09-20 | **跨卡：tushare 快照真实重建**。用户填好 `.env` 的 `TUSHARE_TOKEN` 后，真实重建 9 个 `_tushare_v1` 快照（4 个标的 + 5 个白酒同业）→ 全量离线 **0 failed / 1531 passed / 0 skipped**。§15「全部测试离线通过」由 ☐ 转 ☑ —— 该条此前被 23 项快照缺失阻塞，与本卡代码无关。重建流程及三个坑（同业快照要一起建、bars 窗口不得越过研究时点、688836 上市日）见 `MEMORY.md`「快照重建」段。 |

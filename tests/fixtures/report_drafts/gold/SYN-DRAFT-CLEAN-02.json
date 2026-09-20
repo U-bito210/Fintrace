@@ -1,0 +1,19 @@
+{
+  "document_id": "SYN-DRAFT-CLEAN-02",
+  "filename": "draft_02_clean_two_column.pdf",
+  "title": "示例股份有限公司 2025 年度主要财务数据（草稿）",
+  "note": "好草稿，但引用了双列表的两列（本报告期 1,234,567 与 年初至本报告期末 2,000,000），两列都规范化到同一 (metric, period)。把「同期间多列」误判成造假的实现会在这里误报。",
+  "as_of": "2026-05-01",
+  "references": [
+    "annual_01_profit_continued.pdf"
+  ],
+  "uses_market_document": false,
+  "lines": [
+    "公司2025年营业收入为123.46万元。（来源：annual_01_profit_continued.pdf#p1）",
+    "其中年初至报告期末累计营业收入为200万元。（来源：annual_01_profit_continued.pdf#p1）",
+    "归母净利润为33万元。（来源：annual_01_profit_continued.pdf#p2）",
+    "以上数据未经审计，仅供内部讨论。"
+  ],
+  "expected_claims": 3,
+  "expected": []
+}

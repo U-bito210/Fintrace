@@ -13,7 +13,7 @@ from src.cn.benchmark import (
 )
 from src.cn.research import ResearchState
 
-CASES = Path(__file__).parents[1] / "data" / "benchmarks" / "cn_agent_v1.json"
+CASES = Path(__file__).parent / "fixtures" / "cn" / "benchmarks" / "cn_agent_v1.json"
 
 
 # ---------------------------------------------------------------------------

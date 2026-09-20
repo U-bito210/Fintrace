@@ -1,0 +1,84 @@
+{
+  "document_id": "SYN-ANNUAL-03",
+  "filename": "annual_03_cashflow_with_scan.pdf",
+  "document_type": "annual",
+  "note": "多页 + 扫描页降级",
+  "expect_status": "partial",
+  "expect_scan_page": 3,
+  "expect_injection": false,
+  "expect_facts_degraded": false,
+  "records": [
+    {
+      "document_id": "SYN-ANNUAL-03",
+      "metric": "经营活动现金流入",
+      "period": null,
+      "expected_value": 5600000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 1
+    },
+    {
+      "document_id": "SYN-ANNUAL-03",
+      "metric": "经营活动现金流入",
+      "period": null,
+      "expected_value": 4900000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 1
+    },
+    {
+      "document_id": "SYN-ANNUAL-03",
+      "metric": "经营活动现金流出",
+      "period": null,
+      "expected_value": 4100000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 1
+    },
+    {
+      "document_id": "SYN-ANNUAL-03",
+      "metric": "经营活动现金流出",
+      "period": null,
+      "expected_value": 3800000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 1
+    },
+    {
+      "document_id": "SYN-ANNUAL-03",
+      "metric": "投资活动现金流入",
+      "period": null,
+      "expected_value": 900000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 2
+    },
+    {
+      "document_id": "SYN-ANNUAL-03",
+      "metric": "投资活动现金流入",
+      "period": null,
+      "expected_value": 700000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 2
+    },
+    {
+      "document_id": "SYN-ANNUAL-03",
+      "metric": "投资活动现金流出",
+      "period": null,
+      "expected_value": 1200000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 2
+    },
+    {
+      "document_id": "SYN-ANNUAL-03",
+      "metric": "投资活动现金流出",
+      "period": null,
+      "expected_value": 1050000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 2
+    }
+  ]
+}

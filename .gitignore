@@ -59,6 +59,8 @@ tmp/
 .tmp/
 data/
 .pytest_tmp*/
+# Agent workspace state (session memory, local tooling logs) — never a deliverable.
+.workbuddy/
 
 # API keys (never commit these!)
 .env.local

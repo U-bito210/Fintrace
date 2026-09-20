@@ -7,7 +7,7 @@
 | 对应赛题 | 赛题7 内部评价机制 + 全部评分项的量化证据；**FinFuzz 集成点（CARD-26）** |
 | 依赖 | 无（与各业务卡互为配套，业务卡完成一块接一块）；FinFuzz 子集依赖 CARD-26 |
 | 实现复杂度 | 高（约 8 人日+，分散投入；含 FinFuzz 集成 1–2 人日） |
-| 状态 | ☐ 未开始 |
+| 状态 | 🟡 框架+46 测试就绪；Synthetic 已实测，Real/Holdout 材料待采集 |
 | Skill 要求 | 动手前加载 financial-agent-evaluation |
 
 ## 1. 目标
@@ -108,14 +108,26 @@ synthetic 集全链离线跑通；real 集 integration 标记（需凭证与授�
 
 ## 15. 验收标准
 
-- [ ] 三级测试集建立（Real ≥2 家公司全披露链 + 人工标注）
-- [ ] 24 项指标计算器全部有单测
-- [ ] cn_agent_v1 零回归；v2 synthetic 全离线可跑
-- [ ] 真实/离线隔离与标注机制有测试
-- [ ] 阈值冻结流程文档化（baseline → 冻结 → 版本化）
+- [ ] 三级测试集建立（Real ≥2 家公司全披露链 + 人工标注） ← **未勾**：三级**框架**已建（`benchmarks/cn_agent_v2.json` 注册三级 + 存储纪律 + 隔离闸门 + 真值 schema），Synthetic 级**已实测**；但 **Real/Holdout 级的真实材料未采集**——需要网络、多源门户（巨潮/交易所）与版权授权，本会话环境不具备。已交付采集脚本 `scripts/fetch_benchmark_real.py`（多源 + sha256 校验失败即报错、绝不写占位文件）与标注规范 `docs/benchmark/LABELING_SPEC.md`（含「什么情况下**不**标注」七条，宁小勿错）。**没有真实材料时报告如实标 N/A，不造数。**
+- [x] 24 项指标计算器全部有单测 ← `tests/test_cn_benchmark_v2.py` 46 项；`BASE_METRICS` 恰为 24（断言 `len(BASE_METRICS) == 24` 且无重复），8 组逐组覆盖，每个计算器都用可手算的构造用例核对 P/R/F1/FPR
+- [x] cn_agent_v1 零回归；v2 synthetic 全离线可跑 ← `benchmarks/cn_agent_v1.json` **未改动**；`scripts/run_benchmark_v2.py --set synthetic` 聚合既有组件基线（CARD-01 抽取 / CARD-05 核查）产出 `output/benchmark/cn_agent_v2/report.{json,md}`，已测 8 项 / 未测 20 项（未测原因逐行写出，不删行）
+- [x] 真实/离线隔离与标注机制有测试 ← `isolate_payload()` 按**路径段**机械校验（`benchmark_real` 或 `real_` 前缀），real→synthetic 目录、synthetic→`benchmark_real` 目录两个方向都拒绝；`write_report()` 落盘前强制调用。另有 `test_non_synthetic_component_value_carries_a_warning_note` 守「非合成来源必须带标记」
+- [x] 阈值冻结流程文档化（baseline → 冻结 → 版本化） ← `freeze_thresholds(baseline, margin=)` 从**实测** baseline 派生（高优指标下调、成本类上调），未测指标保持 `None`；`THRESHOLDS` 全为 `None`，报告 `threshold_status=UNFROZEN`，markdown 打印 `TARGET / TO BE MEASURED`。技能与规范均已记录该流程
+- [x] 全部测试离线通过 ← **原未勾**：CARD-11 新增 46 测试全绿，全量离线 **912 passed / 23 failed**，失败集合与基线逐条一致（均为缺失的 Tushare 快照） → **已于 2026-09-20 达成**（tushare 快照真实重建，全量离线 **0 failed / 1531 passed**，原 23 项阻塞解除）
 
 ## 16. 执行备注（agent 填写）
 
 | 日期 | 记录 |
 |---|---|
-|  |  |
+| 2026-09-19 | 新建 `src/cn/benchmark_v2.py`（24 项指标计算器 + 三级模型 + 组件归并 + 隔离闸门 + 指纹 + 报告渲染 + 阈值冻结）、`benchmarks/cn_agent_v2.json`（三级注册表，v1 未动）、`docs/benchmark/LABELING_SPEC.md`（真值规范）、`scripts/fetch_benchmark_real.py`（多源采集 + sha256 校验）、`scripts/run_benchmark_v2.py`（CLI）、`tests/test_cn_benchmark_v2.py`（**46 全绿**）。 |
+| 2026-09-19 | **复用而非重造（本卡最重要的一条）**：CARD-01 已产出 `output/benchmark/cn_agent_v2/document_extraction_baseline.json`，CARD-05 已产出 `checker_baseline.json`（二者 `suite` 字段**本来就写着 `cn_agent_v2`**）。故本卡**不重新测量**抽取/核查指标，而是实现 `component_metrics()` 读取既有基线、`merge_components()` 归并进 synthetic 级。归并是**严格**的：两个组件声明同一指标 → 抛 `ValueError`（一个指标有两条定义等于没有定义）。这条决定了后续 CARD-22/23/24/25/26 只要按 `metrics: {<cn_agent_v2 metric id>: {value, unit, note}}` 发布，就能自动进报告。 |
+| 2026-09-19 | **诚实性三条硬约束**：① 未测指标**保留为行**，`value=None` + `note` 说明原因，报告打 `N/A（原因）`（§9「评测报告的诚实性本身是被评审的对象」）；② `THRESHOLDS` 全 `None`，**不预填**任何 95%/98% 类目标，`freeze_thresholds()` 只从实测 baseline 派生；③ 未运行的 ablation 一律 `TARGET / TO BE MEASURED`（`NOT_MEASURED` 常量），`build_ablation_table()` 不编造。 |
+| 2026-09-19 | **偏差 1（隔离检查按路径段而非子串）**：初版用 `"real_" in path` 判断，结果 pytest 的临时目录名（`test_real_tier_must_...0`）**天然含 `real_`**，闸门静默失效——测试当场抓到。改为按**路径段**判定：段名等于 `benchmark_real` 或以 `real_` 开头。这个 bug 值得记下来：*任何用子串做安全判断的代码，都会在某个调用者命名习惯下停止生效*。 |
+| 2026-09-19 | **偏差 2（Real 级只能交付机制，不能交付材料）**：§15 要求 Real ≥2 家公司全披露链。真实年报需要网络 + 门户会话 + 版权授权，且 `data/benchmark_real/` 按 AGENTS.md 必须 gitignore，**无法在本会话内完成，也不该伪造**。故本卡交付：三级注册表、真值 schema、采集脚本（失败即非零退出，绝不写占位 PDF）、标注规范、以及报告侧的 N/A 诚实降级。§15 第一项如实保留未勾并在卡内写明原因。 |
+| 2026-09-19 | **偏差 3（延迟/成本按「行」而非「逐次调用」）**：`cost_metrics` 对传入的 `cost_rows` 取均值 + p95，并**拒绝**静默合并多币种——`cost_currency` 不一致时 `unit="MIXED"` 明确暴露，避免把 CNY 与 USD 直接相加。 |
+| 2026-09-19 | **偏差 4（multi-run 的样本纪律）**：§8 边缘 3 要求 n≥3。`replay_metrics` 在 n<3 时仍给出值，但把 `n=k_below_3` 写进 `note`——**给出数字的同时标注它还不够可信**，比直接隐藏更有信息量。 |
+| 2026-09-19 | **测试**：§11 全绿——每个计算器一个可手算用例（含 `prf1(3,1,1)=(0.75,0.75,0.75)`、period 错配同时计 FP+FN、checker FPR=0.25、agent 四指标、leakage=2/3、replay 2/3 + consistency 0.5、adversarial per-error-type 明细）；`no_matched_labels` 等 N/A 语义；阈值冻结（高优下调 / 成本上调 / 未测保持 None）；ablation 未运行不编造 + 已运行如实取值；隔离两个方向 + 未知层级；指纹稳定性与 key 顺序无关；组件读取三种形态 + 定义冲突报错 + 非合成来源带标记；端到端 synthetic 离线跑通并落盘。 |
+| 2026-09-19 | 全量离线 **912 passed / 23 failed / 0 errors / 2 skipped**，失败集合与基线逐条一致（passed 净增 46）。冒烟 14/14 clean，`git diff --check` clean，新增文件行尾空白扫描无命中。 |
+| 2026-09-19 | **未闭合**：Real / Holdout 材料采集（需网络 + 授权）；FinFuzz 对抗组（`adversarial_metrics` 已就绪，等 CARD-26 的变异语料）；§7b 全部五条 ablation 未运行（表结构已就绪，等 CARD-22/23/24/25/26 各自发布 treatment 结果）；`--set real --verify-labels` 的标注格式校验器未实现（规范已写，校验器属增强项）。 |
+| 2026-09-19 | **跨卡改动（由 CARD-26 §15 落地，本卡记账）**：CARD-26 的 FinFuzz 组件基线接通了本卡的 synthetic 聚合链。① **注册表加一行** `("card26_finfuzz", "finfuzz_baseline.json", None)` —— 组件名与文件名由 `src.cn.finfuzz.baseline` 的 `COMPONENT` / `BASELINE_FILENAME` 持有，注册表引用同一常量，改名不会静默把基线变成孤儿。② **`case_count` 语义收窄**：第三列原先必须填一个整数，现在允许 `None` = "由基线文件自报"；新增 `component_case_count()`，**载荷里的 `case_count` 优先于注册表兜底值**。原因：FinFuzz 的样本数随语料与 seed 变（现 128），在注册表里再写一个数就是**第二处真相**，会与紧挨着的基线文件漂移。card01(10) / card05(3) 的载荷里没有这个键，行为逐字不变。③ `tests/test_cn_benchmark_v2.py::test_report_over_the_committed_component_baselines` 的枚举加上 finfuzz —— 那条测试是"真聚合路径"的唯一覆盖，新组件不进去就等于没被聚合过。④ **本卡指标定义未动**：四项对抗指标仍由本卡 `adversarial_metrics()` 定义，CARD-26 只做搬运，符合本卡 §7 归并闸门（同一指标禁两定义）。实测 `--set synthetic` **已测 8 → 12 项**，`groups.adversarial` 四项 `source == card26_finfuzz`，tier `case_count = 141 = 10 + 3 + 128`。 |
+| 2026-09-20 | **跨卡：tushare 快照真实重建**。用户填好 `.env` 的 `TUSHARE_TOKEN` 后，真实重建 9 个 `_tushare_v1` 快照（4 个标的 + 5 个白酒同业）→ 全量离线 **0 failed / 1531 passed / 0 skipped**。§15「全部测试离线通过」由 ☐ 转 ☑ —— 该条此前被 23 项快照缺失阻塞，与本卡代码无关。重建流程及三个坑（同业快照要一起建、bars 窗口不得越过研究时点、688836 上市日）见 `MEMORY.md`「快照重建」段。 |

@@ -1,0 +1,48 @@
+{
+  "document_id": "SYN-ANNUAL-05",
+  "filename": "annual_05_reclassification.pdf",
+  "document_type": "annual",
+  "note": "口径不可判定：重分类披露（block_yoy 路径）",
+  "expect_status": "ok",
+  "expect_scan_page": null,
+  "expect_injection": false,
+  "expect_facts_degraded": false,
+  "records": [
+    {
+      "document_id": "SYN-ANNUAL-05",
+      "metric": "营业收入",
+      "period": null,
+      "expected_value": 1000000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 1
+    },
+    {
+      "document_id": "SYN-ANNUAL-05",
+      "metric": "营业收入",
+      "period": null,
+      "expected_value": 900000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 1
+    },
+    {
+      "document_id": "SYN-ANNUAL-05",
+      "metric": "营业成本",
+      "period": null,
+      "expected_value": 650000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 1
+    },
+    {
+      "document_id": "SYN-ANNUAL-05",
+      "metric": "营业成本",
+      "period": null,
+      "expected_value": 600000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 1
+    }
+  ]
+}

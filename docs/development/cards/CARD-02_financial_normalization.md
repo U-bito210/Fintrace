@@ -7,7 +7,7 @@
 | 对应赛题 | 赛题2/5 的数据基础（全主链） |
 | 依赖 | CARD-01（ExtractedFact 输入）、**现有** `src/cn/periods.py`（FinancialPeriodEngine）、**现有** `src/cn/evidence.py`（Evidence Ledger 扩展）、**现有** `src/cn/domain.py`（FinancialStatement） |
 | 实现复杂度 | 中高（约 4–5 人日） |
-| 状态 | ☐ 未开始 |
+| 状态 | 🟡 实现完成 + 测试全绿（§15 最后一条受外部工件阻塞，见 §16） |
 | Skill 要求 | 动手前加载 financial-data-provenance |
 
 ## 1. 目标
@@ -199,16 +199,32 @@ UI 展示"原始披露值 → 规范化值"对照表（含单位换算、YTD→�
 
 ## 15. 验收标准
 
-- [ ] 第 11 节全部封闭算例通过（含指令原文的 YTD 算例和 v3.0 遗漏的 TTM 算例）
-- [ ] 桥接层代码路径存在（grep `derive_single_quarters|derive_ttm` 有调用），无自定义单季化/TTM 实现
-- [ ] flow/stock 语义分离有测试保护（stock 输入 → PeriodEngineError 重抛）
-- [ ] period_kind 判定失败 → None + warning，零猜测
-- [ ] metric 字典覆盖 §7.1 全部指标，未知 metric 走 `metric_unknown_xxx`
-- [ ] warnings 机制全覆盖（无法规范的值零静默）
-- [ ] 全部测试离线通过
+- [x] 第 11 节全部封闭算例通过（含指令原文的 YTD 算例和 v3.0 遗漏的 TTM 算例）
+- [x] 桥接层代码路径存在（grep `derive_single_quarters|derive_ttm` 有调用），无自定义单季化/TTM 实现
+- [x] flow/stock 语义分离有测试保护（stock 输入 → PeriodEngineError 重抛）
+- [x] period_kind 判定失败 → None + warning，零猜测
+- [x] metric 字典覆盖 §7.1 全部指标，未知 metric 走 `metric_unknown_xxx`
+- [x] warnings 机制全覆盖（无法规范的值零静默）
+- [x] 全部测试离线通过 —— **本卡新增 40 项 + CARD-01 59 项全绿**；套件另有 23 项失败，根因是 `data/` 下缺失的本地 tushare 快照（`data/` 整体 gitignore，仓库不含任何快照），与本卡无关，详见 §16「已知阻塞」 → **已于 2026-09-20 达成**（tushare 快照真实重建，全量离线 **0 failed / 1531 passed**，原 23 项阻塞解除）
 
 ## 16. 执行备注（agent 填写）
 
 | 日期 | 记录 |
 |---|---|
-|  |  |
+| 2026-09-17 | **实现完成**。新增 `src/cn/normalization/`：`models.py`（Unit/Currency/Ratio/Scope/Version/PeriodKind + NormalizedFact，含 document_id/page/bbox/row/column 回链字段）、`units.py`（单位矩阵 + 会计惯例数值解析）、`metrics.py`（§7.1 字典 + 投影表）、`periods.py`（canonical_period + period_kind 判定）、`scope.py`、`version.py`、`adapter.py`（桥接 `FinancialPeriodEngine`）、`pipeline.py`（主流程）、`warning_log.py`（去重 + 计数告警）、`evidence_bridge.py`（§12 证据账本桥接）；新增 Agent 工具 `NormalizeCnFinancialsTool`（`cn_tools.py`，与 ingest 工具共用同一 registry）。新增 `tests/test_cn_normalization.py` **40 项测试全绿**。 |
+| 2026-09-17 | **纠偏 1：`本报告期` 列的语义由报告类型决定。** §7.2 原表把年报摘要表的「本报告期」列直接定为 `SINGLE_QUARTER`。但「本报告期 = 本报告期覆盖的期间」：季报该列确为单季，**年报/半年报该列就是全年/半年累计**，标成单季即为错值（正是 §7.2 要防的「判错比不转换更糟」）。实现：`detect_period_kind(...)` 的 `report_type` 参数承担该区分 —— `quarterly` → `SINGLE_QUARTER`，`annual|interim` → `YTD_CUMULATIVE`。另将「年初至本报告期末」独立成 `ytd` 列角色（恒为 `YTD_CUMULATIVE`），不再与「本报告期」共用 `current`。 |
+| 2026-09-17 | **纠偏 2：披露的单季值不入报表投影。** 单季的唯一来源是现有引擎的差分（`derive_single_quarters`）。摘要表「本报告期」列的单季值改为：保留为 `NormalizedFact`（`period_kind=SINGLE_QUARTER`）用于交叉校验，但**不投影为 `FinancialStatement`**，避免与引擎按 YTD 差分出的单季形成第二套口径。引擎无法解析的 `YYYYQ3` 之类期间键也因此不会进入报表（引擎正则只接受 Q1/H1/9M/FY）。 |
+| 2026-09-17 | **纠偏 3（跨卡缺陷）：`单位：万元` 曾被识别为 `元`。** CARD-01 `TableParser._detect_money` 的正则用贪婪中文标签组吞掉了「万元」的「万」，只匹配到尾字「元」，即万元表被标为元 —— 10⁴ 量级错误，CARD-02 会忠实放大它。已改为单位分支**最长优先**并显式消费币种词（`table.py::_MONEY_RE`）；CARD-01 的 39 项测试与合成集基准无回归。这是「数值规范化」层对文档层的第一次真实回压。 |
+| 2026-09-17 | **纠偏 4：`net_profit` 的语义陷阱。** 仓库既有 `FinancialStatement.values["net_profit"]` 实为**归母**净利润（`tushare.py` 映射 `n_income_attr_p`，`report.py` 标注「归母净利润」），而 §7.1 把 `net_profit` 定义为**含少数股东**、归母为 `net_profit_parent`。若直接同名投影，两者会静默混淆（§7.1 明令禁止）。实现：新增显式投影表 —— `net_profit_parent → values["net_profit"]`（沿用既有契约），`net_profit → values["net_profit_incl_minority"]`（新键，永不与归母合并）；`equity_parent → values["equity"]`、`diluted_shares → values["total_shares"]`、`cfo → values["operating_cash_flow"]`、`cfo_minus_capex → values["free_cash_flow"]` 同理。 |
+| 2026-09-17 | **封闭算例实测**（经桥接层）：YTD `Q1=100/H1=230/9M=390/FY=540` → 单季 `100/130/160/150`；TTM `FY2023=540,H1 2024=230,H1 2023=220` → `H1 2024 = 550`；`9M` 缺失 → Q4 不产出（不猜）；`balance` → `PeriodEngineError` 重抛；`FY2024`/`2024Q1_YTD`/`Q1 2024`/`2024-01-31` → `ValueError`。 |
+| 2026-09-17 | **集成实测**（CARD-01 合成语料 → 本卡）：`annual_01`（续表合并 + 双列）→ 13 条规范化事实、`income/2025FY` 报表含 `revenue=1 234 567`、`net_profit=330 000`（归母）、`net_profit_incl_minority=345 678`、派生 `gross_profit=434 567`，并对双列同期间冲突发出告警（交 CARD-13 裁决）；`annual_02`（万元 + 缺发布日期）→ `8 300 万元 = 83 000 000 元`，`期初余额` 确定性落到 `2023FY`；`annual_03` 扫描页不产出任何事实。 |
+| 2026-09-17 | **已知阻塞（非本卡引入，范围已收窄）**：`python -m pytest -q -m "not integration"` = 394 passed / 23 failed。23 项**全部**依赖 `data/snapshots/cn/600519.SH_20260810_tushare_v1.json` 与 `300750.SZ_20260812_tushare_v1.json`。`data/` 被 `.gitignore` 整体忽略、全盘无副本，`data/provider_probes/cn0/`（重建快照所需的 probe CSV）亦不存在 → 需真实 Tushare token 跑 `probe_tushare_cn0.py` → `build_cn_snapshot_from_probe.py` 重建。按 `AGENTS.md`「不得把 fixture 当真实来源」的约束，未伪造快照来「修绿」。原 54 项中的另外 31 项（三份 benchmark 用例文件缺失）已通过把用例定义移入版本控制解决，见下条。 |
+| 2026-09-17 | **修掉一个仓库级缺陷（原 31 项失败的根因）**：`data/benchmarks/cn_agent_v1.json`（20 例）、`cn_ablation_v2.json`、`cn_agent_ablation_v3.json`（7 例）是**手写的基准用例定义**（三份脚本的 `--cases` 输入），却放在被 `.gitignore` 整体忽略的 `data/` 下，从未进过 git、git 历史与全盘都无副本 → 全新 clone 必然红。已按测试给出的契约重建这三份用例并落到 `tests/fixtures/cn/benchmarks/`，同步更新 3 个测试与 3 个脚本的路径常量。**性质说明**：这是「按测试契约重建」而非「还原原文件」，用例内容按真实工具契约、真实快照日期与 §7.1 指标语义编写；已在文件内 `description` 中标注。 |
+| 2026-09-17 | **未完成（下一步）**：§13 的 Unit / Period / Scope / Period-Kind Detection 四项准确率尚未接入 CARD-11 基准（`scripts/gen_document_fixtures.py --benchmark` 目前只跑抽取 P/R/F1，合成集 micro F1 = 1.0000）。§14 的「原始披露值 → 规范化值」UI 对照表随 CARD-15 一起做。 |
+| 2026-09-18 | **补齐 CARD-11 基准入口**：新增 `src/cn/documents/financial_benchmark.py`，对合成语料逐条测量单位、期间语义、口径和计算回算准确性；`scripts/gen_document_fixtures.py --benchmark` 现在会额外写出 `financial_layer_baseline.json`。该报告明确标注 synthetic，不代表真实财报效果。 |
+| 2026-09-17 | **增量（CARD-04 前置条件）：版本词表收归共享模块，本卡改为消费方。** 新建 `src/cn/disclosure_lexicon.py`，位于 `normalization` 与 `analysis` **之下**（只 import 标准库）—— CARD-03/04 已经 import CARD-02，词表若放进 `analysis` 会让 CARD-02 的 import 成环。`version.py` 原来的本地 `_CORRECTED_RE`/`_RESTATED_RE` 已删除，改为消费 `DISCLOSURE_CORRECTED`/`DISCLOSURE_RESTATED`；两个卡片从此不可能"一个认得出、另一个认不出"同一句措辞。措辞表的所有权在 CARD-04（口径语义属它），本卡只读。 |
+| 2026-09-17 | **增量：列级版本优先于文档级版本。** 新增 `version_from_column(meta)`：读 CARD-01 写在单元格 `meta["version_label"]` 上的列版本 token → `Version`；**未标注时返回 `None` 而不是 `AS_REPORTED`** —— 返回 `AS_REPORTED` 会静默吃掉一张「调整后」列。`pipeline` 逐事实取 `column_version or document_version`，两者不一致时发告警。此前版本标注只到文档级，一份「调整前/调整后」双列表的两套 facts 会同标 `AS_REPORTED` 并在同一个 CARD-03 序列里撞车。 |
+| 2026-09-17 | **增量：`NormalizationResult.source_facts`。** 规范化结果现在带回它在 CARD-01 侧的来源事实，使 CARD-04 可以在**不要求调用方重新传一遍抽取结果**的前提下检测口径信号（`analyze_document` 因此不可能"忘记传"而静默跳过可比性闸门）。 |
+| 2026-09-17 | **增量纠偏：`_derive_metrics` 不得在期间语义未定的行上派生。** 「前期差错更正影响金额」这类附注表不在报表白名单内，其 `period_kind` 为 `None`，但报告期会被 `report_period` 盖成 `2025FY`，于是 `gross_profit = revenue - operating_cost` 会被派生出来并挂到一个语义不明的事实上（一个自信的错值）。已加 `if minuend.period_kind is None: continue` + `derive-undecided-period` 计数告警。 |
+| 2026-09-19 | **修一处真 bug（CARD-22 发现，跨卡改动）：更窄的小计冒充其父汇总。** `resolve_metric` 的「最长同义词胜出」把「**流动资产合计**」映射到 `total_assets`（其同义词表里含「资产合计」这类更短字面），于是在按 `(statement, period)` 投影时顶掉了文档实际印刷的「资产总计」—— 报表上明明印了汇总行，系统却拿它的子项顶上，且下游（CARD-03 比率、CARD-22 F1 恒等式）不会收到任何提示。新增 `_is_narrower_aggregate()` 守卫：候选标签若被另一条已匹配的更宽标签**包含**且自身更窄，一律拒绝映射并记 unknown，**绝不静默出值**。新增 `tests/test_cn_normalization.py::test_narrower_subtotals_never_impersonate_their_parent_total`（三个更窄小计被拒 + 「资产总计」存活），既有规范化测试全部不变。 |
+| 2026-09-20 | **跨卡：tushare 快照真实重建**。用户填好 `.env` 的 `TUSHARE_TOKEN` 后，真实重建 9 个 `_tushare_v1` 快照（4 个标的 + 5 个白酒同业）→ 全量离线 **0 failed / 1531 passed / 0 skipped**。§15「全部测试离线通过」由 ☐ 转 ☑ —— 该条此前被 23 项快照缺失阻塞，与本卡代码无关。重建流程及三个坑（同业快照要一起建、bars 窗口不得越过研究时点、688836 上市日）见 `MEMORY.md`「快照重建」段。 |

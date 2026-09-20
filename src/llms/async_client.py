@@ -50,7 +50,7 @@ from src.logger import get_logger
 
 # Cost calculation is now sourced from the unified registry via cost_calculator.
 from .cost_calculator import calculate_cost_openai, calculate_cost_anthropic
-from .model_registry import get_model_info
+from .model_registry import cost_currency, effective_base_url, get_model_info
 
 
 # ---------------------------------------------------------------------------
@@ -111,8 +111,8 @@ class CircuitOpenError(RuntimeError):
 # ---------------------------------------------------------------------------
 _async_anthropic = None
 _async_openai = None
-_async_deepseek = None
-_async_deepseek_model: Optional[str] = None  # track which model the cached client was built for
+_async_compatible = None
+_async_compatible_model: Optional[str] = None  # which model the cached client was built for
 
 
 def _get_async_anthropic():
@@ -143,17 +143,17 @@ def _get_async_openai():
     return _async_openai
 
 
-def _get_async_deepseek(model_name: str = "deepseek-v4-flash"):
-    """DeepSeek has an INDEPENDENT async client — never shares OpenAI's client,
-    API key, or base URL.
+def _get_async_compatible(model_name: str = "deepseek-v4-flash"):
+    """Async client for any OpenAI-wire vendor that is NOT OpenAI itself.
 
-    Reads the current model's ``ModelInfo`` from the registry so that API key
-    env var, base URL env var, and default base URL are resolved per-model
-    (single source of truth), NOT hardcoded.  If the model changes between
-    calls (e.g. flash → pro), the client is rebuilt.
+    DeepSeek, Alibaba 百炼/DashScope and friends each get their OWN client with
+    their own API key and base URL — never OpenAI's.  Both are resolved from the
+    registry (single source of truth), so registering a new vendor is a data
+    edit, not a code change.  If the model changes between calls (flash → pro, or
+    deepseek → qwen), the client is rebuilt.
     """
-    global _async_deepseek, _async_deepseek_model
-    if _async_deepseek is None or _async_deepseek_model != model_name:
+    global _async_compatible, _async_compatible_model
+    if _async_compatible is None or _async_compatible_model != model_name:
         from openai import AsyncOpenAI
         # Resolve API key and base URL from the registry, not hardcoded strings.
         info = get_model_info(model_name)
@@ -163,13 +163,12 @@ def _get_async_deepseek(model_name: str = "deepseek-v4-flash"):
                 f"API key '{info.api_key_env}' not found in environment. "
                 f"Set {info.api_key_env} to use {info.provider} models."
             )
-        base_url = (os.getenv(info.base_url_env) if info.base_url_env else None)
-        _async_deepseek = AsyncOpenAI(
+        _async_compatible = AsyncOpenAI(
             api_key=api_key,
-            base_url=base_url or info.default_base_url,
+            base_url=effective_base_url(info) or info.default_base_url,
         )
-        _async_deepseek_model = model_name
-    return _async_deepseek
+        _async_compatible_model = model_name
+    return _async_compatible
 
 
 # ---------------------------------------------------------------------------
@@ -237,23 +236,26 @@ async def _call_openai_async(
     return response.choices[0].message.content, cost
 
 
-async def _call_deepseek_async(
+async def _call_compatible_async(
     model_name: str, messages: List[Dict], temperature: float
 ) -> Tuple[str, float]:
-    """One plain-text DeepSeek turn (no tool calling).
+    """One plain-text turn against any OpenAI-wire vendor except OpenAI.
 
-    DeepSeek uses its OWN async client (``_get_async_deepseek()``), NEVER the
-    OpenAI client.  Every request explicitly disables the thinking/reasoning
-    block via ``extra_body``.
+    DeepSeek gets its thinking/reasoning block explicitly disabled via
+    ``extra_body``; every other vendor (DashScope/百炼 included) receives the
+    bare chat-completions call, because a vendor-specific field sent to a vendor
+    that does not know it is how a working call becomes a 400.
     """
     info = get_model_info(model_name)
-    client = _get_async_deepseek(model_name)
-    response = await client.chat.completions.create(
-        model=info.api_model_id,
-        messages=messages,
-        temperature=temperature,
-        extra_body={"thinking": {"type": "disabled"}},
-    )
+    client = _get_async_compatible(model_name)
+    kwargs = {
+        "model": info.api_model_id,
+        "messages": messages,
+        "temperature": temperature,
+    }
+    if info.provider == "deepseek":
+        kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
+    response = await client.chat.completions.create(**kwargs)
     cost = calculate_cost_openai(response, model_name)
     return response.choices[0].message.content, cost
 
@@ -300,7 +302,10 @@ class LLMToolResponse:
     * ``text``       — any assistant prose in the turn (may be empty when the
                        model only requested tools).
     * ``tool_calls`` — list[ToolCall] the model wants executed (empty → it's done).
-    * ``cost``       — USD for the turn.
+    * ``cost``       — cost for the turn, denominated in the model's own unit of
+                       account.  ``model_registry.cost_currency(name)`` returns
+                       ``None`` when there is no quotable price (an unpriced
+                       model), in which case this number is not money.
     * ``raw``        — the provider-native assistant message, so the caller can
                        append it verbatim to the running transcript (important for
                        Anthropic, whose tool_use/tool_result blocks must round-trip).
@@ -428,25 +433,26 @@ async def _call_openai_tools(model_name, messages, tools, temperature, tool_choi
     return LLMToolResponse(msg.content or "", calls, cost, raw_assistant)
 
 
-async def _call_deepseek_tools(model_name, messages, tools, temperature, tool_choice=None):
-    """One DeepSeek tool-calling turn.
+async def _call_compatible_tools(model_name, messages, tools, temperature, tool_choice=None):
+    """One tool-calling turn against any OpenAI-wire vendor except OpenAI.
 
-    DeepSeek uses its OWN async client (``_get_async_deepseek()``), NEVER the
-    OpenAI client.  Every request explicitly disables the thinking/reasoning
-    block via ``extra_body``.
+    Same client/key/base-URL resolution as ``_call_compatible_async``: registry
+    metadata, never OpenAI's client.  Only DeepSeek receives the vendor-specific
+    ``extra_body``.
 
     Same illegal-argument handling as ``_call_openai_tools``: parse failures
     become ``ToolCall.parse_error``, never silently ``{}``.
     """
     info = get_model_info(model_name)
-    client = _get_async_deepseek(model_name)
+    client = _get_async_compatible(model_name)
 
     kwargs = {
         "model": info.api_model_id,
         "messages": messages,
         "temperature": temperature,
-        "extra_body": {"thinking": {"type": "disabled"}},
     }
+    if info.provider == "deepseek":
+        kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
     if tools:
         kwargs["tools"] = tools
         if tool_choice:
@@ -506,7 +512,9 @@ class AsyncLLMProvider:
     **Provider routing** (from registry, not name prefix):
     * ``provider="openai"`` → ``_get_async_openai()`` / ``_call_openai_*``
     * ``provider="anthropic"`` → ``_get_async_anthropic()`` / ``_call_anthropic_*``
-    * ``provider="deepseek"`` → ``_get_async_deepseek()`` / ``_call_deepseek_*``
+    * any other OpenAI-wire vendor (``deepseek``, ``dashscope``, …) →
+      ``_get_async_compatible()`` / ``_call_compatible_*``, each with its own
+      client, API key and base URL
 
     **is_openai** (if retained) only means ``api_style == "openai"`` — it is
     used for message-format / tool-schema selection, NOT for client routing.
@@ -547,16 +555,23 @@ class AsyncLLMProvider:
             try:
                 if provider == "openai":
                     text, cost = await _call_openai_async(self.model_name, messages, temperature)
-                elif provider == "deepseek":
-                    text, cost = await _call_deepseek_async(self.model_name, messages, temperature)
                 elif provider == "anthropic":
                     text, cost = await _call_anthropic_async(self.model_name, messages, temperature)
+                elif self._info.api_style == "openai":
+                    # Routed on the registry's declared wire protocol, so adding
+                    # a vendor is a data edit here rather than a code edit.
+                    text, cost = await _call_compatible_async(self.model_name, messages, temperature)
                 else:
-                    raise ValueError(f"Unknown provider '{provider}' for model '{self.model_name}'")
+                    raise ValueError(
+                        f"Unknown provider '{provider}' (api_style="
+                        f"'{self._info.api_style}') for model '{self.model_name}'"
+                    )
 
                 _breaker.record_success()
                 if logger:
-                    logger.llm_call(self.model_name, cost, 0)
+                    logger.llm_call(
+                        self.model_name, cost, 0, currency=cost_currency(self.model_name)
+                    )
                 return text, cost
 
             except Exception as exc:  # noqa: BLE001 — we re-raise below
@@ -608,20 +623,25 @@ class AsyncLLMProvider:
                     resp = await _call_openai_tools(
                         self.model_name, messages, tools, temperature, tool_choice
                     )
-                elif provider == "deepseek":
-                    resp = await _call_deepseek_tools(
-                        self.model_name, messages, tools, temperature, tool_choice
-                    )
                 elif provider == "anthropic":
                     resp = await _call_anthropic_tools(
                         self.model_name, messages, tools, temperature, tool_choice
                     )
+                elif self._info.api_style == "openai":
+                    resp = await _call_compatible_tools(
+                        self.model_name, messages, tools, temperature, tool_choice
+                    )
                 else:
-                    raise ValueError(f"Unknown provider '{provider}' for model '{self.model_name}'")
+                    raise ValueError(
+                        f"Unknown provider '{provider}' (api_style="
+                        f"'{self._info.api_style}') for model '{self.model_name}'"
+                    )
 
                 _breaker.record_success()
                 if logger:
-                    logger.llm_call(self.model_name, resp.cost, 0)
+                    logger.llm_call(
+                        self.model_name, resp.cost, 0, currency=cost_currency(self.model_name)
+                    )
                 return resp
             except Exception as exc:  # noqa: BLE001
                 last_error = exc

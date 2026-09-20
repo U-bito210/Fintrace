@@ -1,0 +1,184 @@
+{
+  "schema_version": 1,
+  "generated_on": "2026-09-18",
+  "generator": "scripts/gen_report_draft_fixtures.py",
+  "synthetic": true,
+  "disclaimer": "Synthetic research-draft fixtures for checker evaluation only. Not real research, not sourced financial facts, and must never be presented as either.",
+  "market_document": {
+    "document_id": "SYN-MARKET-01",
+    "filename": "synthetic_market_data.json",
+    "company": "示例制造股份有限公司",
+    "note": "合成市价/股本数据，仅供 checker 复算估值倍数使用；非真实行情。"
+  },
+  "market_facts": [
+    {
+      "metric": "raw_price",
+      "value": 1.1,
+      "source_unit": "元",
+      "period_key": "2025FY",
+      "period_kind": "POINT_IN_TIME",
+      "scope": "合并",
+      "page": 1,
+      "row": 1,
+      "column": 1,
+      "source_table": "市价"
+    },
+    {
+      "metric": "diluted_shares",
+      "value": 10000000.0,
+      "source_unit": "股",
+      "period_key": "2025FY",
+      "period_kind": "POINT_IN_TIME",
+      "scope": "合并",
+      "page": 1,
+      "row": 2,
+      "column": 1,
+      "source_table": "市价"
+    },
+    {
+      "metric": "net_profit_parent",
+      "value": 1100000.0,
+      "source_unit": "元",
+      "period_key": "2025FY",
+      "period_kind": "YTD_CUMULATIVE",
+      "scope": "合并",
+      "page": 1,
+      "row": 3,
+      "column": 1,
+      "source_table": "市价"
+    },
+    {
+      "metric": "revenue",
+      "value": 600000.0,
+      "source_unit": "元",
+      "period_key": "2025FY",
+      "period_kind": "YTD_CUMULATIVE",
+      "scope": "合并",
+      "page": 1,
+      "row": 4,
+      "column": 1,
+      "source_table": "市价"
+    },
+    {
+      "metric": "revenue",
+      "value": 550000.0,
+      "source_unit": "元",
+      "period_key": "2025FY",
+      "period_kind": "YTD_CUMULATIVE",
+      "scope": "母公司",
+      "page": 1,
+      "row": 4,
+      "column": 2,
+      "source_table": "市价"
+    }
+  ],
+  "reference_filings": {
+    "annual_01_profit_continued.pdf": "annual_01_profit_continued.pdf",
+    "annual_04_restated_comparative.pdf": "annual_04_restated_comparative.pdf",
+    "annual_05_reclassification.pdf": "annual_05_reclassification.pdf",
+    "announcement_04_correction.pdf": "announcement_04_correction.pdf"
+  },
+  "drafts": [
+    {
+      "document_id": "SYN-DRAFT-CLEAN-01",
+      "filename": "draft_01_clean_summary.pdf",
+      "document_type": "report_draft",
+      "sha256": "ab33208c9431bb4c58103ed1b2936b5fcfd9ddce707cf760ca5acfea6a96092c",
+      "bytes": 2887,
+      "note": "好草稿：全部数值与引用均正确，用于零误报基线。",
+      "references": [
+        "annual_04_restated_comparative.pdf"
+      ],
+      "as_of": "2026-05-01",
+      "expected_claims": 2,
+      "expected_findings": 0
+    },
+    {
+      "document_id": "SYN-DRAFT-CLEAN-02",
+      "filename": "draft_02_clean_two_column.pdf",
+      "document_type": "report_draft",
+      "sha256": "2fb0bac1264efda0ba2388a36764a7431d4827870dd0de7f195baaf4fef5f765",
+      "bytes": 2823,
+      "note": "好草稿，但引用了双列表的两列（本报告期 1,234,567 与 年初至本报告期末 2,000,000），两列都规范化到同一 (metric, period)。把「同期间多列」误判成造假的实现会在这里误报。",
+      "references": [
+        "annual_01_profit_continued.pdf"
+      ],
+      "as_of": "2026-05-01",
+      "expected_claims": 3,
+      "expected_findings": 0
+    },
+    {
+      "document_id": "SYN-DRAFT-FIGURES",
+      "filename": "draft_03_planted_figures.pdf",
+      "document_type": "report_draft",
+      "sha256": "dad7825ed1b880efa123c637ff7e794ef994929d6df644cfe5de4ab801183c91",
+      "bytes": 3518,
+      "note": "植入 数值／单位／期间／重述／复算 五类错误。第二页用于验证 finding 的草稿页码。",
+      "references": [
+        "annual_04_restated_comparative.pdf"
+      ],
+      "as_of": "2026-05-01",
+      "expected_claims": 5,
+      "expected_findings": 5
+    },
+    {
+      "document_id": "SYN-DRAFT-CITATIONS",
+      "filename": "draft_04_planted_citations.pdf",
+      "document_type": "report_draft",
+      "sha256": "c413061cdc446b69059d0a0d2d2fb8be6c616c823c5e5209442316c855980d83",
+      "bytes": 2860,
+      "note": "植入 缺引用／引用不存在／引用对象错／页码错／无证据因果 五类。",
+      "references": [
+        "annual_04_restated_comparative.pdf",
+        "announcement_04_correction.pdf"
+      ],
+      "as_of": "2026-05-01",
+      "expected_claims": 5,
+      "expected_findings": 5
+    },
+    {
+      "document_id": "SYN-DRAFT-SCOPE",
+      "filename": "draft_05_planted_scope.pdf",
+      "document_type": "report_draft",
+      "sha256": "6f9522bcb77af927b6a250bfc233bf49d84d2a1fff238f1d3444d3588526a7e2",
+      "bytes": 2792,
+      "note": "CARD-04 判定 block_yoy：出现同比百分比即为 scope_error；同一份草稿里的水平值仍然允许（误报控制的边界）。",
+      "references": [
+        "annual_05_reclassification.pdf"
+      ],
+      "as_of": "2026-05-01",
+      "expected_claims": 2,
+      "expected_findings": 1
+    },
+    {
+      "document_id": "SYN-DRAFT-STALE",
+      "filename": "draft_06_planted_stale.pdf",
+      "document_type": "report_draft",
+      "sha256": "295df3ef8d364603861064cbb89ab09413f8ea440a1dc132ae5e13bd008a08f3",
+      "bytes": 2733,
+      "note": "as_of=2026-04-01：annual_01（2026-03-28 公开）可用，annual_04（2026-04-25 公开）尚不可得。",
+      "references": [
+        "annual_01_profit_continued.pdf",
+        "annual_04_restated_comparative.pdf"
+      ],
+      "as_of": "2026-04-01",
+      "expected_claims": 2,
+      "expected_findings": 1
+    },
+    {
+      "document_id": "SYN-DRAFT-VALUATION",
+      "filename": "draft_07_planted_valuation.pdf",
+      "document_type": "report_draft",
+      "sha256": "f716311d98dcc4f81075af3afcdf02f66ee5f11e6c51a05e632a08fe3ed468b4",
+      "bytes": 2817,
+      "note": "植入 估值倍数错 与 口径错配（母公司／合并）两类；依赖合成市价文档。",
+      "references": [
+        "annual_04_restated_comparative.pdf",
+        "synthetic_market_data.json"
+      ],
+      "as_of": "2026-05-01",
+      "expected_claims": 3,
+      "expected_findings": 2
+    }
+  ]
+}

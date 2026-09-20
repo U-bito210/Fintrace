@@ -26,7 +26,7 @@ from uuid import uuid4
 from src.cn import workbench_service
 from src.cn.research_agent import CnResearchAgent
 from src.cn.symbols import normalize_cn_symbol
-from src.llms.model_registry import get_model_info
+from src.llms.model_registry import cost_currency, get_model_info
 
 
 class AgentResearchError(ValueError):
@@ -191,7 +191,7 @@ def _public_agent_task(task: dict[str, Any]) -> dict[str, Any]:
         public["error"] = str(error)[-1000:]
     usage = public.get("usage") or {}
     if isinstance(usage, dict):
-        for key in ("cost_usd", "latency_seconds", "llm_calls", "tool_calls"):
+        for key in ("cost_usd", "cost_currency", "latency_seconds", "llm_calls", "tool_calls"):
             usage.setdefault(key, None)
     public.setdefault("usage", usage)
     return public
@@ -279,6 +279,10 @@ async def _run_agent_research(task_id: str) -> None:
             "llm_calls": agent.llm_calls,
             "tool_calls": len(state.tool_trace),
             "cost_usd": round(agent.total_cost, 6),
+            # Unit of account for the figure above.  ``None`` = unpriced model,
+            # in which case the number is not money and must not be shown as if
+            # it were.
+            "cost_currency": cost_currency(agent.model_name),
             "latency_seconds": round(latency, 3),
         }
         current["progress_percent"] = 100

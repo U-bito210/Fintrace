@@ -1,0 +1,11 @@
+{
+  "document_id": "SYN-ANN-02",
+  "filename": "announcement_02_forecast_with_url.pdf",
+  "document_type": "announcement",
+  "note": "含外链（仅审计，不算注入）",
+  "expect_status": "ok",
+  "expect_scan_page": null,
+  "expect_injection": false,
+  "expect_facts_degraded": false,
+  "records": []
+}

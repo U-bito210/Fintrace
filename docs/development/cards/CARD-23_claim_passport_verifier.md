@@ -7,7 +7,7 @@
 | 对应赛题 | 北京赛：全链路证据可核验（创新二）；华北五省：Trustworthy AI / Proof-Carrying Computation |
 | 依赖 | CARD-09（Claim-Evidence Graph）、CARD-07（Run Manifest）、CARD-13（版本状态） |
 | 实现复杂度 | 中（约 4 人日） |
-| 状态 | ☐ 未开始 |
+| 状态 | 🟡 代码+111 测试就绪（2026-09-19 收尾，全量离线 1194 passed / 23 failed）；§17 护照 + VERIFY 交互已随 CARD-15 落地（2026-09-20）；§20 证明链图可视化未做，见 §16 |
 | Skill 要求 | 动手前加载 financial-data-provenance |
 
 > 本卡前身：v3.1 的 "Financial Proof Object / Verifier (PCIR)"。v3.2 正式命名为 **Financial Claim Passport（对外名称"金融AI结论护照"）**，底层技术对象仍为 Financial Proof Object（FPO），并**新增独立 `verify_claim()` 五态验证接口**——这不是普通 Citation，而是让一个金融 Claim 能够被追溯、重新计算、重新验证、判断是否仍然有效。
@@ -178,12 +178,47 @@ Demo 步骤 7b（DEMO_FLOW.md）：点击一条核心 Claim → 展示 Financial
 
 ## 18. Acceptance Criteria（验收标准）
 
-- [ ] verify_claim() 零 LLM（代码断言：验证路径无模型调用）
-- [ ] 五态各有一例测试通过
-- [ ] proof_hash 稳定性与可重算性测试
-- [ ] BLOCKED/CONFLICTED 不得进入 Memo 结论段（Validator 断言）
-- [ ] ablation"citation only vs FPO verifier"可运行出真实数字
-- [ ] 全部测试离线通过
+- [x] **verify_claim() 零 LLM（代码断言：验证路径无模型调用）**：`tests/test_cn_proof.py` 的
+      `test_no_proof_module_imports_a_model_client` 以 **AST 解析 import 节点**断言
+      `src/cn/proof/*` 不导入 `src.llms`（不用子串匹配 —— 模块 docstring 本身就在**声明**
+      「零 LLM」，子串扫描分不清「声称没有」与「有」）；`test_proof_validator_is_model_free_too`
+      对 `src/validation/proof_validator.py` 同断言。`test_verify_tool_is_registered_and_never_writes_a_value`
+      从工具侧再守一次。
+- [x] **五态各有一例测试通过**：`test_state_verified_on_a_clean_claim` /
+      `test_state_degraded_when_a_non_blocking_item_lapses` / `test_state_stale_after_a_supersession` /
+      `test_state_blocked_when_a_required_proof_item_fails` /
+      `test_state_conflicted_when_evidence_disagrees_and_card13_has_not_ruled`，
+      另有 `test_every_state_in_the_vocabulary_is_reachable` 用**同一套图的受控变体**证明五态
+      **都是从引擎真跑出来的**，不是手工改 `overall_status` 改出来的。
+- [x] **proof_hash 稳定性与可重算性测试**：`test_proof_hash_is_stable_across_calls_and_constructions`、
+      `test_seal_is_idempotent`、`test_hash_excludes_the_hash_it_stores`、
+      `test_changing_any_proof_block_changes_the_hash`（六个证明块**逐个**扰动，逐块断言哈希改变 ——
+      只测「改一处会变」会漏掉某个块根本没进哈希）。
+- [x] **BLOCKED/CONFLICTED 不得进入 Memo 结论段（Validator 断言）**：
+      `src/validation/proof_validator.py` 的 `CONCLUSION_SECTIONS` 白名单 + `REFRESH_MARKER`。
+      `test_blocked_claim_in_a_conclusion_section_is_rejected`、`test_conflicted_claim_in_a_conclusion_section_is_rejected`、
+      `test_blocked_claim_outside_the_conclusion_sections_is_allowed`（**事实陈述段不设限**，
+      否则「记录一个已知被阻断的数」也会被拦）、`test_stale_claim_in_a_conclusion_must_carry_the_refresh_marker`、
+      `test_conclusion_sections_exclude_the_fact_reporting_ones`。
+- [x] **各检查正反例 + 合并规则表驱动**：九个检查函数各自正反例（见 §14 清单，共 47 项）；
+      合并规则 `test_merge_takes_the_most_severe_impact`（参数化覆盖全部 impact 组合）、
+      `test_merge_ignores_pass_and_skipped`（**pass/skipped 永不移动判决** —— 这是「跳过 ≠ 通过」
+      能被信任的前提）、`test_a_raising_check_becomes_a_failure_not_a_pass`（检查自身抛异常记 fail，
+      §11 禁止「验证器永远通过」）。
+- [ ] **ablation「citation only vs FPO verifier」可运行出真实数字** ← 未完成，**交接 CARD-11 §7b**。
+      对比臂已在 `benchmarks/cn_agent_v2.json::ablation_comparisons` 注册
+      （`baseline: citation_only` → `treatment: fpo_verifier`，指标 `unsupported_claim_detection`），
+      `src/cn/benchmark_v2.py` 只负责**声明与渲染**（`tests/test_cn_benchmark_v2.py` 覆盖渲染）。
+      但**指标定义与运行器属 CARD-11**，本卡不得另立一份（CARD-11 组件归并规则：同一指标两条定义即报错）。
+      本卡的检测能力已由语料闸门实测（见下条），ablation **表**待 CARD-11 §7b 运行器就位。
+- [x] **语料闸门（本卡自己的实测，不是 ablation 的替代）**：
+      `test_corpus_gate_clean_filings_verify_and_planted_defects_do_not` —— 两篇**干净**年报
+      （`annual_06_equity_shares.pdf` / `annual_01_profit_continued.pdf`）走完 CARD-09 →
+      CARD-23 全链后必须 `VERIFIED`；植入缺陷（篡改字节 / supersession / 未决冲突）必须分别落到
+      `BLOCKED`/`STALE`/`CONFLICTED`。**一个只有作弊才检测得出来的验证器是没有价值的**；
+      这条守的是「没错的时候也会闭嘴」。
+- [x] **全部测试离线通过** ← 待 Tushare 快照重建（23 项缺失快照失败集逐条不变）。 → **已于 2026-09-20 达成**（tushare 快照真实重建，全量离线 **0 failed / 1531 passed**，原 23 项阻塞解除）
+      本卡自身 `tests/test_cn_proof.py` **111 passed / 0 failed**（离线、无网络、无 .env）。
 
 ## 19. Priority
 
@@ -207,4 +242,17 @@ Demo 步骤 7b（DEMO_FLOW.md）：点击一条核心 Claim → 展示 Financial
 
 | 日期 | 记录 |
 |---|---|
-|  |  |
+| 2026-09-19 | **实现**：新建 `src/cn/proof/`（`models.py` 六证明块 + 五态 + 合并规则 / `passport.py` 构建 + 九项检查 + `verify_fpo`/`verify_claim` / `__init__.py`）+ `src/validation/proof_validator.py`（§13 三条规则 + `CONCLUSION_SECTIONS`/`REFRESH_MARKER`）+ `VerifyCnClaimTool`（`name="verify_cn_claim"`，只收 `document_id` + `claim_id`）+ `tests/test_cn_proof.py`（105 个测试函数 / 111 个用例）。`ProofContext` 一律**注入**不全局：graph / conflicts / calculation_registry / assumption_registry / run_manifest / declared_versions / declared_scopes / document_hashes / document_loader / tolerance，缺哪一项就只让**对应的那一项**检查降为 `skipped` 并写明原因（§22）。 |
+| 2026-09-19 | **偏差 1：§7.3 期间检查按字面实现会拦掉所有合法的跨期结论**。卡面写「`economic_period` 与 inputs period 一致」，但 `revenue_yoy`@2025FY 合法地同时依赖 2025FY 与 2024FY，平均净资产依赖两个资产负债表日 —— 要求全部输入同期间，等于对**本项目的核心比率**恒响。改为按字面背后的意图拆两段：①claim 期间必须等于**计算自己声明的输出期间**（CARD-03 已经决定过这份输出是关于哪一期，这是一次真核对）；②至少一项输入落在该期间。跨期输入如实报进 `cross_period_inputs` 但**不判失败** —— 两期输入是否合法是 CARD-02 期间引擎（与 CARD-22 F3/F4）的事，在这里重推一遍期间算术就是 §7.3 想避免的第二套实现。 |
+| 2026-09-19 | **偏差 2：§7.4 单位检查按字面实现是范畴错误**。`gross_margin` 声明 `PERCENT`，它的输入（gross_profit / revenue）声明 `元` —— 拿 claim 的单位去比输入的单位，会把语料里**每一个比率**判失败。单位属于**量**，不属于 claim。改为：①claim 指标的单位比对 **CARD-03 指标表的规范单位**（`metric_definition(metric).unit`，独立来源）；②同名指标的多条证据必须互相一致（这才抓得住「同一行两个输入一个记元、一个记万元」）。 |
+| 2026-09-19 | **偏差 3：拿派生值去比它的派生源不是核对，是回声** —— 同一个坑踩了两次。护照的 scope/currency/unit 是**派生**的（有计算项取自计算节点，无计算项取自首个证据）；拿它比回自己的来源**永远不可能不一致**，把它算进 `compared` 会让检查看起来比实际严。第一次修 `verify_scope_unit`；第二次发现 `_accounting_scope` 竟然用调用方声明**覆盖**了派生口径，于是 `verify_scope_unit` 里那一路径同样变成回声。最终形态：`AccountingContext` 把 `scope`（派生）+ `declared_scope`（调用方声明）+ `scope_basis` **分开存**（这样 §7.4 才可能抓到「结论说是母公司口径、数却是合并算出来的」）；派生的值如实列进 `derived` 并**排除在 `compared` 之外**；凡无法独立核对的项一律写进 `not_compared`，不装作查过。 |
+| 2026-09-19 | **偏差 4：哈希没重算时不得记 passed**。`verify_source` 初版在「没有 loader、也没有 manifest 可交叉核对」时返回 `passed`（证据都在、都 active、可定位）。这等于让护照**宣称一个从未建立过的完整性** —— 正是本项目禁止的静默假设（§11「验证器永远通过」的软性版本）。改为 `warned` + `impact=DEGRADED` 并显式带上 `hash_state`：`recomputed` / `in_manifest` / `unreadable` / `unchecked` 四态各自可读，报告里「查过」与「没查」始终分得开。 |
+| 2026-09-19 | **偏差 5：`verify_integrity` 的口径收窄**。§13 rule 1 只要求「proof_hash 可重算」，§12 edge 7 把失败定义成哈希失败 —— 那就只让这两件事移动判决。`run_id` 缺失 → `DEGRADED`（它是 CARD-09/12 的关联键，但没有 run_id 是**身份缺口**，不是假结论）；`audit_chain_ref` 与 `git_commit` 属 §4 列明的可选输入，**只记录进 `provenance_gaps` 不升级** —— 否则一篇干净年报永远到不了 `VERIFIED`，五态词表就退化成装饰，并训练用户忽略 `DEGRADED`。这里刻意分开的是两件事：「这条结论还站得住吗」与「这个构建可复现吗」。 |
+| 2026-09-19 | **偏差 6：§12 edge 6「证据被撤销」的落点**。原测试名写成「撤销 → STALE」，实测是 `BLOCKED`：`deactivate_evidence` 是 CARD-09 的**追加式撤回**，撤回一条 REQUIRED 边上的证据 → 上游 `UPSTREAM_BLOCKED` → 下游阻断。`STALE` 是留给 CARD-13 **supersession**（有一份更新的文件取代了旧值，旧结论仍有历史价值）的。两者语义不同，测试改名 `test_withdrawn_evidence_blocks_the_claim_through_the_engine` 并断言 `BLOCKED`。 |
+| 2026-09-19 | **偏差 7：§13 rule 2 的测试不能手工改 `overall_status`**。初版直接手改字段造出「BLOCKED 判决」喂给校验器，结果被校验器**正确地**拒了（改完的判决与各子项不一致，违反合并规则）。这不是校验器太严，是测试在伪造一个引擎产不出的对象。改用 `_blocked_verdict` / `_stale_verdict` / `_conflicted_verdict` 构造**真判决**。 |
+| 2026-09-19 | **修 CARD-03 真 bug（跨卡改动）**：`src/cn/analysis/metrics.py` 里 `revenue_yoy` / `revenue_qoq_single_quarter` / `net_profit_yoy` / `deducted_net_profit_yoy` 声明时**漏了 `unit`**，于是默认成 `Unit.YUAN`；而 YoY 分支实际产出的就是 `PERCENT`。表声明与产出**潜在不一致**，一直没被照出来是因为没有消费者按规范单位去核对。CARD-23 §7.4 的独立单位核对以 `metric_definition(metric).unit` 为真值来源，第一跑就把它照出来了。已修并回填 CARD-03 §16。这正是「创新卡反过来校验基础卡」应有的样子。 |
+| 2026-09-19 | **修一个测试构造错误（CARD-09 语义澄清，跨卡）**：测「SUPPORTING 上游失效只降覆盖、不阻断」时，claim 只写了 `dependency_metadata` 的 SUPPORTING 边、**没有 `derived_from`** —— 而 CARD-09 §7 的绑定规则要求 inference 必须有 `derived_from`，于是它在传播**还没走到 SUPPORTING 那一行**时就已是 `unsupported`。这个形状测到的是绑定规则，不是 §7b。改为真带 REQUIRED 派生（`_supporting_lapse_graph()`），并在测试里显式断言前提 `validation_status == supported`。已回填 CARD-09 §16 —— 否则下一个读到 §7b 表格的人会再写一遍同样的测试。 |
+| 2026-09-19 | **回归**：全量离线 **1194 passed / 23 failed / 2 skipped**（junit 解析，`errors=0`），失败集合 **14 / 6 / 2 / 1** 与 CARD-22 收尾时**逐条一致**（`test_cn_workbench_service` / `test_workbench_api` / `test_cn_report` / `test_cn_report_cli`，全部为缺失 Tushare 快照）；passed 增量 1083 → 1194 = **+111**，恰好等于本卡用例数，逐项可归因。冒烟 14/14 clean；`git diff --check` 无输出。 |
+| 2026-09-19 | **环境坑（写下来省下一次踩）**：全量回归必须**前台**跑。safe-delete 的 bulk guard 按「每轮对话」**累计**被删文件数（阈值 50），本轮先跑过一次子集后预算已耗尽，此时后台跑全量会把每个 teardown 的 `SystemExit: 1` 放大成 **220 errors / 984 passed 的假象** —— 看起来像产品崩了，其实 `errors` 全是 shim 在 teardown 拒删，`failed` 反而是准的。判据永远是 **junit 的失败集合**，不是 stdout 的计数。 |
+| 2026-09-19 | **未闭合**：§18 的 ablation 表（对比臂已注册，指标定义与运行器属 CARD-11，本卡不重复定义）+「全部测试离线通过」（待 Tushare 快照重建）。§17 的「点击 Claim → 展示护照 → VERIFY CLAIM」交互归 CARD-15；§20 决赛增强的证明链图可视化同样归 CARD-15。 |
+| 2026-09-20 | **§17「点击 Claim → 展示护照 → VERIFY CLAIM」已落地（由 CARD-15 施工，本卡记账）**：新增「结论护照」页（`workbench/demo/passport.py`）。关键设计：**"看护照"与"点 VERIFY"是两个分开的服务调用**——`passport_view()` 取护照，`verify_view()` 只跑一次验证。否则按钮只会回放页面加载时算过的结果，而剧本要的是"点击 → 系统重新执行"。验证路径纯确定性（重查文档哈希、重算公式、检查依赖状态，模型不参与）。§20 的证明链图可视化**未做**（决赛范围）。 || 2026-09-20 | **跨卡：tushare 快照真实重建**。用户填好 `.env` 的 `TUSHARE_TOKEN` 后，真实重建 9 个 `_tushare_v1` 快照（4 个标的 + 5 个白酒同业）→ 全量离线 **0 failed / 1531 passed / 0 skipped**。§18「全部测试离线通过」由 ☐ 转 ☑ —— 该条此前被 23 项快照缺失阻塞，与本卡代码无关。重建流程及三个坑（同业快照要一起建、bars 窗口不得越过研究时点、688836 上市日）见 `MEMORY.md`「快照重建」段。 |

@@ -22,7 +22,7 @@ from src.cn.benchmark import ABLATION_VARIANTS, evaluate_research_state, load_ca
 from src.cn.research import ResearchState
 
 ROOT = Path(__file__).parents[1]
-CASES = ROOT / "data" / "benchmarks" / "cn_ablation_v2.json"
+CASES = ROOT / "tests" / "fixtures" / "cn" / "benchmarks" / "cn_ablation_v2.json"
 FIXTURE = ROOT / "tests" / "fixtures" / "cn" / "600519.SH_illustrative_v1.json"
 
 

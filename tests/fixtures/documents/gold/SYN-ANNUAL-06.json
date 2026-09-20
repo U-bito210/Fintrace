@@ -1,0 +1,120 @@
+{
+  "document_id": "SYN-ANNUAL-06",
+  "filename": "annual_06_equity_shares.pdf",
+  "document_type": "annual",
+  "note": "股本 + 两期归母权益（CARD-08 每股估值来源）",
+  "expect_status": "ok",
+  "expect_scan_page": null,
+  "expect_injection": false,
+  "expect_facts_degraded": false,
+  "records": [
+    {
+      "document_id": "SYN-ANNUAL-06",
+      "metric": "期末总股本",
+      "period": null,
+      "expected_value": 4000000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 1
+    },
+    {
+      "document_id": "SYN-ANNUAL-06",
+      "metric": "期末总股本",
+      "period": null,
+      "expected_value": 3800000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 1
+    },
+    {
+      "document_id": "SYN-ANNUAL-06",
+      "metric": "归母净资产",
+      "period": null,
+      "expected_value": 30000000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 1
+    },
+    {
+      "document_id": "SYN-ANNUAL-06",
+      "metric": "归母净资产",
+      "period": null,
+      "expected_value": 26000000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 1
+    },
+    {
+      "document_id": "SYN-ANNUAL-06",
+      "metric": "资产总计",
+      "period": null,
+      "expected_value": 58000000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 1
+    },
+    {
+      "document_id": "SYN-ANNUAL-06",
+      "metric": "资产总计",
+      "period": null,
+      "expected_value": 52000000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 1
+    },
+    {
+      "document_id": "SYN-ANNUAL-06",
+      "metric": "营业收入",
+      "period": null,
+      "expected_value": 20000000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 2
+    },
+    {
+      "document_id": "SYN-ANNUAL-06",
+      "metric": "营业收入",
+      "period": null,
+      "expected_value": 17000000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 2
+    },
+    {
+      "document_id": "SYN-ANNUAL-06",
+      "metric": "营业成本",
+      "period": null,
+      "expected_value": 11000000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 2
+    },
+    {
+      "document_id": "SYN-ANNUAL-06",
+      "metric": "营业成本",
+      "period": null,
+      "expected_value": 9500000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 2
+    },
+    {
+      "document_id": "SYN-ANNUAL-06",
+      "metric": "归母净利润",
+      "period": null,
+      "expected_value": 3600000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 2
+    },
+    {
+      "document_id": "SYN-ANNUAL-06",
+      "metric": "归母净利润",
+      "period": null,
+      "expected_value": 2800000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 2
+    }
+  ]
+}

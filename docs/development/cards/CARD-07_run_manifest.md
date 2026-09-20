@@ -113,14 +113,15 @@ Demo 结尾展示：任选一次 run → 导出 manifest → 现场重放 → �
 
 ## 15. 验收标准
 
-- [ ] 17 字段 manifest 生成与测试
-- [ ] 九类 stage 事件全覆盖（file_load 到 report）
-- [ ] replay 确定性层全等验证通过
-- [ ] 事件只追加（防篡改测试）
-- [ ] 全部测试离线通过
+- [x] 17 字段 manifest 生成与测试（`RunManifest` 17 键齐全校验；offline 模式 `model` 系列为 `None` 但显式存在）
+- [x] 九类 stage 事件全覆盖（file_load 到 report）（集成测试断言九类 stage 全部出现）
+- [x] replay 确定性层全等验证通过（`replay()` 确定性层逐事件比对，全等→`status=ok`）
+- [x] 事件只追加（防篡改测试）（`emit` 仅以 append 模式写一行；读操作/二次 `emit` 不改变已写字节）
+- [x] 全部测试离线通过 —— **项目级阻塞**：全量离线 725 passed / **23 failed**，23 项全部来自缺失的本地 Tushare 快照（与 CARD-06 时失败集合逐条一致，非本卡引入）；CARD-07 自身 15 项测试全部离线通过。 → **已于 2026-09-20 达成**（tushare 快照真实重建，全量离线 **0 failed / 1531 passed**，原 23 项阻塞解除）
 
 ## 16. 执行备注（agent 填写）
 
 | 日期 | 记录 |
 |---|---|
-|  |  |
+| 2026-09-19 | 落地 `src/cn/runs/`：`models.py`（17 字段 `RunManifest` + `RunEvent` + `RunConfig` + `ReplayPlan`/`RunResult` + `Stage`/`ExecutionMode` 枚举 + `digest_of`/`sha256_file`/`collect_tool_versions`/`detect_git_commit`）、`recorder.py`（`RunRecorder.start/emit/finish/verify_replayable` + module-level `replay/list_runs/load_*`）、`cli.py`（list/show/verify/replay，Demo 现场重放）、`__init__.py`。只追加红线在 `_append_event` 用 append 模式一处落实；fail-closed：`emit` 写盘失败抛 `RunRecordError`；interrupted = `finished_at` 空。`replay` 分「确定性层全等 + LLM/采样层 drift」两段 diff（`sampled=True` 的 claim 事件计入采样层）。`calculation` 事件带 `calculation_id`（对齐 CARD-09 `Calculation`），`file_load` 事件带 `sha256`+`path`（replay 重校验输入未被篡改）。测试 `tests/test_cn_run_manifest.py` 15 项离线全过。全量套件失败集合仍为 23 不变（14 workbench_service + 6 workbench_api + 2 cn_report + 1 cn_report_cli），冒烟 14/14 clean。偏差：未把本模块直接接进现有 ResearchState/`workbench_service` 执行循环（保持扩展不重写；CARD-09 将借 `run_id` 关联），仅以集成测试驱动一次完整研究链路验证 replay。未伪造 Tushare 快照。 |
+| 2026-09-20 | **跨卡：tushare 快照真实重建**。用户填好 `.env` 的 `TUSHARE_TOKEN` 后，真实重建 9 个 `_tushare_v1` 快照（4 个标的 + 5 个白酒同业）→ 全量离线 **0 failed / 1531 passed / 0 skipped**。§15「全部测试离线通过」由 ☐ 转 ☑ —— 该条此前被 23 项快照缺失阻塞，与本卡代码无关。重建流程及三个坑（同业快照要一起建、bars 窗口不得越过研究时点、688836 上市日）见 `MEMORY.md`「快照重建」段。 |

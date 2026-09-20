@@ -31,7 +31,7 @@ from src.cn.benchmark import BenchmarkCase, BenchmarkRunner, load_cases
 from src.cn.offline_agent import OfflineCnAgent, SYSTEM_PROMPT
 
 
-DEFAULT_CASES = PROJECT_ROOT / "data" / "benchmarks" / "cn_agent_v1.json"
+DEFAULT_CASES = PROJECT_ROOT / "tests" / "fixtures" / "cn" / "benchmarks" / "cn_agent_v1.json"
 DEFAULT_SNAPSHOTS = PROJECT_ROOT / "data" / "snapshots" / "cn"
 DEFAULT_OUTPUT = PROJECT_ROOT / "output" / "benchmark"
 

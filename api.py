@@ -7,13 +7,14 @@ from __future__ import annotations
 
 from typing import Any, Callable, Literal
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import HTMLResponse
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from src.cn import workbench_service as service
+from src.cn import document_service as documentservice
 from src.cn import agent_service as agentservice
 from src.cn.agent_service import AgentResearchError
 from src.cn.errors import UnsupportedSymbolError
@@ -424,3 +425,120 @@ def acquire_daily_review(request: DailyReviewRequest) -> ApiEnvelope:
         return _ok(service.start_daily_review(request.review_date))
     except ValueError as exc:
         raise HTTPException(status_code=422, detail={"code": "INVALID_REQUEST", "message": str(exc)}) from exc
+
+
+# ---------------------------------------------------------------------------
+# Document Intelligence — read side of CARD-01's 报告数字 → 原始 PDF 页
+#
+# Responses carry no server filesystem path: a document is addressed by
+# ``document_id``, and its bytes are streamed through ``/source`` or rendered
+# through ``/pages/{page}.png``. That is what makes the reverse jump clickable
+# without exposing where the workspace keeps the file.
+# ---------------------------------------------------------------------------
+def _document_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, documentservice.FactNotFound):
+        return HTTPException(status_code=404, detail={"code": "FACT_NOT_FOUND", "message": "Document fact was not found."})
+    if isinstance(exc, documentservice.DocumentNotFound):
+        return HTTPException(status_code=404, detail={"code": "DOCUMENT_NOT_FOUND", "message": "Registered document was not found."})
+    return HTTPException(status_code=422, detail={"code": "DOCUMENT_NOT_LOCATABLE", "message": str(exc)})
+
+
+def _document_meta(**overrides: Any) -> dict[str, Any]:
+    return _meta(provider="document_registry", **overrides)
+
+
+@app.get("/api/documents")
+def list_documents(
+    document_type: str | None = Query(None, description="annual|interim|quarterly|announcement|report_draft|other"),
+    company: str | None = Query(None),
+) -> ApiEnvelope:
+    data = documentservice.list_documents(document_type=document_type, company=company)
+    return _ok(data, meta=_document_meta())
+
+
+@app.get("/api/documents/{document_id}")
+def document_detail(document_id: str) -> ApiEnvelope:
+    try:
+        return _ok(documentservice.document_detail(document_id), meta=_document_meta())
+    except KeyError as exc:
+        raise _document_error(exc) from exc
+
+
+@app.get("/api/documents/{document_id}/facts")
+def document_facts(
+    document_id: str,
+    page: int | None = Query(None, ge=1),
+    numeric_only: bool = Query(True, description="只返回可点击的数值单元格；行标签与表头仍参与标签重建。"),
+) -> ApiEnvelope:
+    try:
+        data = documentservice.document_facts(document_id, page=page, numeric_only=numeric_only)
+    except KeyError as exc:
+        raise _document_error(exc) from exc
+    return _ok(data, meta=_document_meta(unit=data["facts"][0]["unit"] if data["facts"] else None))
+
+
+@app.get("/api/documents/{document_id}/facts/{fact_id}/jump")
+def document_fact_jump(document_id: str, fact_id: str) -> ApiEnvelope:
+    """Reverse jump: one disclosed number → its source page and bbox."""
+    try:
+        data = documentservice.jump_target(document_id, fact_id)
+    except (KeyError, ValueError) as exc:
+        raise _document_error(exc) from exc
+    return _ok(data, meta=_document_meta(unit=data["unit"], currency=data["currency"]))
+
+
+@app.get("/api/documents/{document_id}/analysis")
+def document_analysis(document_id: str) -> ApiEnvelope:
+    """Return the deterministic CARD-02/03/04 analysis for one document.
+
+    This deliberately delegates to ``document_service`` so the API, Agent tool,
+    and Streamlit workbench expose the same normalized facts and calculations.
+    The endpoint never accepts caller-supplied numbers and never computes in the
+    HTTP layer.
+    """
+    try:
+        data = documentservice.document_analysis(document_id)
+    except KeyError as exc:
+        raise _document_error(exc) from exc
+    return _ok(
+        data,
+        meta=_document_meta(
+            currency=data.get("currency"),
+            unit=data.get("unit"),
+            validation_status=("error" if data.get("validation_errors") else "ok"),
+            data_coverage={
+                "data_complete": data.get("data_complete"),
+                "metric_count": data.get("metric_count", 0),
+                "missing_count": len(data.get("missing", [])),
+            },
+        ),
+    )
+
+
+@app.get("/api/documents/{document_id}/source")
+def document_source(document_id: str) -> Response:
+    """Stream the registered file for the embedded preview; never a filesystem path."""
+    try:
+        payload, media_type = documentservice.document_source(document_id)
+    except (KeyError, ValueError) as exc:
+        raise _document_error(exc) from exc
+    return Response(content=payload, media_type=media_type)
+
+
+@app.get("/api/documents/{document_id}/pages/{page}.png")
+def document_page_image(
+    document_id: str,
+    page: int,
+    fact_id: list[str] = Query(default_factory=list, description="要高亮 bbox 的事实 ID，可重复。"),
+) -> Response:
+    """Render one page as PNG with the given facts' bboxes outlined."""
+    highlights = []
+    try:
+        for identifier in fact_id:
+            target = documentservice.jump_target(document_id, identifier)
+            if target["bbox"]:
+                highlights.append(target["bbox"])
+        payload = documentservice.page_image(document_id, page, highlights=highlights)
+    except (KeyError, ValueError) as exc:
+        raise _document_error(exc) from exc
+    return Response(content=payload, media_type="image/png")

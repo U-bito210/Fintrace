@@ -1,0 +1,84 @@
+{
+  "document_id": "SYN-ANNUAL-04",
+  "filename": "annual_04_restated_comparative.pdf",
+  "document_type": "annual",
+  "note": "重述：上期列已重述 + 附注章节 + 调整前/调整后双列表",
+  "expect_status": "ok",
+  "expect_scan_page": null,
+  "expect_injection": false,
+  "expect_facts_degraded": false,
+  "records": [
+    {
+      "document_id": "SYN-ANNUAL-04",
+      "metric": "营业收入",
+      "period": null,
+      "expected_value": 1100000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 1
+    },
+    {
+      "document_id": "SYN-ANNUAL-04",
+      "metric": "营业收入",
+      "period": null,
+      "expected_value": 1000000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 1
+    },
+    {
+      "document_id": "SYN-ANNUAL-04",
+      "metric": "营业成本",
+      "period": null,
+      "expected_value": 700000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 1
+    },
+    {
+      "document_id": "SYN-ANNUAL-04",
+      "metric": "营业成本",
+      "period": null,
+      "expected_value": 720000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 1
+    },
+    {
+      "document_id": "SYN-ANNUAL-04",
+      "metric": "营业收入",
+      "period": null,
+      "expected_value": 900000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 3
+    },
+    {
+      "document_id": "SYN-ANNUAL-04",
+      "metric": "营业收入",
+      "period": null,
+      "expected_value": 1000000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 3
+    },
+    {
+      "document_id": "SYN-ANNUAL-04",
+      "metric": "营业成本",
+      "period": null,
+      "expected_value": 700000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 3
+    },
+    {
+      "document_id": "SYN-ANNUAL-04",
+      "metric": "营业成本",
+      "period": null,
+      "expected_value": 720000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 3
+    }
+  ]
+}

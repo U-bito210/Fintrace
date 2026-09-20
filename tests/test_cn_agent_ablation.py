@@ -53,7 +53,7 @@ class _LLMToolResponse:
         return len(self.tool_calls) > 0
 
 
-ABLATION_CASES = Path(__file__).parents[1] / "data" / "benchmarks" / "cn_agent_ablation_v3.json"
+ABLATION_CASES = Path(__file__).parent / "fixtures" / "cn" / "benchmarks" / "cn_agent_ablation_v3.json"
 FIXTURE = Path(__file__).parent / "fixtures" / "cn" / "600519.SH_illustrative_v1.json"
 BANK_FIXTURE = Path(__file__).parent / "fixtures" / "cn" / "600036.SH_bank_boundary_v1.json"
 

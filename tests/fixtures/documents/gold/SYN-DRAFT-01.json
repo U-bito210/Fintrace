@@ -1,0 +1,11 @@
+{
+  "document_id": "SYN-DRAFT-01",
+  "filename": "report_draft_01_summary.pdf",
+  "document_type": "report_draft",
+  "note": "研报草稿：摘要/基本面/风险",
+  "expect_status": "ok",
+  "expect_scan_page": null,
+  "expect_injection": false,
+  "expect_facts_degraded": false,
+  "records": []
+}

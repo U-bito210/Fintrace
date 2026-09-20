@@ -1,0 +1,11 @@
+{
+  "document_id": "SYN-ANN-04",
+  "filename": "announcement_04_correction.pdf",
+  "document_type": "announcement",
+  "note": "更正公告（口径信号）",
+  "expect_status": "ok",
+  "expect_scan_page": null,
+  "expect_injection": false,
+  "expect_facts_degraded": false,
+  "records": []
+}

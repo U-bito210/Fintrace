@@ -31,6 +31,9 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from src.cn.research_agent import SYSTEM_PROMPT, CnResearchAgent
 from src.cn.research import ResearchState
+# Pure data lookup (stdlib only) — importing the registry does NOT pull in any
+# model SDK, so this module stays importable and runnable offline.
+from src.llms.model_registry import cost_currency
 from src.validation.research_gate import snapshot_evidence_records
 
 
@@ -250,10 +253,19 @@ def evaluate_real_case(
     }
 
 
-def summarize_real(rows: Iterable[Mapping[str, Any]]) -> Dict[str, Any]:
+def summarize_real(
+    rows: Iterable[Mapping[str, Any]], *, cost_currency: Optional[str] = "USD"
+) -> Dict[str, Any]:
+    """Aggregate per-case rows.
+
+    ``cost_currency`` is the unit ``total_cost_usd`` is denominated in, carried
+    through as data so a reader never has to guess.  ``None`` means the unit is
+    unknown (an unpriced model), and in that case the sum is **not money**.
+    """
     rows = list(rows)
     if not rows:
-        return {"cases": 0, "pass_rate": 0.0, "total_cost_usd": 0.0}
+        return {"cases": 0, "pass_rate": 0.0, "total_cost_usd": 0.0,
+                "cost_currency": cost_currency}
     n = len(rows)
     return {
         "cases": n,
@@ -275,6 +287,7 @@ def summarize_real(rows: Iterable[Mapping[str, Any]]) -> Dict[str, Any]:
         "avg_llm_calls": sum(int(r.get("llm_calls", 0)) for r in rows) / n,
         "avg_latency_seconds": sum(float(r.get("latency_seconds", 0.0)) for r in rows) / n,
         "total_cost_usd": sum(float(r.get("cost_usd", 0.0)) for r in rows),
+        "cost_currency": cost_currency,
         "skipped_budget": sum(1 for r in rows if r.get("skipped_budget", False)),
     }
 
@@ -399,6 +412,19 @@ class RealBenchmarkRunner:
         if resume and checkpoint_path.exists():
             checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
 
+        # A cost ceiling is a safety mechanism, and it can only be one if the
+        # cost's unit of account is known.  An unpriced model contributes 0.0 to
+        # the running total, so the ceiling would fail *open* — silently, and
+        # exactly when it was supposed to protect the caller.  Refuse the
+        # combination instead of pretending it works.
+        run_cost_currency = cost_currency(model)
+        if max_cost_usd is not None and run_cost_currency is None:
+            raise ValueError(
+                f"模型 '{model}' 的成本币种未知（未定价，或 base_url 已被指向非注册端点），"
+                f"无法用 max_cost_usd={max_cost_usd} 做硬预算：未定价模型计入 0.0，"
+                f"总额会恒小于上限而永不触发。请去掉预算上限，或改用已定价模型。"
+            )
+
         snapshot_paths = [_resolve_snapshot(case, project_root, snapshot_dir) for case in self.cases]
         fingerprint = config_fingerprint(
             dataset_path=self.dataset_path, snapshot_paths=snapshot_paths,
@@ -413,6 +439,7 @@ class RealBenchmarkRunner:
             "dry_run": dry_run,
             "config_fingerprint": fingerprint,
             "network": False,
+            "cost_currency": run_cost_currency,
             "run_at": time.strftime("%Y-%m-%dT%H:%M:%S+08:00"),
         }
 
@@ -461,7 +488,7 @@ class RealBenchmarkRunner:
             if max_cost_usd is not None and total_cost >= max_cost_usd:
                 budget_reached = True
 
-        summary = summarize_real(rows)
+        summary = summarize_real(rows, cost_currency=run_cost_currency)
         payload: Dict[str, Any] = {"metadata": metadata, "summary": summary, "results": rows}
         write_real_outputs(output_dir, payload, cases=self.cases)
         return payload
@@ -561,10 +588,19 @@ def _summary_markdown(metadata: Mapping[str, Any], summary: Mapping[str, Any]) -
         f"| 结果匹配率 | {pct(summary.get('outcome_match_rate'))} |",
         f"| 校验匹配率 | {pct(summary.get('validator_match_rate'))} |",
         f"| 平均工具调用 / LLM 调用 | {summary.get('avg_tool_calls'):.1f} / {summary.get('avg_llm_calls'):.1f} |",
-        f"| 平均延迟 / 总成本 | {summary.get('avg_latency_seconds'):.1f}s / ${summary.get('total_cost_usd'):.6f} |",
+        f"| 平均延迟 / 总成本 | {summary.get('avg_latency_seconds'):.1f}s / {_cost_text(summary)} |",
         "",
     ]
     return "\n".join(lines)
+
+
+def _cost_text(summary: Mapping[str, Any]) -> str:
+    """Render the total cost with its unit — or say plainly that it is unknown."""
+    currency = summary.get("cost_currency")
+    if currency is None:
+        return f"未定价（{summary.get('total_cost_usd')}，币种未知，不可作为金额使用）"
+    symbol = {"USD": "$", "CNY": "¥"}.get(str(currency).upper(), f"{currency} ")
+    return f"{symbol}{float(summary.get('total_cost_usd') or 0.0):.6f}"
 
 
 def _failures_markdown(results: Sequence[Mapping[str, Any]]) -> str:

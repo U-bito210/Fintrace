@@ -1,0 +1,57 @@
+{
+  "document_id": "SYN-DRAFT-CITATIONS",
+  "filename": "draft_04_planted_citations.pdf",
+  "title": "示例制造股份有限公司 2025 年度跟踪报告（草稿，含引用错误）",
+  "note": "植入 缺引用／引用不存在／引用对象错／页码错／无证据因果 五类。",
+  "as_of": "2026-05-01",
+  "references": [
+    "annual_04_restated_comparative.pdf",
+    "announcement_04_correction.pdf"
+  ],
+  "uses_market_document": false,
+  "lines": [
+    "公司2025年营业收入为110万元。",
+    "公司2025年营业收入为110万元。（来源：不存在的年报.pdf#p1）",
+    "公司2025年营业收入为110万元。（来源：announcement_04_correction.pdf#p1）",
+    "公司2025年营业收入为110万元。（来源：annual_04_restated_comparative.pdf#p9）",
+    "受原材料价格上涨推动，2025年营业收入下降。（来源：annual_04_restated_comparative.pdf#p1）"
+  ],
+  "expected_claims": 5,
+  "expected": [
+    {
+      "check_type": "missing_citation",
+      "claim_index": 0,
+      "severity": "warning",
+      "expected_contains": "需给出可核验的披露来源",
+      "note": "factual 数值句没有任何出处。"
+    },
+    {
+      "check_type": "unsupported_citation",
+      "claim_index": 1,
+      "severity": "error",
+      "expected_contains": "已注册文档",
+      "note": "引用的文档在本系统内不存在。"
+    },
+    {
+      "check_type": "wrong_citation",
+      "claim_index": 2,
+      "severity": "error",
+      "expected_contains": "营业收入",
+      "note": "更正公告不含任何报表数值，引用它作为营收出处是引用错对象。"
+    },
+    {
+      "check_type": "wrong_page",
+      "claim_index": 3,
+      "severity": "error",
+      "expected_contains": "第1页、第3页",
+      "note": "营收披露在第 1、3 页，草稿标注第 9 页。"
+    },
+    {
+      "check_type": "unsupported_causal_claim",
+      "claim_index": 4,
+      "severity": "warning",
+      "expected_contains": "独立证据",
+      "note": "因果断言只给出一个来源，两侧无法各自取证。"
+    }
+  ]
+}

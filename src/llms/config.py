@@ -13,7 +13,13 @@ from typing import Callable, Tuple, List, Dict
 # Import all available models (sync callables)
 from .openai import gpt_4o_mini, gpt_5_4_mini
 from .claude import claude_3_5_sonnet, claude_3_5_haiku, claude_3_opus
-from .openai_compatible import deepseek_v4_flash, deepseek_v4_pro
+from .openai_compatible import (
+    deepseek_v4_flash,
+    deepseek_v4_pro,
+    qwen3_max,
+    qwen_plus,
+    qwen_flash,
+)
 
 # Unified model registry (single source of truth for all model metadata)
 from .model_registry import (
@@ -37,6 +43,9 @@ _SYNC_MODEL_FUNCTIONS: Dict[str, Callable] = {
     "claude-3-opus": claude_3_opus,
     "deepseek-v4-flash": deepseek_v4_flash,
     "deepseek-v4-pro": deepseek_v4_pro,
+    "qwen3-max": qwen3_max,
+    "qwen-plus": qwen_plus,
+    "qwen-flash": qwen_flash,
 }
 
 

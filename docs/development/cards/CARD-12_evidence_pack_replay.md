@@ -7,7 +7,7 @@
 | 对应赛题 | "来源可核验、执行过程可追溯、运行结果可复现"的最终交付形态 |
 | 依赖 | CARD-07（events/manifest）、CARD-09（图） |
 | 实现复杂度 | 中（约 3–4 人日） |
-| 状态 | ☐ 未开始 |
+| 状态 | 🟡 代码+30 测试就绪；7/7 场景全部实现；§14 重放 UI 已随 CARD-15 落地（2026-09-20）；§13 人工验收截图待做 |
 | Skill 要求 | 动手前加载 financial-data-provenance |
 
 ## 1. 目标
@@ -106,13 +106,26 @@ Replay Success Rate 已由 CARD-07 测；本卡验收重放 UI 的呈现完整�
 
 ## 15. 验收标准
 
-- [ ] 13 类产物文件导出与完整性校验
-- [ ] 重放 UI 十一阶段时间线 + 步骤展开五要素齐全
-- [ ] 7 个失败注入场景全部可现场复现（脚本化，一键触发）
-- [ ] 全部测试离线通过
+- [x] 13 类产物文件导出与完整性校验 ← `PACK_FILES` 恰为 13 条（2 必需 + 8 完整性 + 3 可选）；`export_evidence_pack()` 产出目录 + `evidence_pack.zip` + `PACK_STATUS.json`（把缺件清单钉在包内，读者不会看漏）；`validate_pack()` 三重校验：13 类存在性、`manifest.run_id` ↔ `events.jsonl` 一致性、Pack 内引用可解析。`require_complete=True` 时**拒绝导出残包**
+- [ ] 重放 UI 十一阶段时间线 + 步骤展开五要素齐全 ← **引擎已完成、UI 未接**：`replay_timeline()` 产出 11 阶段（`file_load → hash → parse → extract → normalize → retrieval → tool_call → calculation → claim → validation → report`），每步含 `input/output/source/status/timestamp` 五要素 + 事件级明细；未记录步骤显式标 `not_recorded`（**不省略**）；失败状态按严重度冒泡到步骤（`failed > error > blocked > unsupported > warning > partial`）。**页面归属 CARD-15**（本卡 §6 原文即写「走 CARD-15 页面骨架」）
+- [x] 7 个失败注入场景全部可现场复现（脚本化，一键触发） ← **7/7 通过**（CARD-13 落地后 #5 由 deferred 转为真实实现），`python -m src.cn.failure_injection` 一键跑全套：#1 阻断每股估值 ✅ / #2 citation incomplete ✅ / #3 unit_mismatch ✅ / #4 定位错误同比 ✅ / #6 下游 blocked ✅ / #7 unsupported causal ✅。**#5（旧财报+更正公告 → source conflict）已由 CARD-13 落地**：读更正公告正文的「更正前/更正后」对，按来源优先级取更正值并留 `ConflictRecord`
+- [x] 全部测试离线通过 ← **原未勾**：CARD-12 新增 27 测试全绿（`tests/test_cn_evidence_pack.py` 27 passed），全量离线 **939 passed / 23 failed**，失败集合与基线逐条一致 → **已于 2026-09-20 达成**（tushare 快照真实重建，全量离线 **0 failed / 1531 passed**，原 23 项阻塞解除）
 
 ## 16. 执行备注（agent 填写）
 
 | 日期 | 记录 |
 |---|---|
-|  |  |
+| 2026-09-19 | 新建 `src/cn/evidence_pack.py`（13 类产物模型 + 导出/zip + 三重校验 + 11 阶段重放 + 多 run manifest diff）、`src/cn/failure_injection.py`（7 场景注册表 + 6 个真实实现 + 一键 CLI + markdown 渲染）、`tests/test_cn_evidence_pack.py`（**27 全绿**）。 |
+| 2026-09-19 | **偏差 1（13 类分三档，不是「要么全有要么全无」）**：§5 只列了 13 个文件，没说哪些缺了算残包。按 §8 边缘 1（run 中断无 report 仍要导出）与 §9（禁止残包）的张力，分三档：**必需 2**（`manifest.json`/`events.jsonl`——缺了就不是 run 的记录）、**完整性 8**（`report.md`/`report.json`/`financials.xlsx`/`valuation.xlsx`/`claims.json`/`evidence.json`/`calculations.json`/`validation.json`——缺任一项 → 整包标 `incomplete` 并列出）、**可选 3**（`corrections.xlsx`/`charts/`/`citations/`——缺了只记 warning）。2+8+3=13。 |
+| 2026-09-19 | **偏差 2（`manifest.json` 与 `events.jsonl` 不接受调用方覆盖）**：二者是 run **自身**的记录，不是调用方提供的产物。若允许 `artefacts` 覆盖，就能导出一个 manifest 与 events 互相矛盾的包——那正是 §10「run_id 一致性」要防的。故这两个名字被显式跳过，永远从 run store 复制。 |
+| 2026-09-19 | **偏差 3（重放「阶段」与 CARD-07「事件阶段」不是一对一）**：CARD-07 的 `Stage` 有 9 个，§6 要求 11 个（多出 `hash` 与 `extract`）。不做「给 Stage 加两个枚举值」的侵入式改动（那会动 CARD-07 的契约），而是把重放做成**视图**：`hash` = 带 `sha256` 的 `file_load` 事件；`extract` = `parse` 阶段里的抽取类事件。`REPLAY_TIMELINE` 是唯一的映射表。 |
+| 2026-09-19 | **偏差 4（「不可定位」要分开说，不能混为一谈）**：注入场景 #2 初版断言「页码移除后 trace 不再 locatable」——**实测失败**。原因是 `EvidenceNode.locatable = page 或 available_at 或 snapshot_id`，页码没了但**快照时点仍在**，故 locatable 依旧 True。这不是 bug，是设计：文档页定位与快照定位是两个不同的定位轴。改成断言「trace 不再落到任何 `page` 节点」（即 CARD-11 `page_attribution_accuracy` 度量的那件事），并在 `observed` 里**同时报出**「快照定位仍在，locatable 仍为 True 的 claim 有 N 条」。把一个「半真」的现象说成「全坏」才是真正的失真。 |
+| 2026-09-19 | **偏差 5（`run_id` 一致性只做单向集合检查）**：`events.jsonl` 的 `run_id` 集合必须是 `{manifest.run_id}` 的子集——即不允许出现**别的** run 的事件；但不要求每条事件都被记录到 manifest（`events.jsonl` 本来就是只追加流，事件多于 manifest 字段是正常的）。 |
+| 2026-09-19 | **偏差 6（引用可解析性只报「引用不存在」，不报「有未被引用的」）**：§10 要求「report 中引用的 claim/evidence id 在 Pack 文件内全部可解析」，方向是**单向**的：引用了 Pack 里没有的 → error；Pack 里有没被引用的 → 不报（`validation.json` 等文件本来就不引用 claim）。 |
+| 2026-09-19 | **踩坑（值得记）**：`_collect_ids()` 初版只处理 `"evidence_id": "E1"`（单值）形态，遇到 CARD-09/10 实际输出的 `"evidence_ids": ["E1","E2"]`（**列表**）时**静默漏收**，于是「引用可解析性」这道校验对真实载荷**完全空转**（测试当场抓到）。修法：列表形态逐个收集。教训与 CARD-11 的子串隔离 bug 同源——**校验器对真实数据形态的假设若不写成测试，它就是在空转**。 |
+| 2026-09-19 | **测试**：§11 全绿——13 类清单与导出/zip/状态单；缺件标 `incomplete` + 清单可见；`require_complete` 拒残包；未知名/无 manifest 的处理；调用方无法覆盖 manifest/events；run_id 不一致；引用不可解析（正反例）；目录被当文件提供时如实报 note；损坏 events 行「跳过 + 命名 + 不中断重放」；11 阶段顺序与五要素；未记录步骤显式 `not_recorded`；失败阶段冒泡；分页不丢事件（`窗口 + truncated == 总数`）；manifest diff（真差异 / 输入不同则标不可比）。§12：失败 run → Pack → 重放里失败可见；无 report 的中断 run 仍导出并标 `incomplete`。 |
+| 2026-09-19 | 全量离线 **939 passed / 23 failed / 0 errors / 2 skipped**，失败集合与基线逐条一致（passed 净增 27）。冒烟 14/14 clean，`git diff --check` clean，新增文件行尾空白扫描无命中。 |
+| 2026-09-19 | **未闭合**：§14 重放 UI（归 CARD-15）；场景 #5 source conflict（归 CARD-13）；§13「重放 UI 呈现完整性人工验收 + 截图入执行备注」需 UI 落地后才能做。 |
+| 2026-09-19 | **补记**：场景 #5 已随 CARD-13 落地，`run_scenario(5)` 由 deferred 变为真实通过；原「deferred 要如实列出」的两项测试改为「不得有任何场景停在 deferred」，从负面断言升级为正面覆盖。 |
+| 2026-09-20 | **§14 重放 UI 已落地（由 CARD-15 施工，本卡记账，卡 §6 原话即"走 CARD-15 页面骨架"）**：新增「审计回放」页（`workbench/demo/replay.py`）。① 仓库里原本**没有任何 run**（`output/demo/runs` 从未生成），所以页面第一次打开会**真的录一次 run**（`record_demo_run()` 走同一条确定性管线，事件是真实发生过的步骤，不是造数据）；② 11 阶段时间线由 `replay_timeline()` 产出，未记录到的阶段**显式标 `not_recorded`**，不省略；③ 证据包导出后**报缺哪些件**（`validate_pack` 的 incomplete 清单），残包不伪装成完整包，zip 可直接下载。录制/导出落 `output/`（已 gitignore），演示重放多少次仓库状态都不变。 |
+| 2026-09-20 | **跨卡：tushare 快照真实重建**。用户填好 `.env` 的 `TUSHARE_TOKEN` 后，真实重建 9 个 `_tushare_v1` 快照（4 个标的 + 5 个白酒同业）→ 全量离线 **0 failed / 1531 passed / 0 skipped**。§15「全部测试离线通过」由 ☐ 转 ☑ —— 该条此前被 23 项快照缺失阻塞，与本卡代码无关。重建流程及三个坑（同业快照要一起建、bars 窗口不得越过研究时点、688836 上市日）见 `MEMORY.md`「快照重建」段。 |

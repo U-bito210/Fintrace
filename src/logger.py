@@ -100,9 +100,20 @@ class StockAnalystLogger:
                 self.logger.info(f"   📊 {key}: {value}")
         self.logger.info("=" * 80)
 
-    def llm_call(self, operation: str, cost: float, tokens_used: int = None):
-        """Log LLM API call information."""
-        msg = f"🤖 LLM Call: {operation} | Cost: ${cost:.6f}"
+    def llm_call(self, operation: str, cost: float, tokens_used: int = None,
+                 currency: str = "USD"):
+        """Log LLM API call information.
+
+        ``currency`` is the unit the *cost* is denominated in.  Pass ``None``
+        when the model has no quotable price: printing ``$0.000000`` for an
+        unpriced model is how "unknown" gets read as "free".
+        """
+        if currency:
+            symbol = {"USD": "$", "CNY": "¥"}.get(currency.upper(), currency + " ")
+            cost_text = f"{symbol}{cost:.6f}"
+        else:
+            cost_text = "未定价（成本未知）"
+        msg = f"🤖 LLM Call: {operation} | Cost: {cost_text}"
         if tokens_used:
             msg += f" | Tokens: {tokens_used}"
         self.logger.info(msg)

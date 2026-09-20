@@ -1,0 +1,108 @@
+{
+  "suite_id": "cn_agent_v2",
+  "suite_version": "2.0",
+  "supersedes": null,
+  "note": "cn_agent_v1.json 保持不动；本文件只描述 cn_agent_v2 三级评测体系。",
+  "tiers": {
+    "synthetic": {
+      "storage": "tests/fixtures/",
+      "in_git": true,
+      "generator": "scripts/gen_document_fixtures.py",
+      "gold": "tests/fixtures/documents/gold/",
+      "manifest": "tests/fixtures/documents/manifest.json",
+      "components": [
+        "card01_document_extraction",
+        "card05_report_checker"
+      ],
+      "description": "合成年报/公告/研草稿 + planted 错误 + 封闭算例真值。可离线复现。"
+    },
+    "real": {
+      "storage": "data/benchmark_real/real_*/",
+      "in_git": false,
+      "fetch": "scripts/fetch_benchmark_real.py",
+      "manifest": "data/benchmark_real/manifest.sha256",
+      "labeling_spec": "docs/benchmark/LABELING_SPEC.md",
+      "description": "公开披露的真实年报/半年报/季报/公告/研报草稿 + 人工标注真值。版权材料不进 Git。"
+    },
+    "holdout": {
+      "storage": "data/benchmark_real/real_holdout_*/",
+      "in_git": false,
+      "fetch": "scripts/fetch_benchmark_real.py",
+      "description": "Real 的扣留子集。收口前不参与任何开发调试（目录隔离 + 流程纪律）。"
+    }
+  },
+  "truth_label_schema": {
+    "fields": ["document_id", "metric", "period", "expected_value", "unit", "scope", "page"],
+    "optional_fields": ["expected_evidence_ids", "expected_text"],
+    "note": "每条真值必须能回查原文页；period 缺省用 period_key。"
+  },
+  "metric_groups": {
+    "extraction": [
+      "extraction_precision",
+      "extraction_recall",
+      "extraction_f1",
+      "numeric_exact_match",
+      "unit_accuracy",
+      "period_accuracy",
+      "scope_accuracy",
+      "page_attribution_accuracy"
+    ],
+    "citation": ["citation_precision", "citation_recall"],
+    "calculation": ["calculation_accuracy"],
+    "checker": [
+      "checker_precision",
+      "checker_recall",
+      "checker_f1",
+      "checker_false_positive_rate"
+    ],
+    "agent": [
+      "tool_selection_accuracy",
+      "parameter_accuracy",
+      "task_completion_rate",
+      "evidence_coverage"
+    ],
+    "safety": ["unsafe_conclusion_leakage"],
+    "replay": ["replay_success_rate", "multi_run_consistency"],
+    "cost": ["latency_seconds", "token_cost"]
+  },
+  "adversarial_metrics": [
+    "mutation_detection_precision",
+    "mutation_detection_recall",
+    "mutation_detection_f1",
+    "mutation_detection_false_positive_rate"
+  ],
+  "threshold_status": "UNFROZEN",
+  "threshold_discipline": "所有目标值待各模块 baseline 测试后冻结：baseline → freeze_thresholds → 版本化。禁止预填 95%/98% 类目标。",
+  "ablation_comparisons": [
+    {
+      "innovation": "ACME (CARD-22)",
+      "baseline": "parser_only",
+      "treatment": "parser_plus_accounting_constraints",
+      "metric": "financial_extraction_error_detection"
+    },
+    {
+      "innovation": "Claim Passport (CARD-23)",
+      "baseline": "citation_only",
+      "treatment": "fpo_verifier",
+      "metric": "unsupported_claim_detection"
+    },
+    {
+      "innovation": "Thesis Fragility (CARD-24)",
+      "baseline": "no_fragility_engine",
+      "treatment": "fragility_engine",
+      "metric": "critical_dependency_correctness"
+    },
+    {
+      "innovation": "Temporal Revalidation (CARD-25)",
+      "baseline": "full_recomputation",
+      "treatment": "incremental_subgraph",
+      "metric": "nodes_recomputed"
+    },
+    {
+      "innovation": "FinFuzz (CARD-26)",
+      "baseline": "regular_tests_only",
+      "treatment": "regular_plus_finfuzz",
+      "metric": "per_error_type_recall"
+    }
+  ]
+}

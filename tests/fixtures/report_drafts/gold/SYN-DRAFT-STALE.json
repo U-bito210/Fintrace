@@ -1,0 +1,26 @@
+{
+  "document_id": "SYN-DRAFT-STALE",
+  "filename": "draft_06_planted_stale.pdf",
+  "title": "示例股份有限公司 2025 年度快评（草稿，含引用时点问题）",
+  "note": "as_of=2026-04-01：annual_01（2026-03-28 公开）可用，annual_04（2026-04-25 公开）尚不可得。",
+  "as_of": "2026-04-01",
+  "references": [
+    "annual_01_profit_continued.pdf",
+    "annual_04_restated_comparative.pdf"
+  ],
+  "uses_market_document": false,
+  "lines": [
+    "公司2025年营业收入为123.46万元。（来源：annual_01_profit_continued.pdf#p1）",
+    "公司2025年营业收入为110万元。（来源：annual_04_restated_comparative.pdf#p1）"
+  ],
+  "expected_claims": 2,
+  "expected": [
+    {
+      "check_type": "stale_citation",
+      "claim_index": 1,
+      "severity": "warning",
+      "expected_contains": "尚未公开",
+      "note": "草稿时点引用了当时还未公开的年报。"
+    }
+  ]
+}

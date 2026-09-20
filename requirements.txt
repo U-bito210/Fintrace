@@ -10,3 +10,4 @@ fastapi==0.141.1
 uvicorn==0.52.4
 streamlit==1.61.1
 plotly==6.9.0
+jieba==0.42.1  # CARD-06 检索分词（MIT）；缺失时 tokenize 自动降级到确定性空白+CJK二元，离线测试仍可跑

@@ -8,6 +8,7 @@ state, never from prose.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -15,9 +16,12 @@ import pytest
 
 from src.cn.real_benchmark import (
     RealBenchmarkCase,
+    RealBenchmarkRunner,
+    _summary_markdown,
     config_fingerprint,
     evaluate_real_case,
     load_real_cases,
+    summarize_real,
 )
 from src.cn.research import ResearchState
 
@@ -170,3 +174,93 @@ def test_config_fingerprint_is_deterministic_and_sensitive(tmp_path):
     assert a == b
     assert a != c
     assert len(a) == 16
+
+
+# ============================================================================
+# Cost unit of account — a total that cannot be read as money
+# ============================================================================
+
+def _row(**overrides) -> dict:
+    row = {
+        "case_id": "t-1", "category": "normal", "expected_outcome": "ok",
+        "actual_valid": True, "validator_errors": [], "passed": True,
+        "tool_f1": 1.0, "parameter_accuracy": True, "evidence_coverage": 1.0,
+        "step_efficiency": 1.0, "recovery_rate": 1.0, "within_step_limit": True,
+        "claim_safety": True, "outcome_match": True, "validator_match": True,
+        "tool_calls": 2, "llm_calls": 3, "latency_seconds": 1.5, "cost_usd": 0.25,
+    }
+    row.update(overrides)
+    return row
+
+
+def test_summary_carries_the_cost_currency_through():
+    """The unit travels with the number, so no reader has to assume USD."""
+    assert summarize_real([])["cost_currency"] == "USD"
+    assert summarize_real([])["total_cost_usd"] == 0.0
+    assert summarize_real([], cost_currency=None)["cost_currency"] is None
+    assert summarize_real([_row()])["cost_currency"] == "USD"
+    assert summarize_real([_row()], cost_currency=None)["cost_currency"] is None
+
+
+def test_report_prints_the_cost_in_its_own_currency():
+    summary = summarize_real([_row()], cost_currency="CNY")
+    text = _summary_markdown({"executor": "CnResearchAgent", "model": "qwen-plus"}, summary)
+    assert "¥0.250000" in text
+    assert "$" not in text
+
+
+def test_report_says_unknown_rather_than_zero_for_an_unpriced_model():
+    """The one thing a cost column must never do is turn "unknown" into a number."""
+    summary = summarize_real([_row()], cost_currency=None)
+    text = _summary_markdown(
+        {"executor": "CnResearchAgent", "model": "qwen-plus", "cost_currency": None}, summary
+    )
+    assert "未定价" in text
+    assert "$" not in text
+
+
+def test_a_hard_cost_ceiling_is_refused_for_an_unpriced_model(tmp_path, monkeypatch):
+    """A ceiling that cannot see the spend is not a ceiling.
+
+    An unpriced model adds 0.0 to the running total, so the budget would fail
+    *open* — silently, and exactly when it was meant to protect the caller.
+    Refusing the combination is the fail-closed behaviour the project requires.
+    """
+    monkeypatch.delenv("DASHSCOPE_BASE_URL", raising=False)
+    cases = load_real_cases(CASES, project_root=PROJECT_ROOT)
+    runner = RealBenchmarkRunner(cases, dataset_path=CASES)
+
+    with pytest.raises(ValueError, match="币种未知"):
+        asyncio.run(runner.run(
+            project_root=PROJECT_ROOT,
+            snapshot_dir=PROJECT_ROOT / "tests" / "fixtures" / "cn",
+            model="qwen-plus",
+            temperature=0.0,
+            max_steps=1,
+            dry_run=True,
+            output_dir=tmp_path,
+            max_cost_usd=1.0,
+        ))
+
+
+def test_cost_ceiling_is_allowed_for_a_priced_model(tmp_path, monkeypatch):
+    """...and a priced model with an unknown-price *endpoint* is refused too.
+
+    Same failure mode, different cause: the registered USD rate belongs to
+    api.deepseek.com, so pointing the client at a reseller voids it.
+    """
+    monkeypatch.setenv("DEEPSEEK_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+    cases = load_real_cases(CASES, project_root=PROJECT_ROOT)
+    runner = RealBenchmarkRunner(cases, dataset_path=CASES)
+
+    with pytest.raises(ValueError, match="币种未知"):
+        asyncio.run(runner.run(
+            project_root=PROJECT_ROOT,
+            snapshot_dir=PROJECT_ROOT / "tests" / "fixtures" / "cn",
+            model="deepseek-v4-flash",
+            temperature=0.0,
+            max_steps=1,
+            dry_run=True,
+            output_dir=tmp_path,
+            max_cost_usd=1.0,
+        ))

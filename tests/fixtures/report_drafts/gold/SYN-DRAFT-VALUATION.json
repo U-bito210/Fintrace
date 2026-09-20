@@ -1,0 +1,35 @@
+{
+  "document_id": "SYN-DRAFT-VALUATION",
+  "filename": "draft_07_planted_valuation.pdf",
+  "title": "示例制造股份有限公司 估值与口径点评（草稿，含估值与口径错误）",
+  "note": "植入 估值倍数错 与 口径错配（母公司／合并）两类；依赖合成市价文档。",
+  "as_of": "2026-05-01",
+  "references": [
+    "annual_04_restated_comparative.pdf",
+    "synthetic_market_data.json"
+  ],
+  "uses_market_document": true,
+  "lines": [
+    "公司当前市盈率为50倍。（来源：SYN-MARKET-01#p1）",
+    "公司2025年母公司营业收入为60万元。（来源：SYN-MARKET-01#p1）",
+    "公司2025年合并营业收入为60万元。（来源：SYN-MARKET-01#p1）",
+    "目标价与目标倍数由分析师独立判断，不属于事实核查范围。"
+  ],
+  "expected_claims": 3,
+  "expected": [
+    {
+      "check_type": "valuation_multiple_error",
+      "claim_index": 0,
+      "severity": "error",
+      "expected_contains": "10.0x",
+      "note": "以披露股价 1.10 元、总股本 10,000,000 股、归母净利润 1,100,000 元复算，PE 应为 10.0 倍。"
+    },
+    {
+      "check_type": "scope_error",
+      "claim_index": 1,
+      "severity": "error",
+      "expected_contains": "母公司",
+      "note": "草稿称母公司口径 60 万元，该数值实为合并口径；母公司口径为 55 万元。"
+    }
+  ]
+}

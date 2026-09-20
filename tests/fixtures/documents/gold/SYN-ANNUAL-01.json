@@ -1,0 +1,120 @@
+{
+  "document_id": "SYN-ANNUAL-01",
+  "filename": "annual_01_profit_continued.pdf",
+  "document_type": "annual",
+  "note": "双列 + 续表合并",
+  "expect_status": "ok",
+  "expect_scan_page": null,
+  "expect_injection": false,
+  "expect_facts_degraded": false,
+  "records": [
+    {
+      "document_id": "SYN-ANNUAL-01",
+      "metric": "营业收入",
+      "period": null,
+      "expected_value": 1234567.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 1
+    },
+    {
+      "document_id": "SYN-ANNUAL-01",
+      "metric": "营业收入",
+      "period": null,
+      "expected_value": 2000000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 1
+    },
+    {
+      "document_id": "SYN-ANNUAL-01",
+      "metric": "营业成本",
+      "period": null,
+      "expected_value": 800000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 1
+    },
+    {
+      "document_id": "SYN-ANNUAL-01",
+      "metric": "营业成本",
+      "period": null,
+      "expected_value": 1500000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 1
+    },
+    {
+      "document_id": "SYN-ANNUAL-01",
+      "metric": "销售费用",
+      "period": null,
+      "expected_value": 120000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 1
+    },
+    {
+      "document_id": "SYN-ANNUAL-01",
+      "metric": "销售费用",
+      "period": null,
+      "expected_value": 110000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 1
+    },
+    {
+      "document_id": "SYN-ANNUAL-01",
+      "metric": "净利润",
+      "period": null,
+      "expected_value": 345678.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 2
+    },
+    {
+      "document_id": "SYN-ANNUAL-01",
+      "metric": "净利润",
+      "period": null,
+      "expected_value": 600000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 2
+    },
+    {
+      "document_id": "SYN-ANNUAL-01",
+      "metric": "利润总额",
+      "period": null,
+      "expected_value": 400000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 2
+    },
+    {
+      "document_id": "SYN-ANNUAL-01",
+      "metric": "利润总额",
+      "period": null,
+      "expected_value": 700000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 2
+    },
+    {
+      "document_id": "SYN-ANNUAL-01",
+      "metric": "归母净利润",
+      "period": null,
+      "expected_value": 330000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 2
+    },
+    {
+      "document_id": "SYN-ANNUAL-01",
+      "metric": "归母净利润",
+      "period": null,
+      "expected_value": 580000.0,
+      "unit": "元",
+      "scope": "合并",
+      "page": 2
+    }
+  ]
+}

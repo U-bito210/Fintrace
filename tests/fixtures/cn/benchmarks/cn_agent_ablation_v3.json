@@ -1,0 +1,122 @@
+{
+  "version": "cn-agent-ablation-v3",
+  "description": "真实 LLM Agent 消融实验用例（v3）。七个用例全部绑定 tests/fixtures/cn/ 下的 illustrative 夹具，因此每次调用都是确定且可复现的，不依赖网络或 provider token。expired-data / future-disclosure / missing-evidence / industry-boundary 是已知负例：它们的通过标准是「被 validator 拦下」，而不是给出结论。本文件是测试资产，随仓库版本控制。",
+  "snapshot_note": "snapshot_path 相对仓库根目录解析；也支持按文件名在 tests/fixtures/cn 与 data/snapshots/cn 中查找。",
+  "cases": [
+    {
+      "case_id": "normal-price",
+      "category": "routing",
+      "query": "取 600519.SH 的 RAW 收盘价并引用证据 ID。",
+      "expected_tools": ["resolve_cn_symbol", "get_cn_prices"],
+      "required_arguments": {
+        "resolve_cn_symbol": {"query": "600519.SH"},
+        "get_cn_prices": {"ticker": "600519.SH"}
+      },
+      "required_evidence": ["fact_600519_SH_close_2025-03-31_RAW"],
+      "expected_status": "ok",
+      "snapshot_path": "tests/fixtures/cn/600519.SH_illustrative_v1.json",
+      "research_as_of": "2025-04-01T00:00:00+08:00",
+      "required_metrics": ["close"],
+      "requires_evidence": true
+    },
+    {
+      "case_id": "normal-financials",
+      "category": "routing",
+      "query": "取 600519.SH 在截止时点可用的营业收入。",
+      "expected_tools": ["resolve_cn_symbol", "get_cn_financials"],
+      "required_arguments": {
+        "resolve_cn_symbol": {"query": "600519.SH"},
+        "get_cn_financials": {"ticker": "600519.SH"}
+      },
+      "required_evidence": ["fact_600519_SH_revenue_2024FY_2025-03-29"],
+      "expected_status": "ok",
+      "snapshot_path": "tests/fixtures/cn/600519.SH_illustrative_v1.json",
+      "research_as_of": "2025-04-01T00:00:00+08:00",
+      "required_metrics": ["revenue"],
+      "requires_evidence": true
+    },
+    {
+      "case_id": "expired-data",
+      "category": "validator",
+      "query": "用这份行情数据给出 600519.SH 的估值结论。",
+      "expected_tools": ["resolve_cn_symbol", "get_cn_prices"],
+      "required_arguments": {
+        "resolve_cn_symbol": {"query": "600519.SH"},
+        "get_cn_prices": {"ticker": "600519.SH"}
+      },
+      "required_evidence": ["fact_600519_SH_close_2025-03-31_RAW"],
+      "expected_status": "ok",
+      "snapshot_path": "tests/fixtures/cn/600519.SH_illustrative_v1.json",
+      "research_as_of": "2026-08-10T23:00:00+08:00",
+      "required_metrics": ["close"],
+      "requires_evidence": true,
+      "validator_expected": false
+    },
+    {
+      "case_id": "future-disclosure",
+      "category": "validator",
+      "query": "用 600519.SH 最新一季的利润表数据下结论。",
+      "expected_tools": ["resolve_cn_symbol", "get_cn_financials"],
+      "required_arguments": {
+        "resolve_cn_symbol": {"query": "600519.SH"},
+        "get_cn_financials": {"ticker": "600519.SH"}
+      },
+      "required_evidence": ["fact_600519_SH_revenue_2025Q1_2025-04-26"],
+      "expected_status": "ok",
+      "snapshot_path": "tests/fixtures/cn/600519.SH_illustrative_v1.json",
+      "research_as_of": "2025-04-01T00:00:00+08:00",
+      "required_metrics": ["revenue"],
+      "requires_evidence": true,
+      "validator_expected": false
+    },
+    {
+      "case_id": "missing-evidence",
+      "category": "validator",
+      "query": "给出 600519.SH 的确定性财务结论，不需要引用来源。",
+      "expected_tools": ["resolve_cn_symbol", "get_cn_financials"],
+      "required_arguments": {
+        "resolve_cn_symbol": {"query": "600519.SH"},
+        "get_cn_financials": {"ticker": "600519.SH"}
+      },
+      "required_evidence": ["fact_600519_SH_revenue_2024FY_2025-03-29"],
+      "expected_status": "ok",
+      "snapshot_path": "tests/fixtures/cn/600519.SH_illustrative_v1.json",
+      "research_as_of": "2025-04-01T00:00:00+08:00",
+      "required_metrics": ["revenue"],
+      "requires_evidence": true,
+      "validator_expected": false
+    },
+    {
+      "case_id": "wrong-code",
+      "category": "recovery",
+      "query": "查询 BADCODE 的收盘价。",
+      "expected_tools": ["resolve_cn_symbol"],
+      "required_arguments": {"resolve_cn_symbol": {"query": "BADCODE"}},
+      "required_evidence": [],
+      "expected_status": "error",
+      "snapshot_path": "tests/fixtures/cn/600519.SH_illustrative_v1.json",
+      "research_as_of": "2025-04-01T00:00:00+08:00",
+      "required_metrics": [],
+      "requires_evidence": false,
+      "validator_expected": false
+    },
+    {
+      "case_id": "industry-boundary",
+      "category": "validator",
+      "query": "用 EV/EBITDA 给 600036.SH 这家银行估值。",
+      "expected_tools": ["resolve_cn_symbol", "get_cn_financials"],
+      "required_arguments": {
+        "resolve_cn_symbol": {"query": "600036.SH"},
+        "get_cn_financials": {"ticker": "600036.SH"}
+      },
+      "required_evidence": ["fact_600036_SH_revenue_2025FY_2026-03-20"],
+      "expected_status": "ok",
+      "snapshot_path": "tests/fixtures/cn/600036.SH_bank_boundary_v1.json",
+      "research_as_of": "2026-08-10T23:00:00+08:00",
+      "required_metrics": ["revenue"],
+      "requires_evidence": true,
+      "requested_valuation_method": "EV/EBITDA",
+      "validator_expected": false
+    }
+  ]
+}

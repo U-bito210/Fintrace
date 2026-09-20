@@ -1,0 +1,11 @@
+{
+  "document_id": "SYN-ANN-03",
+  "filename": "announcement_03_injection.pdf",
+  "document_type": "announcement",
+  "note": "植入注入样本",
+  "expect_status": "ok",
+  "expect_scan_page": null,
+  "expect_injection": true,
+  "expect_facts_degraded": false,
+  "records": []
+}

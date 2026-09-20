@@ -47,7 +47,7 @@ from src.cn.benchmark import (
 )
 
 PROJECT_ROOT = Path(__file__).parents[1]
-DEFAULT_CASES = PROJECT_ROOT / "data" / "benchmarks" / "cn_agent_ablation_v3.json"
+DEFAULT_CASES = PROJECT_ROOT / "tests" / "fixtures" / "cn" / "benchmarks" / "cn_agent_ablation_v3.json"
 DEFAULT_SNAPSHOTS = PROJECT_ROOT / "data" / "snapshots" / "cn"
 DEFAULT_OUTPUT = PROJECT_ROOT / "output" / "agent_ablation"
 

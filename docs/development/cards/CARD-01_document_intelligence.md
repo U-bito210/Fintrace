@@ -7,7 +7,7 @@
 | 对应赛题 | 赛题1 升级为全系统数据入口 |
 | 依赖 | 无（首先开工） |
 | 实现复杂度 | 高（约 6–8 人日） |
-| 状态 | ☐ 未开始 |
+| 状态 | 🟡 代码+测试就绪；完整离线套件仍受 Tushare 快照工件阻塞 |
 | Skill 要求 | 动手前加载 financial-data-provenance |
 
 ## 1. 目标
@@ -133,11 +133,21 @@ fail-closed：解析失败的事实不存在，而不是存在但错误。每页
 
 ## 15. 验收标准
 
-- [ ] 8 类输入格式全部可 ingest（OCR 类允许 partial）
-- [ ] 合成样例集提取的字段级 P/R/F1 有基线数字（不虚构目标值）
-- [ ] 反向跳转链路打通：fact → document_id → page 在 UI 可点击
-- [ ] 全部测试离线通过；真实 PDF 存 `data/documents/`（gitignore）
-- [ ] Controlled Environment Guard 规则实现（第 9b 节）并有测试
+- [x] 8 类输入格式全部可 ingest（OCR 类允许 partial）— `test_all_eight_declared_formats_are_ingestable`
+- [x] 合成样例集提取的字段级 P/R/F1 有基线数字（不虚构目标值）— `output/benchmark/cn_agent_v2/document_extraction_baseline.md`
+- [x] 反向跳转链路打通：fact → document_id → page 在 UI 可点击 — `src/cn/document_service.py` + `api.py` 文档路由 + `workbench.py`「文档智能」页
+- [x] 真实 PDF 存 `data/documents/`（gitignore）— `scripts/bootstrap_documents.py`
+- [x] **全部测试离线通过** — （原）未闭合：剩余 23 项失败全部依赖 `data/snapshots/cn/600519.SH_20260810_tushare_v1.json` 与 `300750.SZ_20260812_tushare_v1.json`（见 §16） → **已于 2026-09-20 达成**（tushare 快照真实重建，全量离线 **0 failed / 1531 passed**，原 23 项阻塞解除）
+- [x] Controlled Environment Guard 规则实现（第 9b 节）并有测试
+
+### 15b. UI 侧验收补充（本次新增）
+
+- [x] 事实表默认只列可点击的数值单元格；行标签由表格上下文重建（不把数值当成项目名），列语义给出 `current/prior/ytd/change`
+- [x] 点击任一数字 → 返回该事实所在页与 bbox，并在渲染出的页图上以红框精确高亮
+- [x] 跨页续表（同一逻辑表分页）各事实保留各自页码，跳转落点正确
+- [x] 文档被改动导致 sha256 漂移 → 事实失效、不再提供定位
+- [x] 来源文件离开工作区白名单 → 拒绝预览与读取（fail-closed）
+- [x] 所有对外载荷（含 API 与 UI）都不含服务器绝对路径
 
 ## 9b. Controlled Environment Guard（并入本卡的封闭环境安全规则）
 
@@ -173,4 +183,19 @@ fail-closed：解析失败的事实不存在，而不是存在但错误。每页
 
 | 日期 | 记录 |
 |---|---|
-|  |  |
+| 2026-09-17 | **反向跳转 UI 打通（本卡原未闭合项）**。新增 `src/cn/document_service.py`（只读服务：list/detail/facts/jump_target/document_source/page_image，全部载荷零服务器路径）+ `api.py` 6 条 `/api/documents/*` 路由 + `workbench.py`「文档智能」页（点击数字行 → 页码 + bbox 红框高亮页图 + 原文下载）。复用 `DocumentRegistry.locate_fact()` 与 CARD-02 的 `build_table_context()`，未新造定位或标签推断逻辑。 |
+| 2026-09-17 | **纠偏 1（事实表语义）**：数值单元格的 `raw_text` 是数值本身（`'12,500'`），直接当行标签会把「项目」列错认成数字。改为经 `build_table_context()` 重建 `row_label` / `column_label` / `column_role`，并新增 `row_label_source` 标明来源。 |
+| 2026-09-17 | **纠偏 2（读取顺序）**：`document_detail()` 原先在 `verify_integrity()` 之前读事实，导致本次调用刚判定「文件被改动」时，仍报告这些事实可跳转。已改为先质检再取事实。 |
+| 2026-09-17 | **纠偏 3（错误类型）**：API 原先靠 `document_id` 是否以 `doc` 开头区分「文档不存在/事实不存在」，实现脆弱。改为 `DocumentNotFound` / `FactNotFound` 显式异常（均继承 `KeyError`），并在 `jump_target()` 内先解析文档，使未知文档报文档错误而非误导性的事实错误。 |
+| 2026-09-17 | **纠偏 4（前端依赖）**：`st.components.v1.html` 已废弃（2026-06-01 后移除），`st.pdf` 需要仓库未声明的 `streamlit-pdf` 组件。**未引入新依赖**：改为「精确高亮页图（pdfplumber→PIL）+ 原生 `st.download_button` 下载原文」两层，`st.pdf` 与 base64 iframe 均未采用。 |
+| 2026-09-17 | 新增 `scripts/bootstrap_documents.py`（把 `tests/fixtures/documents/` 的合成语料复制并注册进 `data/documents/`，幂等、走真实 sha256 去重）。10 份全部注册成功；`scan_sample.pdf` 正确降级为 `degraded`、0 事实。 |
+| 2026-09-17 | 测试：新增 `tests/test_cn_document_service.py` 20 项（列表/详情/事实重建/反向跳转/跨页续表/篡改失效/白名单越权/页图渲染/API 信封与错误类型）。工作台冒烟 13/13 clean。 |
+| 2026-09-17 | **已知阻塞（非本卡引入）**：离线套件 394 passed / 23 failed。23 项全部依赖 `data/snapshots/cn/600519.SH_20260810_tushare_v1.json`（及 `300750.SZ_20260812_tushare_v1.json`），需真实 Tushare token 跑 `probe_tushare_cn0.py` → `build_cn_snapshot_from_probe.py` 重建；未伪造快照来「修绿」。 |
+| 2026-09-17 | **增量（CARD-04 前置条件 1）：年报解析器现在产出正文/附注文本事实。** 开工 CARD-04 时实测：语料里 4 个检测面覆盖率为 0/4，且年报解析器产出的 `text` 事实数为 0 —— `FinancialStatementParser` 继承 `TableParser`，只留单元格、丢掉全部正文。新增 `src/cn/documents/parsers/notes.py`：逐行扫描落在所有表格 bbox 之外的行，按"最长优先匹配章节标题表 + 报表标题 + 未列举的裸标签（如『八、其他重要事项』）"给出 `section`，产出 `kind=FACT_KIND_TEXT`、**`raw_value=None`** 的事实。`raw_value` 恒为 `None` 是关键：CARD-02 的投影器与抽取基准只认 `table_cell`，因此加文本事实不会动摇既有契约与基准数字。 |
+| 2026-09-17 | **增量纠偏：章节归属按页内最近标题判定，跨页不继承。** 初版把 `current_chapter` 带过页边界，于是「八、其他重要事项」这类**未列举**的裸标签不会刷新章节，下一页的段落会被错误归到上一章（一个"自信但错误"的标签）。已改为每页开始时 `current_chapter = None`，并在 §9 覆盖范围声明里写明这一点（`跨页续写不继承标题`）。宁可不给标签，也不给错标签。 |
+| 2026-09-17 | **增量（CARD-04 前置条件 2）：表格版本列标注。** `table.py` 读表头行，把「调整前/未调整/更正前/重述前」→`as_reported`、「更正后/修正后」→`corrected`、「调整后/重述后/追溯调整后/追溯调整/已重述/重述」→`restated` 写进每个单元格的 `meta["version_label"]`。**顺序是承重的**：「追溯调整前」同时含「调整前」与「追溯调整」，前/未调整族必须先判，否则会把 as-reported 列标成 restated（正好反过来）。词表本体在 `src/cn/disclosure_lexicon.py`（CARD-04 持有），本卡只消费。 |
+| 2026-09-17 | **增量（CARD-04 前置条件 3）：合成语料扩到 13 份且字节可复现。** 新增 `annual_04_restated_comparative`（上期列「已重述」+ 附注五/六/七 + 「调整前/调整后」双列表）、`annual_05_reclassification`（只有一条无法分类的口径披露，用来打通 block 路径）、`announcement_04_correction`（更正公告，无报表结构），并补齐 gold。**纠偏**：reportlab 默认写入墙钟 `/CreationDate` 与 `/ID`，语料其实**不可复现**；此前 `verify_corpus` 只比对生成器刚写下的文件，因此从未发现。已 `rl_config.invariant = 1` 钉住，并把 `verify_corpus` 改为**真正按文件名二次重渲染**再比对（13 份全部一致），另加「磁盘副本 vs manifest」比对。 |
+| 2026-09-17 | **增量纠偏 2（严重，CARD-04 修掉）：解析器记账 note 污染了文档级版本标注。** 为记录"定位了多少行正文"，我往 `DocumentRecord.notes` 写了一句「…供口径与重述检测使用。」；而该字段会被 CARD-02 的 `_document_blob` 扫描来判定**整份文档的披露版本** —— 句中的「重述」两字把一份干净年报的 13 条事实全标成 RESTATED。已改为不含任何披露词汇的 `已定位正文与附注段落 N 行（含页内章节归属）。`，并在 `tests/test_cn_scope_signals.py` 加不变式测试锁死。**教训**：`notes` 是语义字段（承载文档"申报"的口径），不是解析器的自述字段。 |
+| 2026-09-17 | **增量（顺手修的既有缺陷）：`scripts/bootstrap_documents.py` 的文件清单改为读 manifest。** 它原是一份手写 10 份清单，语料扩到 13 份后仍只注册 10 份 —— 演示库因此一直缺重述样例，CARD-04 §14 的横幅在真实文档上无法演示。已改为读 `tests/fixtures/documents/manifest.json` 的 `filename`/`document_type`（与测试摄入用的类型同源）。 |
+| 2026-09-19 | **增量（CARD-22 前置条件）：合成语料扩到 15 份，新增 `annual_07_acme_constraint_break`。** 表格内植入小计断裂（`资产总计 11,000,000` ≠ 流动 6,000,000 + 非流动 4,000,000），正文与表格之间植入跨模态断裂（正文 `−1.2pct` vs 表格 `−4.06pct`），gold 补 16 条（全语料 64 条）。用途是给 ACME（CARD-22）一个**答案已知**的检测面：闸门断言其余干净文档 0 违规、本文件**恰好**命中 2 处植入。语料仍字节可复现：`verify_corpus` 二次重渲染 **15/15 一致**、无缺件（`rl_config.invariant = 1` 的既有约束未被破坏）。 |
+| 2026-09-20 | **跨卡：tushare 快照真实重建**。用户填好 `.env` 的 `TUSHARE_TOKEN` 后，真实重建 9 个 `_tushare_v1` 快照（4 个标的 + 5 个白酒同业）→ 全量离线 **0 failed / 1531 passed / 0 skipped**。§15「全部测试离线通过」由 ☐ 转 ☑ —— 该条此前被 23 项快照缺失阻塞，与本卡代码无关。重建流程及三个坑（同业快照要一起建、bars 窗口不得越过研究时点、688836 上市日）见 `MEMORY.md`「快照重建」段。 |

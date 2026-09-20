@@ -7,7 +7,7 @@
 | 对应赛题 | 北京赛：赛题2/5（创新一）；华北五省：Constraint Reasoning / Multimodal Understanding |
 | 依赖 | CARD-01（文档解析）、CARD-02（规范化/期间键）、CARD-13（cross-source 裁决）、现有 `src/cn/domain.py`（FinancialStatement） |
 | 实现复杂度 | 高（约 6 人日：基础约束 3 + 跨源 1.5 + 跨模态 1.5） |
-| 状态 | ☐ 未开始 |
+| 状态 | 🟡 代码+70 测试就绪（2026-09-19 收尾，全量离线 1083 passed / 23 failed）；§17 PDF 跳转 UI 已随 CARD-15 落地（2026-09-20）；§18 ablation 表与「全部测试离线通过」未闭合，见 §16 |
 | Skill 要求 | 动手前加载 financial-data-provenance |
 
 > 本卡前身：v3.1 的 "Accounting Integrity Validator (ACEE)"。v3.2 按最终创新体系升级为 ACME：在会计完整性约束之上，增加 **Table Structural / Period / Cross-period / Cross-source / Cross-modal** 六类约束族，成为"解析→约束验证→异常定位→降级/重新解析/人工复核"的完整质量控制层。
@@ -193,14 +193,44 @@ Demo 步骤 4b（见 DEMO_FLOW.md）：上传真实年报 → 展示一个约束
 
 ## 18. Acceptance Criteria（验收标准）
 
-- [ ] 六类约束族全部有测试
-- [ ] 容差策略函数有测试并通过
-- [ ] 期间约束零重复实现（只调现有 FinancialPeriodEngine 断言）
-- [ ] 跨源四分类输出正确；裁决交接 CARD-13 链路打通
-- [ ] 跨模态不一致检测有正反例测试
-- [ ] 初赛无任何自动静默修值路径（代码断言）
-- [ ] ablation 至少"parser only vs parser+constraints"可运行出结果（不编数字）
-- [ ] 全部测试离线通过
+- [x] **六类约束族全部有测试**：`tests/test_cn_acme.py` 69 项，按族组织 —— F1 `test_balance_sheet_equation_*`
+      / `test_gross_profit_identity_*` / `test_identities_never_mix_consolidated_and_parent_scope`；
+      F2 `test_subtotal_*` / `test_label_column_is_not_mistaken_for_a_value_column`；
+      F3 `test_disclosed_single_quarter_*` / `test_period_relations_never_reimplement_period_arithmetic`；
+      F4 `test_opening_balance_*` / `test_card04_signal_is_consumed_by_attribute_not_reimplemented`；
+      F5 `test_matching_sources_are_reported_as_matched` / `test_differing_scope_is_not_comparable_never_a_conflict`；
+      F6 `test_body_change_that_contradicts_the_table_is_flagged` / `test_a_correct_body_claim_produces_no_finding`。
+      每族均有**正例 + 反例**（探测器恒响 / 恒不响都在此失败）。
+- [x] **容差策略函数有测试并通过**：`test_tolerance_is_the_larger_of_absolute_floor_and_relative_band`、
+      `test_tolerance_is_per_unit_so_ratios_are_not_swallowed_by_a_yuan_floor`、
+      `test_classify_distinguishes_passed_warning_and_violated`（三态而非两态）、
+      `test_exemption_without_a_source_is_refused`（**无来源的白名单在构造期即拒绝**）、
+      `test_exemption_widens_the_band_but_still_reports_the_residual`。
+- [x] **期间约束零重复实现**：`test_period_relations_never_reimplement_period_arithmetic` 读取
+      `period_relations.py` 源码断言其不含自写差分，且只经 `FinancialPeriodEngine.derive_single_quarters`；
+      `test_mixed_scope_group_makes_the_engine_refuse_and_the_finding_says_so` 覆盖引擎拒答路径
+      （拒答记 `check_failed`，不静默通过）。
+- [x] **跨源四分类输出正确；裁决交接 CARD-13 链路打通**：`cross_source.py` 不持有任何比较算术，
+      构造 `ConflictCandidate` 后调 CARD-13 `compare_pair`，`VERDICT_STATUS` 只做词表映射。
+      `test_real_cross_source_difference_is_flagged_and_handed_to_card13` 断言 finding 里
+      `expected=20,000,000 / actual=19,000,000` —— **两个值都留下，本卡不选边**。
+- [x] **跨模态不一致检测有正反例测试**：正例 `test_body_change_that_contradicts_the_table_is_flagged`
+      （正文 −1.2pct vs 表格 −4.0588pct）；反例 `test_a_correct_body_claim_produces_no_finding`。
+      另含 §12 edge 6 的第三方缺位记 `N/A`（`test_chart_annotation_can_be_a_third_party_*`）与
+      无基准时的如实告警（`test_body_claim_without_a_computable_benchmark_is_recorded_as_a_warning`）。
+- [x] **初赛无任何自动静默修值路径（代码断言）**：`test_no_constraint_module_ever_writes_a_financial_value`
+      以负向先行断言扫描 13 个模块源码的赋值模式（`\.value\s*=(?!=)` 等 —— 用 `!=` 排除
+      `denominator.value == 0` 这类**比较**，否则探测器把 `=` 与 `==` 混为一谈）；
+      `test_no_constraint_module_imports_an_llm_client` 以 AST 解析 import 节点断言零模型客户端
+      （不用子串匹配：`__init__` 的文档字符串本身就在**声明**「不导入 src.llms」，
+      子串扫描无法区分「声称没有」与「有」）。`CorrectionTrail.is_complete()` 四字段齐备是
+      `auto_corrected` 的唯一放行条件，校验器 `_check_correction_trails` 强制。
+- [ ] **ablation 至少"parser only vs parser+constraints"可运行出结果（不编数字）** ← 未完成，**交接 CARD-11 §7b**。
+      对比臂已在 `benchmarks/cn_agent_v2.json` 注册（`baseline: parser_only` → `treatment:
+      parser_plus_accounting_constraints`，指标 `financial_extraction_error_detection`），
+      但**指标定义属 CARD-11**，本卡不得另立一份（CARD-11 组件归并规则：同一指标两条定义即报错）。
+      本卡的检测能力已由语料闸门实测，见 §23「语料误报闸门」行；ablation **表**待 CARD-11 §7b 运行器就位。
+- [x] **全部测试离线通过** ← 待 Tushare 快照重建（23 项缺失快照失败集逐条不变） → **已于 2026-09-20 达成**（tushare 快照真实重建，全量离线 **0 failed / 1531 passed**，原 23 项阻塞解除）
 
 ## 19. Priority
 
@@ -224,4 +254,20 @@ Demo 步骤 4b（见 DEMO_FLOW.md）：上传真实年报 → 展示一个约束
 
 | 日期 | 记录 |
 |---|---|
-|  |  |
+| 2026-09-19 | **实现**：新建 `src/cn/acme/`（`models.py` / `tolerance.py` / `identities.py` / `structural.py` / `period_relations.py` / `cross_period.py` / `cross_source.py` / `cross_modal.py` / `validator.py` / `adapters.py` / `__init__.py`）+ `src/validation/acme_validator.py` + `ValidateCnAcmeTool`（`name="validate_cn_acme"`，只收 `document_id`）+ `tests/test_cn_acme.py`（69 项）。六族全实现（F1–F6），非仅 P0 基础四族。 |
+| 2026-09-19 | **符号惯例（全卡唯一）**：`expected` = **独立推导出的参考值**，`actual` = **文档印出来的值**，`residual = expected − actual`，写在 `models.py`；由 §13 rule 2 强制可重算。F1 用「另两行推出的值 vs 印刷值」（毛利：`revenue − operating_cost` 为 expected），F5 用「高优先级来源 vs 被比对来源」。同一惯例贯穿六族，避免「同一条式子在两族里正负相反」。 |
+| 2026-09-19 | **三态而非两态**：`residual == 0 → passed`，容差内非零 → `warning`，容差外 → `violated`。§7 只写了「容差内 warning / 容差外 violated」，但若把 0 也归 warning，**每一条被满足的约束都会涌进 review_queue**，队列当场失去可读性。 |
+| 2026-09-19 | **容差 per-unit**：元 1000 / PERCENT 0.05 / BP 5 / MULTIPLE 0.005 / TABLE_UNIT 0.5。单一 1000 元地板套到百分数上会把每一个比率比较整个吞掉（33.0% 与任意百分数之差恒 < 1000）。这是「单位不同则容差不同」而非「多处硬编码」。 |
+| 2026-09-19 | **偏差 1：F2 从邻接启发式改为声明式 spec**。初版按「相邻行相减」推小计关系，在 `annual_06` 上把「资产总计 = 期末总股本 + 归母净资产」判成小计断裂 —— **真误报**。改为 `SUBTOTAL_SPECS` 显式声明（`资产总计 = 流动资产合计 + 非流动资产合计` 等，每条带 accounting source），并写明能看/不能看：**能**看「汇总之汇总」，**不能**看「科目明细之汇总」（metric 词典不是会计科目表，在此自造一张等于伪造被检的关系）。同时修掉两个真 bug：首列标签被当数值列读、子项跨列借用。 |
+| 2026-09-19 | **偏差 2：少数股东权益 → `not_comparable` 而非 `violated`**。表上同时有归母权益与少数股东权益时，归母权益单独无法闭合 `资产 = 负债 + 权益`；此处报违规是**用自己的缺指标造出来的误报**。记 not_comparable 并说明原因，不沉默、也不冤枉文档。 |
+| 2026-09-19 | **偏差 3：F3 只调引擎，拒答即 `check_failed`**。期间差分全部委托 `FinancialPeriodEngine.derive_single_quarters`，本卡零重复实现（测试直接读源码断言）。引擎拒答（如同一财政期重复出现）记 `check_failed`，**不静默通过**；单季缺端点记 `not_comparable`（不是跳过 —— 「查不了」与「没问题」必须分开）。 |
+| 2026-09-19 | **偏差 4：F5 两趟配对（修正一处假陈述）**。初版把 scope 放进配对键，于是「合并营收 vs 母公司营收」退化成双向 `skipped_missing_field` —— 这是**对文档的假陈述**（文档确实印了营收行），且把真正的可比性阻断埋成数据缺口。改为：同键 → 交 CARD-13 比较；单侧键 → 找同 (metric, period, currency) 的**异口径对应项** → 交 CARD-13 判 `NOT_COMPARABLE`（理由串含「口径不同」，结论不落 CARD-22）；确无对应项才跳过。 |
+| 2026-09-19 | **偏差 5：F5 刻意不复用 §7 的 0.1% 容差**。跨源相等 = 「同一个数字印了两次」（CARD-13 §8 edge 3），若放宽到 0.1%，真实的「厂商值 vs 财报值」差异会被降级成友好的 `ROUNDING_MATCH`，抢掉 CARD-13 本该裁决的案子。`cross_source.py` 模块 docstring 记录该决定，模块内**不持有任何比较算术**（否则就是对同一个数字持有第二种意见）。 |
+| 2026-09-19 | **偏差 6：F6 句级 → 子句级解析**。「报告期内公司毛利率为 33.0%，较上年同期下降 1.2 个百分点」按整句取数会抓到 **33.0** 当变动值。改为子句切分后按角色取值，歧义的「下降 5%」（未说明是相对还是绝对）**如实跳过并留 note**。另：`ratio_series` 的 bucket key 必须含期间，否则一条跨年序列塌成单点，变动永远算不出来。 |
+| 2026-09-19 | **修 CARD-02 真 bug（跨卡改动）**：`src/cn/normalization/metrics.py::resolve_metric` 的「最长同义词胜出」把「**流动资产合计**」映射到 `total_assets`，于是在投影里顶掉文档实际印刷的「资产总计」—— 一个更窄的小计冒充了它的父汇总。新增 `_is_narrower_aggregate()` 守卫：更窄的小计一律拒绝映射并记 unknown，绝不静默出值。新增 `tests/test_cn_normalization.py::test_narrower_subtotals_never_impersonate_their_parent_total`。已回填 CARD-02 §16。 |
+| 2026-09-19 | **语料误报闸门（本质检点）**：`synthetic_corpus.py` 新增 `annual_07_acme_constraint_break.pdf`（植入 F2 小计断裂 `资产总计 11,000,000 vs 10,000,000` + F6 跨模态断裂 `正文 −1.2pct vs 表格 −4.06pct`），语料 14→15 篇。闸门断言：**6 篇干净文档 0 违规**，`annual_07` **恰好**命中 2 处植入且不多不少 —— 一个卖点是「系统发现自己错了」的层，只有在没错时也能闭嘴才可信；F2 初版正是死在这一条上才改成声明式。已回填 CARD-01 §16。 |
+| 2026-09-19 | **零静默全覆盖**：每族**永不返回空集**。缺字段 → `skipped_missing_field`，未启用 → `families_not_checked` + `constraints_not_available`（带 reason），引擎拒答 → `check_failed`。`IntegrityReport` 上「已检查 ⊕ 未检查 = 全集」由 §13 `_check_family_coverage` 强制（重叠、未知族、无理由的未检查族均为 error）。 |
+| 2026-09-19 | **回归**：全量离线 **1083 passed / 23 failed / 2 skipped**，失败集合与 CARD-13 收尾时**逐条一致**（report 2 / cli 1 / workbench_service 14 / api 6）；冒烟 14/14 clean；`git diff --check` 无输出。passed 增量 1013 → 1083 = **+70**，逐项可归因：本卡 69 项 + CARD-02 守卫 1 项。 |
+| 2026-09-19 | **未闭合**：§18 末两项。① CARD-11 §7b 的 ablation **表**（对比臂已注册，指标定义属 CARD-11，本卡不重复定义）；② 「全部测试离线通过」待 Tushare 快照重建。§17 的 PDF 跳转 UI 归 CARD-15。 |
+| 2026-09-20 | **§17 PDF 跳转 UI 已落地（由 CARD-15 施工，本卡记账）**：新增「ACME 约束」页（`workbench/demo/acme.py`）。页面按本卡的**零静默全覆盖**口径呈现：六族逐族报告，同时把 **`families_not_checked`** 与 `constraints_not_available`（带 reason）放在显眼位置——「已检查 ⊕ 未检查 = 全集」是 §13 的硬规则，页面上同样不允许只报检查过的那部分。违规项可跳回原始 PDF 页。另注：服务层信封把引擎自己的 `status` 搬到 `acme_status` 后再写自己的 `status`（CARD-15 侧通用修复），否则"引擎说它没法判定"会被改写成"一切正常"。 |
+| 2026-09-20 | **跨卡：tushare 快照真实重建**。用户填好 `.env` 的 `TUSHARE_TOKEN` 后，真实重建 9 个 `_tushare_v1` 快照（4 个标的 + 5 个白酒同业）→ 全量离线 **0 failed / 1531 passed / 0 skipped**。§18「全部测试离线通过」由 ☐ 转 ☑ —— 该条此前被 23 项快照缺失阻塞，与本卡代码无关。重建流程及三个坑（同业快照要一起建、bars 窗口不得越过研究时点、688836 上市日）见 `MEMORY.md`「快照重建」段。 |

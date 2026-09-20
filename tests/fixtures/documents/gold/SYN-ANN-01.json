@@ -1,0 +1,11 @@
+{
+  "document_id": "SYN-ANN-01",
+  "filename": "announcement_01_meeting.pdf",
+  "document_type": "announcement",
+  "note": "股东大会通知",
+  "expect_status": "ok",
+  "expect_scan_page": null,
+  "expect_injection": false,
+  "expect_facts_degraded": false,
+  "records": []
+}

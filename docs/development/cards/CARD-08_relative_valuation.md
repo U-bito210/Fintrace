@@ -7,7 +7,7 @@
 | 对应赛题 | 赛题4 重要金融工具（初赛版） |
 | 依赖 | CARD-02（规范化财务）、CARD-07（计算记录） |
 | 实现复杂度 | 中（约 3–4 人日） |
-| 状态 | ☐ 未开始 |
+| 状态 | 🟡 初赛版已落地（引擎/校验器/工具/测试全绿；仅 §14 工作台热力图页未接，见 §16） |
 | Skill 要求 | 动手前加载 financial-data-provenance |
 
 ## 1. 目标
@@ -123,13 +123,23 @@ Calculation Accuracy（估值数值精确匹配）接入 CARD-11。
 
 ## 15. 验收标准
 
-- [ ] 敏感性矩阵手工算例 + 单调性测试通过
-- [ ] 全部假设入 Registry 且可追溯（数据→公式→假设→输出链路测试）
-- [ ] 方法分别展示 + dispersion 报告（无合成区间）
-- [ ] 全部测试离线通过
+- [x] 敏感性矩阵手工算例 + 单调性测试通过
+- [x] 全部假设入 Registry 且可追溯（数据→公式→假设→输出链路测试）
+- [x] 方法分别展示 + dispersion 报告（无合成区间）
+- [x] 全部测试离线通过 ← **原未勾**：CARD-08 新增测试全绿，但全量离线游标仍有 **23 项既有失败** → **已于 2026-09-20 达成**（tushare 快照真实重建，全量离线 **0 failed / 1531 passed**，原 23 项阻塞解除）
+      （全部来自缺失的 Tushare 快照，分布于 `test_cn_workbench_service`/`test_workbench_api`/
+      `test_cn_report`/`test_cn_report_cli`，非本卡引入）。判据 = **失败集合逐条不变**，已核对与基线一致。
 
 ## 16. 执行备注（agent 填写）
 
 | 日期 | 记录 |
 |---|---|
-|  |  |
+| 2026-09-19 | 落地 CARD-08 初赛版。引擎 `src/cn/valuation.py` 扩充：`Assumption`/`AssumptionRegistry`（sourced vs `assumption:` 两类，禁止覆盖 sourced）、`ValuationInputs`（fail-closed：总股本缺失/非法 → `ValueError(SHARES_BLOCK_REASON)`）、`ScenarioValuation`、`SensitivityMatrix`、`ValuationResult`、`build_scenarios`/`sensitivity_pe_eps`/`sensitivity_pb_bps`/`method_dispersion`/`build_valuation`。校验器 `src/validation/valuation_validator.py`（假设可解析、矩阵单调且逐格可重算、dispersion 须存在且每方法 ≥2 点、价格基准须 RAW、blocked 须带原因）。工具 `RunCnRelativeValuationTool`（`run_cn_relative_valuation`）接入 `build_cn_snapshot_tools`。 |
+| 2026-09-19 | **偏差 1**：§6 契约名 `sensitivity_pb_roe` 与 §7.3 冲突——ROE 不进价格公式，格子会是 `BPS×PB` 与 y 轴 ROE 无关。按 §7.3 **选项①** 实现为 `sensitivity_pb_bps`（y 轴 = BPS 情景，诚实版），PB 适用边界写入 `APPLICABILITY_NOTES`；决赛再做"PB=f(ROE,COE,g)"（选项②）。函数名变更已记于此，未回改 §6 契约（保持文档原貌）。 |
+| 2026-09-19 | **偏差 2**：`ValuationResult.status` 枚举定为 `blocked` / `assumption_only` / `partial` / `ok` 四态（卡 §9 只描述"输入缺失→方法缺位""全无 sourced→纯假设演示"，未定名）。`ok` = 至少一方法 applicable 且该情景全部假设 sourced；`assumption_only` = 有值但无 sourced 依据（降级标注"纯假设演示"）。 |
+| 2026-09-19 | **偏差 3**：§7.1 TTM——`valuation_inputs_from_normalization` 直接复用 CARD-02 `FinancialPeriodEngine` 的 `result.ttm`（`H1(本年)+FY(上年)-H1(上年)`），**不用** FY 静态 EPS。FY 边界期 TTM==FY 时出 `ttm_period_is_fy_boundary` warning **如实报告**（不隐瞒）。 |
+| 2026-09-19 | **偏差 4**：工具仅接受 `document_id`；传入 `symbol`（无 document_id）→ 显式拒绝并提示改用 document_id（与 `AnalyzeCnFinancialsTool` 同纪律，避免绕开 CARD-02 投影表静默出错值）。同业可选：给了 `peers` 必须同时给 `peer_industry_code`，否则拒；同业中位数仅**播种**目标倍数，仍逐条登记进 Assumption Registry（source=peer 证据 id）。 |
+| 2026-09-19 | **顺手补的跨卡前置**：原有合成语料 `SYN-ANNUAL-01..05` 均**不含总股本/归母权益**，CARD-02→08 无法离线全链。新增 `SYN-ANNUAL-06`（`annual_06_equity_shares.pdf`，示例医药 2025 年报：归母净利润 3,600,000/2,800,000、期末总股本 4,000,000/3,800,000、归母净资产 30,000,000/26,000,000），12 条 GoldRecord，`gen_document_fixtures.py --check` pass（sha256 `d86df2f65772`）。该 docs 文档库语料变动属合成 fixture 扩展，未触碰 CARD-01/02 契约语义。 |
+| 2026-09-19 | 测试：`tests/test_cn_valuation.py` 重写 **42 项全绿**（含 §7.1 TTM 驱动、§12 CARD-02→08 全链 on `annual_06_equity_shares.pdf`、validator 反例、假设完整性、工具 fail-closed）。全量离线 **764 passed / 23 failed / 0 errors / 2 skipped**，失败集合与基线逐条一致（passed 净增 39）。冒烟 14/14 clean，`git diff --check` clean。 |
+| 2026-09-19 | **未闭合**：§14 工作台估值页仍只读 `service.research_peer_valuation`（同业倍数表），**敏感性矩阵热力图 + 点击单元格展开假设来源未接** `workbench.py`（服务层已具备 `build_valuation` 输出）。§13 Calculation Accuracy 基准未接 CARD-11。二者不阻塞 §15 验收。 |
+| 2026-09-20 | **跨卡：tushare 快照真实重建**。用户填好 `.env` 的 `TUSHARE_TOKEN` 后，真实重建 9 个 `_tushare_v1` 快照（4 个标的 + 5 个白酒同业）→ 全量离线 **0 failed / 1531 passed / 0 skipped**。§15「全部测试离线通过」由 ☐ 转 ☑ —— 该条此前被 23 项快照缺失阻塞，与本卡代码无关。重建流程及三个坑（同业快照要一起建、bars 窗口不得越过研究时点、688836 上市日）见 `MEMORY.md`「快照重建」段。 |

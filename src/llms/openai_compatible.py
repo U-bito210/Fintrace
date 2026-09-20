@@ -2,19 +2,22 @@
 OpenAI-Compatible provider client.
 
 Handles any LLM that speaks the OpenAI chat-completions wire protocol
-(DeepSeek, Groq, Together, etc.).  Uses the OpenAI Python SDK for HTTP
-transport but is completely independent of ``openai.py``.
+(DeepSeek, Alibaba Cloud Model Studio / 百炼, Groq, Together, etc.).  Uses the
+OpenAI Python SDK for HTTP transport but is completely independent of
+``openai.py``.
 
 Key design decisions
 --------------------
 * **No import from openai.py.**  This module is self-contained and does not
   share any logic with the native OpenAI client.
-* **Thinking is explicitly disabled for DeepSeek.**  Every DeepSeek request
-  sends ``extra_body={"thinking": {"type": "disabled"}}``.  Non-DeepSeek
-  providers do NOT receive this parameter.
+* **Thinking is explicitly disabled for DeepSeek, and only for DeepSeek.**
+  Every DeepSeek request sends ``extra_body={"thinking": {"type": "disabled"}}``.
+  Non-DeepSeek providers do NOT receive this parameter.
 * **Cost is sourced from the registry.**  ``_calculate_cost`` reads per-token
   prices from ``model_registry.get_model_info()`` and accounts for
   ``prompt_cache_hit_tokens`` / ``prompt_cache_miss_tokens`` when available.
+  The amount is denominated in that model's ``price_currency``, which may be
+  ``None`` (unpriced) — see ``model_registry.cost_currency()``.
 * **Retry / backoff matches existing conventions.**  3 attempts, 1 s sleep,
   same exception taxonomy as ``openai.py`` and ``claude.py``.
 """
@@ -29,7 +32,7 @@ from openai import OpenAI
 from openai import RateLimitError, APITimeoutError, APIConnectionError
 
 from src.logger import get_logger
-from .model_registry import get_model_info
+from .model_registry import cost_currency, get_model_info
 
 
 # ---------------------------------------------------------------------------
@@ -137,17 +140,27 @@ def _call_openai_compatible(
                 "temperature": temperature,
                 "timeout": 60,
             }
+            # DeepSeek is the ONLY vendor here that receives a vendor-specific
+            # field.  Sending ``thinking`` to a vendor that does not know it is
+            # how a working call turns into a 400, so every other OpenAI-wire
+            # vendor (DashScope/百炼 included) gets the bare call.
             if info.provider == "deepseek":
                 create_kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
 
             response = client.chat.completions.create(**create_kwargs)
 
             cost = _calculate_cost(response, model_name)
+            # ``cost`` is denominated in the model's own unit of account, which
+            # is None for an unpriced model — logging it as money without saying
+            # which money is how a fabricated total gets laundered into a report.
+            currency = cost_currency(model_name)
             if logger:
                 logger.info(
                     f"LLM call succeeded (attempt {attempt + 1}/{max_retries})"
                 )
-                logger.llm_call(model_name, cost, response.usage.total_tokens)
+                logger.llm_call(
+                    model_name, cost, response.usage.total_tokens, currency=currency
+                )
             else:
                 print(
                     f"[llm] LLM call succeeded (attempt {attempt + 1}/{max_retries})"
@@ -225,3 +238,29 @@ def deepseek_v4_pro(
 ) -> Tuple[str, float]:
     """Call DeepSeek V4 Pro (premium reasoning tier)."""
     return _call_openai_compatible("deepseek-v4-pro", messages, temperature)
+
+
+def qwen3_max(
+    messages: List[Dict], temperature: float = 0.3
+) -> Tuple[str, float]:
+    """Call Qwen3-Max through Alibaba Cloud Model Studio (百炼 / DashScope).
+
+    Note the returned cost: 百炼 bills in CNY and no verifiable price is
+    registered, so the figure is **not money you can add up**.  Use
+    ``model_registry.cost_currency()`` to find out whether a cost is quotable.
+    """
+    return _call_openai_compatible("qwen3-max", messages, temperature)
+
+
+def qwen_plus(
+    messages: List[Dict], temperature: float = 0.3
+) -> Tuple[str, float]:
+    """Call Qwen-Plus through Alibaba Cloud Model Studio (百炼 / DashScope)."""
+    return _call_openai_compatible("qwen-plus", messages, temperature)
+
+
+def qwen_flash(
+    messages: List[Dict], temperature: float = 0.3
+) -> Tuple[str, float]:
+    """Call Qwen-Flash through Alibaba Cloud Model Studio (百炼 / DashScope)."""
+    return _call_openai_compatible("qwen-flash", messages, temperature)

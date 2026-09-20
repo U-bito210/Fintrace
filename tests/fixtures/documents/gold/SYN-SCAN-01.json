@@ -1,0 +1,11 @@
+{
+  "document_id": "SYN-SCAN-01",
+  "filename": "scan_sample.pdf",
+  "document_type": "annual",
+  "note": "纯扫描页样例",
+  "expect_status": "degraded",
+  "expect_scan_page": 1,
+  "expect_injection": false,
+  "expect_facts_degraded": false,
+  "records": []
+}

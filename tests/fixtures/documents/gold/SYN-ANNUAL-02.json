@@ -1,0 +1,48 @@
+{
+  "document_id": "SYN-ANNUAL-02",
+  "filename": "annual_02_balance_unit_wan.pdf",
+  "document_type": "annual",
+  "note": "万元单位 + 缺失发布日期",
+  "expect_status": "ok",
+  "expect_scan_page": null,
+  "expect_injection": false,
+  "expect_facts_degraded": true,
+  "records": [
+    {
+      "document_id": "SYN-ANNUAL-02",
+      "metric": "货币资金",
+      "period": null,
+      "expected_value": 12500.0,
+      "unit": "万元",
+      "scope": "合并",
+      "page": 1
+    },
+    {
+      "document_id": "SYN-ANNUAL-02",
+      "metric": "货币资金",
+      "period": null,
+      "expected_value": 11000.0,
+      "unit": "万元",
+      "scope": "合并",
+      "page": 1
+    },
+    {
+      "document_id": "SYN-ANNUAL-02",
+      "metric": "应收账款",
+      "period": null,
+      "expected_value": 8300.0,
+      "unit": "万元",
+      "scope": "合并",
+      "page": 1
+    },
+    {
+      "document_id": "SYN-ANNUAL-02",
+      "metric": "应收账款",
+      "period": null,
+      "expected_value": 7900.0,
+      "unit": "万元",
+      "scope": "合并",
+      "page": 1
+    }
+  ]
+}
