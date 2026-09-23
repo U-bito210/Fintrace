@@ -45,6 +45,26 @@ EXPECTED_DEMO_PAGES = (
 )
 
 
+def smoke_draft_key() -> str:
+    """纠错页在这一轮冒烟里用哪份草稿。
+
+    材料齐备时该页默认走 ``data/demo`` 的真实材料 —— 它首次构建要解析 229 页
+    年报（分钟级），足以把「22 页能不能渲染」这条冒烟拖成超时。真实材料的端到端
+    由 ``scripts/rehearse_demo.py`` 与 tests 的 integration 用例覆盖，这里退回
+    合成件，让本脚本仍然是「快而只看渲染」的那一条。
+    """
+    from src.cn import demo_service
+
+    cases = [
+        case for case in demo_service.draft_cases()
+        if case.get("source") != "data/demo" and case.get("runnable", True)
+    ]
+    planted = [case for case in cases if case.get("planted")]
+    if planted:
+        return max(planted, key=lambda case: case["expected_findings"])["key"]
+    return demo_service.default_draft_key()
+
+
 def _check_snapshots() -> None:
     """Print a heads-up if no research / market snapshots are available.
 
@@ -88,9 +108,12 @@ def main() -> int:
     print()
 
     fails: list[tuple[str, str]] = []
+    smoke_draft = smoke_draft_key()
     for page in pages:
         at = AppTest.from_file(WORKBENCH, default_timeout=120)
         at.session_state["workbench_page"] = page
+        # 逐页冒烟测的是「页面会不会炸」，不是真实材料的构建耗时（见 smoke_draft_key）。
+        at.session_state["demo_corrections_draft"] = smoke_draft
         at.run()
         if at.exception:
             err = at.exception[0]

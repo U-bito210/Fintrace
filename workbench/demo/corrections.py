@@ -19,31 +19,6 @@ from src.cn import demo_service
 from . import _shared
 
 
-def _match_planted(planted: List[Dict[str, Any]], findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """把"植入清单"与"实际检出"按错误类型对齐。
-
-    一个植入类型可能命中多条（Checker 对同一类型不设上限），也可能是 0 条 ——
-    0 条就是**漏检**，必须出现在表里而不是被过滤掉。
-    """
-    rows: List[Dict[str, Any]] = []
-    for item in planted:
-        check_type = str(item.get("check_type") or "")
-        hits = [f for f in findings if str(f.get("check_type")) == check_type]
-        rows.append(
-            {
-                "植入类型": check_type,
-                "植入说明": item.get("note") or "",
-                "应含": item.get("expected_contains") or "",
-                "检出": len(hits),
-                "状态": "已检出" if hits else "**漏检**",
-                "命中证据": ", ".join(
-                    sorted({eid for f in hits for eid in (f.get("evidence_ids") or ())})
-                ),
-            }
-        )
-    return rows
-
-
 def render() -> None:
     st.subheader("研报纠错 · Report Corrections")
     st.caption(
@@ -52,13 +27,31 @@ def render() -> None:
     )
 
     doc_id = _shared.draft_picker(key="demo_corrections_draft")
-    payload = demo_service.corrections(doc_id)
+    heavy = doc_id == demo_service.DEMO_DRAFT_ID and not demo_service.demo_case_built()
+    if heavy:
+        # 真实材料要解析整份年报。让它「悄悄转圈两分钟」比慢本身更糟：
+        # 现场必须先在本页预热一次，这句话就是那个动作。
+        st.warning(
+            f"本次进程里还没构建过这份真实材料：首次要解析 {demo_service.DEMO_ANNUAL_PAGES} 页年报，"
+            "实测约 1 分钟。**演示前请先在本页选一次预热**，现场就不用等。"
+        )
+        # 用可见的进度替代「静默等待」：现场看到有人在干活才不会去点重跑，
+        # 而中途打断一次导入会把这个进程的模块状态弄坏（页面会一直重复报同一个错）。
+        with st.spinner("正在解析真实年报并跑确定性核查（首次约 1 分钟）…"):
+            payload = demo_service.corrections(doc_id)
+    else:
+        payload = demo_service.corrections(doc_id)
     if _shared.unavailable(payload, what="研报纠错"):
         return
 
     findings: List[Dict[str, Any]] = list(payload.get("findings") or ())
     planted: List[Dict[str, Any]] = list(payload.get("planted") or ())
     summary: Dict[str, Any] = payload.get("summary") or {}
+    aligned: Dict[str, Any] = payload.get("aligned") or {}
+    rows: List[Dict[str, Any]] = list(aligned.get("rows") or ())
+    unmatched: List[Dict[str, Any]] = list(aligned.get("unmatched") or ())
+    detected = sum(1 for row in rows if row["检出"])
+    missed = [row for row in rows if not row["检出"]]
 
     _shared.stat_row(
         [
@@ -69,6 +62,14 @@ def render() -> None:
             ("干净", "是" if summary.get("clean") else "否", "clean=True 表示无 error 级问题"),
         ]
     )
+    _shared.stat_row(
+        [
+            ("植入项已检出", f"{detected}/{len(rows)}" if rows else "—", "按 check_type + 值片段逐条对齐"),
+            ("漏检", len(missed), "植入清单里一条都没命中的项"),
+            ("清单外检出", len(unmatched), "不在植入清单里的 finding：须逐条判定真伪"),
+            ("构建耗时", f"{float(payload.get('build_seconds') or 0):.1f}s", "本进程内首次解析，之后走缓存"),
+        ]
+    )
     st.caption(
         f"草稿 `{payload.get('filename')}` · as_of {payload.get('as_of') or '（未设，stale 规则不启用）'}"
         f" · 提取器 `{(payload.get('coverage') or {}).get('extractor') or '—'}`"
@@ -77,9 +78,7 @@ def render() -> None:
     # --- 逐条对齐：植入 vs 检出 ---------------------------------------------
     st.markdown("#### ① 植入清单 ↔ 实际检出（逐条对齐）")
     if planted:
-        rows = _match_planted(planted, findings)
         st.dataframe(rows, width="stretch", hide_index=True)
-        missed = [row for row in rows if row["检出"] == 0]
         if missed:
             st.error(
                 "有植入项未被检出："
@@ -88,11 +87,39 @@ def render() -> None:
             )
         else:
             st.success(f"植入的 {len(planted)} 类错误全部被检出，无遗漏。")
+        st.caption(
+            "对齐口径写在最后一列：清单给了值片段的按「类型 + 值」对齐（同一类型可能命中多条，"
+            "只按类型对齐会把命中数摊到每一处植入上，那是虚报）；没给的沿用按类型对齐。"
+        )
     else:
         st.info("这份草稿是干净语料（没有植入错误）。检出应为 0 —— 那才是正确结果，不是「没做事」。")
 
+    # --- 清单之外的检出 -----------------------------------------------------
+    st.markdown("#### ② 植入清单之外的检出（须逐条判定）")
+    if not unmatched:
+        st.caption("没有清单之外的检出。")
+    else:
+        st.caption(
+            "下面每一条都**不在**植入清单里。它要么是草稿里还有的别的问题（真阳性），"
+            "要么是引擎误报 —— 两种都只能由人判定，所以这里不做筛选、不做汇总。"
+        )
+        st.dataframe(
+            [
+                {
+                    "类型": item.get("check_type"),
+                    "严重度": item.get("severity"),
+                    "原句": str(item.get("sentence") or "")[:80],
+                    "草稿写的值": item.get("original"),
+                    "应然值": item.get("expected"),
+                }
+                for item in unmatched
+            ],
+            width="stretch",
+            hide_index=True,
+        )
+
     # --- 逐条纠错详情 -------------------------------------------------------
-    st.markdown("#### ② 纠错明细（错误类型 / 原值 / 正确值 / 建议 / 证据）")
+    st.markdown("#### ③ 纠错明细（错误类型 / 原值 / 正确值 / 建议 / 证据）")
     if not findings:
         st.success("本次未发现任何问题。")
     for finding_idx, finding in enumerate(findings, start=1):
@@ -151,10 +178,10 @@ def render() -> None:
                 )
 
     # --- 覆盖范围：哪些规则真的跑了 -----------------------------------------
-    st.markdown("#### ③ 检测覆盖范围（哪些规则真的执行了）")
+    st.markdown("#### ④ 检测覆盖范围（哪些规则真的执行了）")
     coverage = payload.get("coverage") or {}
     rules = coverage.get("rules") or {}
-    rows = [
+    rule_rows = [
         {
             "规则": name,
             "已执行": "是" if info.get("ran") else "**否**",
@@ -162,7 +189,7 @@ def render() -> None:
         }
         for name, info in sorted(rules.items())
     ]
-    st.dataframe(rows, width="stretch", hide_index=True)
+    st.dataframe(rule_rows, width="stretch", hide_index=True)
     st.caption(
         "「没报错」和「这条规则没跑」是两件事。上面每一行 not ran 都写明了原因 —— "
         "一条从未执行的规则给出的「干净」不是证据。"
@@ -187,11 +214,34 @@ def render() -> None:
 
     _shared.render_jump_panel()
 
-    _shared.honesty(
-        [
-            f"草稿语料为**合成件**（`{payload.get('filename')}`），不是真实研报 —— 检出率不得表述为真实研报上的表现。",
-            "演示输入按 DEMO_FLOW §1 应为真实 A 股年报 + 人为注入错误的真实研报草稿；"
-            "本项目尚未采集真实材料，本页先用已提交的合成语料把链路跑通。",
-            "stale_citation 规则只在设置了 as_of 时启用；未设时该规则在覆盖范围表里如实标为未执行。",
-        ]
+    is_demo = payload.get("source") == "data/demo"
+    gate_ok = bool(rows) and not missed
+    lines = []
+    if is_demo:
+        references = "、".join(payload.get("reference_documents") or ())
+        pages = payload.get("reference_pages")
+        lines.append(
+            f"参考披露是**真实年报全文** `{references}`"
+            + (f"（{pages} 页，巨潮资讯）" if pages else "")
+            + f"，草稿 `{payload.get('filename')}` 是人为注入错误的文本件；"
+            "下面的检出率只代表这份材料。"
+        )
+    else:
+        lines.append(
+            f"草稿语料为**合成件**（`{payload.get('filename')}`），不是真实研报 —— "
+            "检出率不得表述为真实研报上的表现。"
+        )
+    if rows:
+        lines.append(
+            f"§5 硬项「8/8 检出方可上台」：本次植入 {len(rows)} 处、**检出 {detected} 处**"
+            + ("，达标。" if gate_ok else f"、漏检 {len(missed)} 处 —— **未达标**，话术必须照实说。")
+        )
+    if unmatched:
+        lines.append(
+            f"清单外另有 {len(unmatched)} 条检出：既不能算检出率，也不能当噪音丢掉 —— "
+            "判定结果见 ②，逐条给出。"
+        )
+    lines.append(
+        "stale_citation 规则只在设置了 as_of 时启用；未设时该规则在覆盖范围表里如实标为未执行。"
     )
+    _shared.honesty(lines)

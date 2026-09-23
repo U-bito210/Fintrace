@@ -86,6 +86,52 @@ NAVIGATION = [
     *[page.label for page in _DEMO_PAGES],
 ]
 
+# Sidebar information architecture.  The flat list above remains the single
+# compatibility contract for tests and deep links; this grouped view is the
+# presentation layer users interact with.
+NAV_GROUPS = [
+    ("开始", ("案例演示", "AI Agent 研究")),
+    ("研究分析", ("研究总览", "市场与行情", "财务表现", "财务分析", "同行估值")),
+    ("证据与交付", ("证据与校验", "文档智能", "研究报告", "Agent 执行轨迹")),
+    ("任务与评测", ("研究任务", "每日复盘", "评测与消融")),
+    ("实验室", tuple(page.label for page in _DEMO_PAGES)),
+]
+
+
+def _select_page(page: str) -> None:
+    """Update the canonical page state from a compact grouped sidebar item."""
+    st.session_state["workbench_page"] = page
+
+
+def sidebar_navigation() -> str:
+    """Render a compact, grouped navigation while keeping the legacy radio."""
+    current = st.session_state.get("workbench_page", NAVIGATION[0])
+    if current not in NAVIGATION:
+        current = NAVIGATION[0]
+    # Keep this widget as a stable compatibility surface for AppTest and
+    # external deep links.  It is visually hidden by the CSS in ``style``.
+    st.radio("工作台", NAVIGATION, index=NAVIGATION.index(current),
+             label_visibility="collapsed", key="workbench_page")
+
+    for group_name, pages in NAV_GROUPS:
+        visible_pages = [page for page in pages if page in NAVIGATION]
+        if not visible_pages:
+            continue
+        is_active_group = current in visible_pages
+        # Keep core research open; tuck long demo/diagnostic lists away.
+        expanded = is_active_group or group_name in {"开始", "研究分析", "证据与交付"}
+        with st.expander(group_name, expanded=expanded):
+            for page in visible_pages:
+                st.button(
+                    page,
+                    key=f"nav_{page}",
+                    width="stretch",
+                    type="primary" if page == current else "secondary",
+                    on_click=_select_page,
+                    args=(page,),
+                )
+    return current
+
 #: CARD-03 vocabulary rendered in Chinese. Kept in the UI layer so the engine's
 #: tokens stay stable for the API, the ledger and the benchmark.
 _COMPARISON_LABELS = {"yoy": "同比", "qoq": "环比", "level": "水平值", "none": "—"}
@@ -318,8 +364,49 @@ span[data-testid*="Icon"] {{
 section[data-testid="stSidebar"] {{
   background: {t['parchment']};
   border-right: 1px solid {t['divider_soft']};
+  min-width: 272px;
+  max-width: 300px;
 }}
 section[data-testid="stSidebar"] * {{ color: {t['ink']} !important; }}
+/* The legacy radio remains in the DOM for automation/deep-link compatibility;
+   grouped buttons below are the readable interaction surface. */
+section[data-testid="stSidebar"] [data-testid="stRadio"] {{ display: none; }}
+section[data-testid="stSidebar"] [data-testid="stExpander"] {{
+  border: 0 !important;
+  border-bottom: 1px solid {t['divider_soft']} !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}}
+section[data-testid="stSidebar"] [data-testid="stExpander"] summary {{
+  padding: 0.55rem 0.2rem !important;
+  font-size: 0.72rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: {t['ink_muted_64']} !important;
+}}
+section[data-testid="stSidebar"] [data-testid="stExpander"] [data-testid="stVerticalBlock"] {{
+  gap: 0.18rem !important;
+}}
+section[data-testid="stSidebar"] [data-testid="stExpander"] .stButton > button {{
+  justify-content: flex-start;
+  text-align: left;
+  border: 0 !important;
+  border-radius: 8px !important;
+  padding: 0.42rem 0.62rem !important;
+  min-height: 2rem;
+  font-size: 0.86rem;
+  font-weight: 500 !important;
+  background: transparent !important;
+}}
+section[data-testid="stSidebar"] [data-testid="stExpander"] .stButton > button:hover {{
+  background: rgba(0, 102, 204, 0.08) !important;
+}}
+section[data-testid="stSidebar"] [data-testid="stExpander"] .stButton > button[kind="primary"] {{
+  background: rgba(0, 102, 204, 0.12) !important;
+  color: {t['primary']} !important;
+  font-weight: 700 !important;
+}}
 section[data-testid="stSidebar"] .stRadio label {{
   border-radius: 8px;
   padding: 8px 10px;
@@ -2233,9 +2320,9 @@ def main() -> None:
         st.markdown('<div class="brand">◈ FINTRACE / CN</div>', unsafe_allow_html=True)
         choices = {f"{item['name']} · {item['symbol']}": item["id"] for item in catalog}
         selected_label = st.selectbox("研究快照", list(choices), key="snapshot_picker")
-        page = st.radio("工作台", NAVIGATION, label_visibility="collapsed", key="workbench_page")
+        page = sidebar_navigation()
         st.divider()
-        st.caption("RESEARCH TERMINAL v0.2\n\n多快照 · 只读工作台")
+        st.caption("RESEARCH TERMINAL v0.2 · 多快照 · 只读工作台")
     if page == "案例演示":
         demo_cases(catalog)
         return

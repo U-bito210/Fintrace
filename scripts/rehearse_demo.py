@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -25,6 +26,20 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+
+
+def _configure_utf8_stdio() -> None:
+    """Keep the rehearsal report readable on Windows' default GBK console."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (OSError, ValueError):
+            # Embedded runners may expose a stream that cannot be reconfigured;
+            # the checks themselves must remain usable in that environment.
+            continue
 
 # --------------------------------------------------------------------------
 # 状态。四种，不多不少。
@@ -88,6 +103,10 @@ PLANTED_ERROR_PLAN: Tuple[Tuple[str, str, str], ...] = (
 
 REQUIRED_PLANTED = len(PLANTED_ERROR_PLAN)  # §5「8/8 检出方可上台」
 
+#: 步骤 6+7 在剧本里占 1:35–2:25（50 秒）。真实材料首次构建要解析整份年报，
+#: 超过这个窗口就必须提前预热 —— 这个数字是给「现场要不要等」用的判据。
+CORRECTIONS_WINDOW_SECONDS = 50
+
 # §3 创新展示步骤（4b / 7b / 10b / E2）
 INNOVATION_STEPS = ("4b", "7b", "10b")
 
@@ -134,10 +153,20 @@ def check_upload() -> Result:
     # 兜底：说明当前实际能演示的是什么
     filings = service.filing_cases()
     drafts = service.draft_cases()
+    real = [item for item in drafts if item.get("source") == "data/demo"]
+    synthetic = [item for item in drafts if item.get("source") != "data/demo"]
     result.add(
-        f"    兜底：当前仓库有 {len(filings)} 份年报 + {len(drafts)} 份含错草稿，"
-        f"**全部是合成件**（用它演示即违反 §0.1，必须在话术里声明）"
+        f"    草稿清单：{len(real)} 份真实材料 + {len(synthetic)} 份合成件"
+        f"（合成件共 {len(drafts)} 份）"
     )
+    if not real:
+        result.add(
+            f"    ⚠ 真实材料未接入草稿清单：{len(filings)} 份年报 + {len(synthetic)} 份草稿"
+            "**全部是合成件**（用它演示即违反 §0.1，必须在话术里声明）"
+        )
+    unrunnable = [item["key"] for item in drafts if not item.get("runnable", True)]
+    if unrunnable:
+        result.add(f"    ✗ 列出来但跑不了的草稿：{unrunnable} —— 列表里不该有跑不了的用例")
     return result
 
 
@@ -291,38 +320,93 @@ def check_corrections() -> Result:
     findings = list(view.get("findings") or ())
     by_type = dict(view.get("by_check_type") or {})
     summary = view.get("summary") or {}
+    aligned = view.get("aligned") or {}
+    rows = list(aligned.get("rows") or ())
+    unmatched = list(aligned.get("unmatched") or ())
+    detected = sum(1 for row in rows if row["检出"])
+    missed = [row for row in rows if not row["检出"]]
 
     lines = [
-        f"    草稿：{view.get('filename')}",
+        f"    草稿：{view.get('filename')}（源 {view.get('source')}，as_of {view.get('as_of')}）",
+        f"    证据材料：{view.get('reference_documents') or '（无）'}"
+        + (f"，{view.get('reference_pages')} 页" if view.get("reference_pages") else ""),
         f"    植入 {planted} 处 / 检出 {len(findings)} 条 / claim {view.get('claim_count')} 条",
         f"    summary：errors={summary.get('errors')} warnings={summary.get('warnings')} "
         f"unverifiable={summary.get('unverifiable_claims')}",
     ]
 
-    if planted < REQUIRED_PLANTED:
+    # 真实材料要解析整份年报：这一步的窗口是 1:35–2:25（50s），首次构建超过它就是
+    # 现场让评委干等。数字照实报，不提速也不隐藏。
+    build = float(view.get("build_seconds") or 0.0)
+    lines.append(
+        f"    首次构建 {build:.0f}s（步骤窗口 {CORRECTIONS_WINDOW_SECONDS}s）"
+        + ("—— **现场必须先预热**" if build > CORRECTIONS_WINDOW_SECONDS else "")
+    )
+
+    # 剧本 §2 的注入清单与服务层清单必须对得上：同一份设计写两遍，迟早会漂。
+    # 对的是**编号**而不是类型名 —— 剧本名是设计名，实现名可能不同（脚本自己
+    # 的注释就是这么写的），类型名对不上要如实列出而不是假装等价。
+    service_manifest = list(getattr(service, "DEMO_PLANTED", ()) or ())
+    plan_codes = {plan[0] for plan in PLANTED_ERROR_PLAN}
+    manifest_codes = {
+        match.group(1)
+        for item in service_manifest
+        for match in (re.match(r"\s*(E\d+)", str(item.get("note") or "")),)
+        if match
+    }
+    if len(service_manifest) != REQUIRED_PLANTED or manifest_codes != plan_codes:
+        state = BLOCKED
         lines.append(
-            f"    ✗ §5 硬项「8/8 检出方可上台」：当前只植入 {planted} 处，"
-            f"差 {REQUIRED_PLANTED - planted} 处 —— **按剧本判据不能上台**"
+            f"    ✗ 服务层注入清单与剧本 §2 对不上：服务层 {sorted(manifest_codes)} "
+            f"vs 剧本 {sorted(plan_codes)}"
         )
+    elif len(rows) != REQUIRED_PLANTED:
         state = BLOCKED
-    elif len(findings) < planted:
-        state = BLOCKED
-        lines.append(f"    ✗ 植入 {planted} 处只检出 {len(findings)} 条，检出率未达标")
+        lines.append(f"    ✗ 植入清单 {len(rows)} 处 ≠ 剧本 §2 的 {REQUIRED_PLANTED} 处")
     else:
         state = READY
-        lines.append(f"    ✓ 植入 {planted} 处，检出 {len(findings)} 条")
 
-    # E1–E8 类型覆盖
+    # 逐条对齐：植入的每一处到底抓没抓住
+    lines.append(f"    逐条对齐（按 类型 + 值片段）：检出 {detected}/{len(rows) or planted}")
+    for row in rows:
+        mark = "✓" if row["检出"] else "✗"
+        lines.append(
+            f"        {mark} {row['植入类型']}（{row['植入说明']}）→ 检出 {row['检出']} 条"
+        )
+    if missed:
+        state = BLOCKED
+        lines.append(
+            f"    ✗ §5 硬项「8/8 检出方可上台」未达标：漏检 {len(missed)} 处 —— "
+            "话术必须照实说，不能只报检出条数"
+        )
+    else:
+        lines.append(f"    ✓ 植入 {len(rows)} 处全部检出")
+
+    if unmatched:
+        lines.append(
+            f"    ⚠ 清单之外的检出 {len(unmatched)} 条（既不能算检出率，也不能当噪音丢掉）："
+        )
+        for item in unmatched[:5]:
+            lines.append(
+                f"        · {item.get('check_type')} [{item.get('severity')}] "
+                f"原值 {item.get('original')}"
+            )
+        if len(unmatched) > 5:
+            lines.append(f"        · …其余 {len(unmatched) - 5} 条见纠错页 ② 表")
+
+    # E1–E8 类型覆盖（对照剧本设计名，与服务层清单相互印证）
     planned = {plan[1] for plan in PLANTED_ERROR_PLAN}
     hit = sorted(planned & set(by_type))
-    missed = sorted(planned - set(by_type))
+    not_fired = sorted(planned - set(by_type))
     extra = sorted(set(by_type) - planned)
-    lines.append(f"    E1–E8 类型覆盖：命中 {len(hit)}/{REQUIRED_PLANTED} → {'、'.join(hit) or '（无）'}")
-    if missed:
-        state = BLOCKED if state != BLOCKED else state
-        lines.append(f"    ✗ 剧本设计了但当前草稿没植入/没检出：{missed}")
+    lines.append(
+        f"    E1–E8 类型覆盖（按**剧本设计名**，实现名可能不同）："
+        f"命中 {len(hit)}/{REQUIRED_PLANTED} → {'、'.join(hit) or '（无）'}"
+    )
+    if not_fired:
+        lines.append(f"    ✗ 剧本设计了但本材料没检出的类型：{not_fired}")
         for code, kind, desc in PLANTED_ERROR_PLAN:
-            if kind in missed:
+            if kind in not_fired:
                 lines.append(f"        {code} {kind} —— {desc}")
     if extra:
         lines.append(f"    · 剧本清单外还检出了：{extra}（不是错，如实记录）")
@@ -753,4 +837,5 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
 
 if __name__ == "__main__":
+    _configure_utf8_stdio()
     raise SystemExit(main())

@@ -96,12 +96,15 @@ def draft_picker(*, key: str, default: Optional[str] = None, label: str = "研�
         item["key"]: (
             f"{item['filename']} · "
             + (f"植入 {item['expected_findings']} 处" if item["planted"] else "干净（无植入）")
+            + (" · 真实材料（首次构建较慢）" if item.get("source") == "data/demo" else "")
+            + ("" if item.get("runnable", True) else " · 未接通")
         )
         for item in drafts
     }
     if default is None:
-        planted = [item for item in drafts if item["planted"]]
-        default = max(planted, key=lambda item: item["expected_findings"])["key"] if planted else options[0]
+        # 默认值只认服务层那一个函数：页面演的和剧本自检的不是同一份草稿，
+        # 是这类演示最容易出的岔子。
+        default = demo_service.default_draft_key()
     index = options.index(default) if default in options else 0
     chosen = st.selectbox(label, options, index=index, format_func=lambda value: labels[value], key=key)
     return chosen

@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import shutil
 import tempfile
+import time
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -30,6 +31,14 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = PROJECT_ROOT / "tests" / "fixtures"
 DOCUMENTS_DIR = FIXTURES / "documents"
 DRAFTS_DIR = FIXTURES / "report_drafts"
+DEMO_DIR = PROJECT_ROOT / "data" / "demo"
+DEMO_ANNUAL_PATH = DEMO_DIR / "annual_report.pdf"
+DEMO_DRAFT_PATH = DEMO_DIR / "report_draft.md"
+DEMO_DRAFT_ID = "DEMO-CATL-2024"
+#: 草稿时点。DEMO_FLOW §2 给的是年报披露后的时点，stale 类规则据此判定。
+DEMO_DRAFT_AS_OF = "2025-04-01"
+#: 真实年报的页数（仅用于给「首次解析很慢」一个可核对的数字，不参与任何判断）。
+DEMO_ANNUAL_PAGES = 229
 
 #: 演示 run 的落点。``output/`` 已在 .gitignore 内，重放不会污染仓库。
 RUN_STORE_DIR = PROJECT_ROOT / "output" / "demo" / "runs"
@@ -107,11 +116,159 @@ def filing_cases() -> List[Dict[str, Any]]:
     ]
 
 
-def draft_cases() -> List[Dict[str, Any]]:
-    """CARD-05 的草稿语料：哪些是干净的、哪些是植入的。"""
+def demo_material_ready() -> bool:
+    """剧本 §1 的真实材料是否就位。缺任一份就整案不下发 —— 不假装有。"""
+    return DEMO_ANNUAL_PATH.exists() and DEMO_DRAFT_PATH.exists()
+
+
+#: DEMO_FLOW §2 的 8 处注入清单。这是**人为注入的设计清单**，不是引擎的检出结果。
+#:
+#: * ``check_type`` —— 这处注入**设计上**该被哪条规则抓住。
+#: * ``match_value`` —— 草稿里那处错误的值片段。用来把「每一处植入」与「引擎的检出」
+#:   逐条对齐：同一 check_type 可能命中多条（本材料的 numeric_error 就有 4 条），
+#:   只按类型对齐会把 4 条命中算成每一处植入都命中，那是虚报。
+#: * 对不上就是漏检，页面与剧本自检都如实标出，不为了让数字好看而改判据。
+DEMO_PLANTED: Tuple[Dict[str, str], ...] = (
+    {
+        "check_type": "numeric_error",
+        "severity": "error",
+        "match_value": "352,012,554",
+        "expected_contains": "362,012,554 千元（合并口径 2024FY）",
+        "note": "E1 营业收入写成 352,012,554 千元，年报合并口径为 362,012,554 千元。",
+    },
+    {
+        "check_type": "numeric_error",
+        "severity": "error",
+        "match_value": "31,000,000",
+        "expected_contains": "50,744,682 千元（归母 2024FY）",
+        "note": "E2 归母净利润写成 31,000,000 亿元，年报为 50,744,682 千元 —— 量级错误。",
+    },
+    {
+        "check_type": "period_error",
+        "severity": "error",
+        "match_value": "166,766,834",
+        "expected_contains": "2024Q2（单季，需先确认单季/累计口径）",
+        "note": "E3 把上半年累计口径直接当成单季、并与全年比较：单季与累计未换算。",
+    },
+    {
+        "check_type": "valuation_multiple_error",
+        "severity": "error",
+        "match_value": "6 倍 PE",
+        "expected_contains": "动力电池可比公司的目标倍数",
+        "note": "E4 目标估值倍数借用银行业可比倍数，业务口径不匹配。",
+    },
+    {
+        "check_type": "wrong_page",
+        "severity": "error",
+        "match_value": "第 45 页",
+        "expected_contains": "披露该指标的报表页",
+        "note": "E5 引用『年报第 45 页』，该页不是披露该指标的报表页。",
+    },
+    {
+        "check_type": "stale_citation",
+        "severity": "warning",
+        "match_value": "183.56",
+        "expected_contains": "2024 年研发费用（本期披露值）",
+        "note": "E6 沿用上一年度旧披露值 183.56 亿元当作 2024 年研发费用。",
+    },
+    {
+        "check_type": "unsupported_causal_claim",
+        "severity": "warning",
+        "match_value": "海外订单",
+        "expected_contains": "可独立取证的证据",
+        "note": "E7『利润增长主要因海外订单放量』在本次材料中没有对应证据支持。",
+    },
+    {
+        "check_type": "scope_error",
+        "severity": "error",
+        "match_value": "191,320,942",
+        "expected_contains": "362,012,554 千元（合并口径）",
+        "note": "E8 把母公司口径 191,320,942 千元当成合并口径收入。",
+    },
+)
+
+
+def demo_draft_spec() -> Optional[Any]:
+    """真实材料草稿的规格 —— 与 CARD-05 的合成规格同形，只是落盘位置不同。
+
+    参考披露是 229 页真实年报全文，草稿是人为注入 8 处错误的文本件。规格里不含
+    正文，正文由注册表从磁盘读；``lines`` 只服务合成 PDF 的生成，这里留空。
+    """
+    if not demo_material_ready():
+        return None
+    from .checker.draft_corpus import DraftSpec, ExpectedFinding
+
+    return DraftSpec(
+        doc_id=DEMO_DRAFT_ID,
+        filename=DEMO_DRAFT_PATH.name,
+        title="宁德时代 2024 年度研究草稿（真实年报 + 8 处注入错误）",
+        lines=(),
+        references=(DEMO_ANNUAL_PATH.name,),
+        note="真实材料：参考披露为 data/demo/annual_report.pdf 全文，不是合成件。",
+        as_of=DEMO_DRAFT_AS_OF,
+        expected=tuple(
+            ExpectedFinding(
+                check_type=item["check_type"],
+                claim_index=index,
+                severity=item["severity"],
+                expected_contains=item["expected_contains"],
+                note=item["note"],
+            )
+            for index, item in enumerate(DEMO_PLANTED)
+        ),
+    )
+
+
+def draft_specs() -> List[Any]:
+    """真实材料在列时就排在合成件前面 —— 演示默认走真实材料（剧本 §1）。"""
     from .checker.draft_corpus import DRAFT_SPECS
 
-    return [
+    specs = list(DRAFT_SPECS)
+    demo = demo_draft_spec()
+    return ([demo] + specs) if demo is not None else specs
+
+
+def draft_spec_for(doc_id: Optional[str]) -> Optional[Any]:
+    """按案例键取草稿规格；``None`` 表示这一键**当前没有可跑的规格**。
+
+    页面据此把用例标成「未接通」或直接不列 —— 列出一个跑不了的用例，
+    等于让演示在最后一刻才发现问题。
+    """
+    specs = draft_specs()
+    if not specs:
+        return None
+    if doc_id:
+        return next((spec for spec in specs if spec.doc_id == doc_id), None)
+    spec = next((item for item in specs if item.doc_id == default_draft_key()), None)
+    return spec if spec is not None else specs[0]
+
+
+def default_draft_key() -> str:
+    """演示默认草稿：真实材料在就用它，否则用植入项最多的合成草稿。
+
+    纠错页的默认选项与剧本自检调的是**同一个函数** —— 两处各算一次默认值，
+    迟早会出现「页面演示的」和「自检过的」不是同一份草稿。
+    """
+    demo = demo_draft_spec()
+    if demo is not None:
+        return demo.doc_id
+    from .checker.draft_corpus import DRAFT_SPECS
+
+    if not DRAFT_SPECS:
+        return ""
+    return max(DRAFT_SPECS, key=lambda item: len(item.expected)).doc_id
+
+
+def demo_case_built() -> bool:
+    """真实材料案例是否已在本次进程内构建过（决定要不要提示「首次较慢」）。"""
+    return DEMO_DRAFT_ID in _DRAFT_STATES
+
+
+def draft_cases() -> List[Dict[str, Any]]:
+    """CARD-05 的草稿语料：哪些是干净的、哪些是植入的、能不能跑。"""
+    from .checker.draft_corpus import DRAFT_SPECS
+
+    cases = [
         {
             "key": spec.doc_id,
             "label": spec.title or spec.filename,
@@ -120,9 +277,27 @@ def draft_cases() -> List[Dict[str, Any]]:
             "expected_findings": len(spec.expected),
             "as_of": spec.as_of,
             "present": (DRAFTS_DIR / spec.filename).exists(),
+            "runnable": draft_spec_for(spec.doc_id) is not None,
+            "source": "fixtures/report_drafts",
         }
         for spec in DRAFT_SPECS
     ]
+    if demo_material_ready():
+        cases.insert(0, {
+            "key": DEMO_DRAFT_ID,
+            "label": "宁德时代 2024 年真实年报草稿（人为注入 8 处错误）",
+            "filename": DEMO_DRAFT_PATH.name,
+            "planted": True,
+            "expected_findings": len(DEMO_PLANTED),
+            "as_of": DEMO_DRAFT_AS_OF,
+            "present": True,
+            "runnable": True,
+            "source": "data/demo",
+            # 真实材料的两份文件的角色，页面与自检都要能如实说出来。
+            "reference": DEMO_ANNUAL_PATH.name,
+            "reference_pages": DEMO_ANNUAL_PAGES,
+        })
+    return cases
 
 
 # --------------------------------------------------------------------------- #
@@ -251,23 +426,80 @@ def _case_brief(state: _FilingState) -> Dict[str, Any]:
 # --------------------------------------------------------------------------- #
 # ① 研报纠错（CARD-05）—— DEMO_FLOW 步骤 6+7，★高潮一
 # --------------------------------------------------------------------------- #
+def _demo_planted_view() -> List[Dict[str, Any]]:
+    """真实材料清单的渲染形态：与合成规格的 ``expected`` 同键，外加对齐用的值。"""
+    return [dict(item, claim_index=index) for index, item in enumerate(DEMO_PLANTED)]
+
+
+def _finding_blob(finding: Mapping[str, Any]) -> str:
+    """一条检出的可比对文本。植入项与检出的对齐只在这些字段上进行。"""
+    return " ".join(
+        str(finding.get(key) or "")
+        for key in ("original", "expected", "sentence", "metric", "period", "check_type")
+    )
+
+
+def align_planted(
+    planted: Sequence[Mapping[str, Any]], findings: Sequence[Mapping[str, Any]]
+) -> Dict[str, Any]:
+    """把植入清单与引擎检出逐条对齐，并交出**清单之外的检出**。
+
+    对齐规则：``check_type`` 相同，且（清单给了 ``match_value`` 时）该值片段出现在
+    检出的原文/应然值/原句里。合成规格没有 ``match_value``，退化为按类型对齐 —— 那时
+    行为与 CARD-05 既有实现一致。
+
+    清单之外不是"无关项"：它要么是真阳性（草稿里还有别的问题），要么是误报。
+    两种都只能由人判定，所以这里只负责**让它显形**，不做判断。
+    """
+    rows: List[Dict[str, Any]] = []
+    matched: set = set()
+    for item in planted or ():
+        check_type = str(item.get("check_type") or "")
+        needle = str(item.get("match_value") or "")
+        hits = [
+            (index, finding)
+            for index, finding in enumerate(findings or ())
+            if str(finding.get("check_type") or "") == check_type
+            and (not needle or needle in _finding_blob(finding))
+        ]
+        matched.update(index for index, _ in hits)
+        rows.append(
+            {
+                "植入类型": check_type,
+                "植入说明": item.get("note") or "",
+                "应含": item.get("expected_contains") or "",
+                "检出": len(hits),
+                "状态": "已检出" if hits else "**漏检**",
+                "命中证据": ", ".join(
+                    sorted({eid for _, item_finding in hits
+                            for eid in (item_finding.get("evidence_ids") or ())})
+                ),
+                "对齐口径": f"值含 `{needle}`" if needle else "仅按类型",
+            }
+        )
+    return {
+        "rows": rows,
+        "unmatched": [
+            finding
+            for index, finding in enumerate(findings or ())
+            if index not in matched
+        ],
+    }
+
+
 def corrections(doc_id: Optional[str] = None) -> Dict[str, Any]:
     """对一份含错研报草稿跑确定性核查，返回可直接渲染的纠错报告。
 
-    默认取**植入错误最多**的那份草稿：演示要看的正是"错误被逐条抓出来"。
+    默认草稿由 :func:`default_draft_key` 决定 —— 与纠错页下拉的默认值**同源**，
+    页面演的和自检过的不可能不是同一份。真实材料首次构建要解析整份年报，
+    耗时照实记在 ``build_seconds`` 里，页面据此提示而不是让评委干等。
     """
-    from .checker.draft_corpus import DRAFT_SPECS
-
     try:
-        specs = list(DRAFT_SPECS)
-        if not specs:
-            return _unavailable("语料目录里没有草稿规格。")
-        if doc_id:
-            spec = next((item for item in specs if item.doc_id == doc_id), None)
-            if spec is None:
-                return _unavailable(f"未知草稿: {doc_id}")
-        else:
-            spec = max(specs, key=lambda item: len(item.expected))
+        spec = draft_spec_for(doc_id)
+        if spec is None:
+            return _unavailable(
+                f"未知草稿: {doc_id}" if doc_id else "语料目录里没有可跑的草稿规格。"
+            )
         state = _DRAFT_STATES.get(spec.doc_id)
         if state is None:
             state = _build_draft_state(spec)
@@ -282,14 +514,18 @@ def corrections(doc_id: Optional[str] = None) -> Dict[str, Any]:
         key = str(item.get("check_type") or "unknown")
         by_type[key] = by_type.get(key, 0) + 1
 
+    is_demo = spec.doc_id == DEMO_DRAFT_ID
+    planted = _demo_planted_view() if is_demo else [item.to_dict() for item in spec.expected]
+    aligned = align_planted(planted, findings)
+
     return {
         "status": STATUS_OK,
         "doc_id": spec.doc_id,
         "filename": spec.filename,
         "title": spec.title,
         "as_of": spec.as_of,
-        "planted": [item.to_dict() for item in spec.expected],
-        "planted_count": len(spec.expected),
+        "planted": planted,
+        "planted_count": len(planted),
         "findings": findings,
         "finding_count": len(findings),
         "by_check_type": dict(sorted(by_type.items())),
@@ -303,6 +539,13 @@ def corrections(doc_id: Optional[str] = None) -> Dict[str, Any]:
             "no_claim": len(cached.get("no_claim_sentences") or ()),
         },
         "uncertain_detail": list(cached.get("unextracted_sentences") or ()),
+        # 植入清单 ↔ 检出的对齐结果（含清单之外的检出），页面只渲染不再自己判。
+        "aligned": aligned,
+        # 这批检出是真实材料还是合成件 —— 页面的话术必须跟着这个字段走。
+        "source": "data/demo" if is_demo else "fixtures/report_drafts",
+        "reference_documents": list(spec.references),
+        "reference_pages": DEMO_ANNUAL_PAGES if is_demo else None,
+        "build_seconds": float(state.get("build_seconds") or 0.0),
         # 草稿不是 FILING_CASES 的成员，跳转要走它自己的注册表与文件 —— 页面据此
         # 知道 evidence_id 该交给 document_id 而不是案例 key。
         "case_key": "",
@@ -322,18 +565,20 @@ def _build_draft_state(spec: Any) -> Dict[str, Any]:
     from .checker.pipeline import check_draft
     from .documents import DocumentRegistry
 
+    draft_path, references = _spec_inputs(spec)
+    started = time.monotonic()
     workdir = Path(tempfile.mkdtemp(prefix=f"cn_demo_draft_{spec.doc_id}_"))
-    registry = DocumentRegistry(root=workdir / "registry.db", allow_roots=[DOCUMENTS_DIR, DRAFTS_DIR])
+    registry = DocumentRegistry(
+        root=workdir / "registry.db",
+        allow_roots=[DOCUMENTS_DIR, DRAFTS_DIR, DEMO_DIR],
+    )
     try:
-        for filename in spec.references:
-            path = DOCUMENTS_DIR / filename
+        for path, declared in references:
             if not path.exists():
                 continue
-            declared = "annual" if str(filename).startswith("annual") else "announcement"
             ingested = registry.ingest(path, declared_type=declared, source="admin_import")
             _DOC_PATHS[ingested.document.document_id] = path
             _DOC_REGISTRIES[ingested.document.document_id] = registry
-        draft_path = DRAFTS_DIR / spec.filename
         draft = registry.ingest(draft_path, declared_type="report_draft", source="admin_import")
         _DOC_PATHS[draft.document.document_id] = draft_path
         _DOC_REGISTRIES[draft.document.document_id] = registry
@@ -349,7 +594,22 @@ def _build_draft_state(spec: Any) -> Dict[str, Any]:
         shutil.rmtree(workdir, ignore_errors=True)
         raise
     return {"registry": registry, "document_id": draft.document.document_id,
-            "report": report, "workdir": workdir}
+            "report": report, "workdir": workdir,
+            "build_seconds": time.monotonic() - started}
+
+
+def _spec_inputs(spec: Any) -> Tuple[Path, List[Tuple[Path, str]]]:
+    """草稿本体与参考披露的落盘位置。真实材料在 ``data/demo``，其余在 ``tests/fixtures``。"""
+    if spec.doc_id == DEMO_DRAFT_ID:
+        return DEMO_DRAFT_PATH, [(DEMO_ANNUAL_PATH, "annual")]
+    references = [
+        (
+            DOCUMENTS_DIR / filename,
+            "annual" if str(filename).startswith("annual") else "announcement",
+        )
+        for filename in spec.references
+    ]
+    return DRAFTS_DIR / spec.filename, references
 
 
 # --------------------------------------------------------------------------- #
@@ -1043,6 +1303,12 @@ def catalog() -> Dict[str, Any]:
 __all__ = [
     "DEFAULT_ACME_KEY",
     "DEFAULT_FILING_KEY",
+    "DEMO_ANNUAL_PATH",
+    "DEMO_ANNUAL_PAGES",
+    "DEMO_DRAFT_AS_OF",
+    "DEMO_DRAFT_ID",
+    "DEMO_DRAFT_PATH",
+    "DEMO_PLANTED",
     "DOCUMENTS_DIR",
     "DRAFTS_DIR",
     "DemoCase",
@@ -1054,9 +1320,16 @@ __all__ = [
     "STATUS_UNAVAILABLE",
     "acme_view",
     "adversarial_view",
+    "align_planted",
     "catalog",
     "corrections",
+    "default_draft_key",
+    "demo_case_built",
+    "demo_draft_spec",
+    "demo_material_ready",
     "draft_cases",
+    "draft_spec_for",
+    "draft_specs",
     "export_pack_view",
     "filing_cases",
     "fragility_view",

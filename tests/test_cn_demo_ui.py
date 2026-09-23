@@ -17,6 +17,10 @@ CARD-22/24/25 的载荷里也有一个叫 ``status`` 的字段（含义是结论
 全部离线：只跑确定性引擎，无模型、无网络、无 ``data/`` 快照依赖。既有 14 个页面
 的逐页渲染由 ``scripts/smoke_workbench.py`` 覆盖，这里只验证"它们还在导航里"
 （避免每次跑测试都额外起十几次 Streamlit 运行时）。
+
+H 组是唯一的例外，且是**显式例外**：真实材料（``data/demo``）不进仓库，所以
+"清单里的用例都能跑"「默认用例能跑」这些判据在本地/离线都成立，而真的跑一遍
+真实年报（分钟级）标了 ``integration`` —— 默认套件不跑，材料在的机器上必须能跑。
 """
 
 from __future__ import annotations
@@ -72,6 +76,119 @@ def _clean_service_cache():
     service.reset()
     yield
     service.reset()
+
+
+# --------------------------------------------------------------------------- #
+# H. 真实材料草稿（DEMO_FLOW §1/§2）—— 清单里的用例必须真的能跑
+# --------------------------------------------------------------------------- #
+def test_every_listed_draft_case_resolves_to_a_spec():
+    """列出来的草稿必须都有可跑的规格，规格指向的文件也必须真的在。
+
+    这里钉的是一个真发生过的缺陷：真实材料案例只加进了清单，引擎侧没有对应规格，
+    于是纠错页的默认选项静默变成 ``unavailable`` —— 页面不报错、只是没内容。
+    这种「不崩但没内容」比崩溃难发现得多，所以它必须是一条会失败的测试。
+    """
+    for case in service.draft_cases():
+        spec = service.draft_spec_for(case["key"])
+        assert spec is not None, f"{case['key']} 列在清单里但没有可跑的规格"
+        assert case.get("runnable", True), f"{case['key']} 自己标了不可跑却还在清单里"
+        if case.get("source") == "data/demo":
+            assert service.DEMO_DRAFT_PATH.exists() and service.DEMO_ANNUAL_PATH.exists()
+        else:
+            assert (service.DRAFTS_DIR / case["filename"]).exists(), case["filename"]
+
+
+def test_default_draft_is_listed_and_runnable():
+    """默认草稿必须是清单里的一员，且能跑 —— 页面默认值与自检值同源。"""
+    default = service.default_draft_key()
+    keys = [case["key"] for case in service.draft_cases()]
+    assert default in keys, f"默认草稿 {default} 不在清单里"
+    assert service.draft_spec_for(default) is not None
+    assert service.corrections("__no_such_draft__")["status"] == service.STATUS_UNAVAILABLE
+
+
+def test_real_material_case_is_omitted_when_files_are_missing(tmp_path, monkeypatch):
+    """真实材料缺任一份就整案不下发，默认值退回合成件 —— 不假装有。"""
+    monkeypatch.setattr(service, "DEMO_ANNUAL_PATH", tmp_path / "annual_report.pdf")
+    monkeypatch.setattr(service, "DEMO_DRAFT_PATH", tmp_path / "report_draft.md")
+    assert service.demo_material_ready() is False
+    assert service.demo_draft_spec() is None
+    keys = [case["key"] for case in service.draft_cases()]
+    assert service.DEMO_DRAFT_ID not in keys
+    assert service.default_draft_key() != service.DEMO_DRAFT_ID
+    # 退回合成件之后，清单里每一个用例仍然可跑。
+    for key in keys:
+        assert service.draft_spec_for(key) is not None, key
+
+
+def test_align_planted_matches_by_value_not_only_type():
+    """同一 check_type 命中多条时，只按类型对齐会把命中数摊到每一处植入上。"""
+    findings = [
+        {"check_type": "numeric_error", "original": "352,012,554千元", "evidence_ids": ["ev_1"]},
+        {"check_type": "numeric_error", "original": "31,000,000亿元", "evidence_ids": []},
+        {"check_type": "missing_citation", "original": "11.58元", "evidence_ids": []},
+    ]
+    planted = [
+        {"check_type": "numeric_error", "match_value": "352,012,554", "note": "E1"},
+        {"check_type": "numeric_error", "match_value": "999,999", "note": "对不上的那处"},
+    ]
+    aligned = service.align_planted(planted, findings)
+    assert [row["检出"] for row in aligned["rows"]] == [1, 0]
+    assert aligned["rows"][0]["命中证据"] == "ev_1"
+    assert aligned["rows"][1]["状态"] == "**漏检**"
+    # 清单之外的检出不是噪音：必须原样出现在 unmatched 里，由人去判定真伪。
+    assert [item["original"] for item in aligned["unmatched"]] == ["31,000,000亿元", "11.58元"]
+
+
+def test_align_planted_falls_back_to_type_only_for_synthetic_specs():
+    """合成规格没有 ``match_value``，对齐必须退化为按类型 —— 行为不得被改动。"""
+    planted = [{"check_type": "unit_error", "note": "合成件"}]
+    findings = [
+        {"check_type": "unit_error", "original": "700,000万元"},
+        {"check_type": "unit_error", "original": "另一个单位错误"},
+    ]
+    aligned = service.align_planted(planted, findings)
+    assert aligned["rows"][0]["检出"] == 2
+    assert aligned["rows"][0]["对齐口径"] == "仅按类型"
+    assert aligned["unmatched"] == []
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(
+    not service.demo_material_ready(), reason="真实材料不在本机（data/ 不进仓库）"
+)
+def test_real_material_draft_end_to_end():
+    """真实年报 + 含错草稿跑完整 CARD-05 链路，并把当前检出状态钉死。
+
+    这条要解析 229 页年报（分钟级），所以标 ``integration``：默认套件不跑它，
+    但**材料在的机器上必须能跑**，且数字变了就得重新核对 —— 不允许悄悄多检出
+    两条，也不允许悄悄漏掉一条。
+    """
+    view = service.corrections()
+    assert view["status"] == service.STATUS_OK, view.get("reason")
+    assert view["doc_id"] == service.DEMO_DRAFT_ID
+    assert view["source"] == "data/demo"
+    assert view["reference_documents"] == ["annual_report.pdf"]
+    assert view["as_of"] == service.DEMO_DRAFT_AS_OF
+    assert view["build_seconds"] > 0
+    assert view["draft_document_id"]
+
+    rows = list(view["aligned"]["rows"])
+    assert len(rows) == len(service.DEMO_PLANTED) == 8
+    detected = [row for row in rows if row["检出"]]
+    # 已记录的现状：8 处注入里检出 3 处（E1/E2/E8）。§5 的 8/8 硬项**未达标**，
+    # 页面与剧本自检都照实说。数字变了就说明引擎或草稿变了 —— 必须重新核对。
+    assert [row["植入类型"] for row in detected] == [
+        "numeric_error", "numeric_error", "scope_error",
+    ]
+    # 清单之外的检出必须有出口，不能被吞掉（本材料当前 19 条）。
+    assert len(view["aligned"]["unmatched"]) >= 1
+    # 每条检出都要能指回证据或草稿页，否则「可回跳」不成立。
+    for item in view["findings"]:
+        assert item.get("evidence_ids") or item.get("claim_page") is not None
+    # 第二次调用走缓存，不重复解析。
+    again = service.corrections()
+    assert again["build_seconds"] == view["build_seconds"]
 
 
 # --------------------------------------------------------------------------- #
@@ -398,6 +515,10 @@ def test_demo_page_renders_without_exception(label):
 
     at = AppTest.from_file(str(WORKBENCH), default_timeout=120)
     at.session_state["workbench_page"] = label
+    # 纠错页的默认草稿是 data/demo 的真实材料（解析 229 页年报，分钟级）。逐页渲染
+    # 这条测的是「页面会不会炸」，不该把真实材料拖进来：显式钉住合成件，
+    # 真实材料的端到端由上一条 integration 用案例覆盖。
+    at.session_state["demo_corrections_draft"] = "SYN-DRAFT-FIGURES"
     at.run()
     if at.exception:
         err = at.exception[0]
