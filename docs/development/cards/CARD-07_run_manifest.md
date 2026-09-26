@@ -7,7 +7,7 @@
 | 对应赛题 | 竞赛硬性要求："完整记录文件访问、工具调用、计算过程和结果生成情况" |
 | 依赖 | 无 |
 | 实现复杂度 | 中（约 3 人日） |
-| 状态 | ☐ 未开始 |
+| 状态 | 🟡 代码+15 测试就绪（2026-09-27 校正：原文 ☐ 未开始，与 MASTER_PLAN 台账及本卡 §16 记录矛盾） |
 | Skill 要求 | 动手前加载 financial-data-provenance |
 
 ## 1. 目标
@@ -125,3 +125,4 @@ Demo 结尾展示：任选一次 run → 导出 manifest → 现场重放 → �
 |---|---|
 | 2026-09-19 | 落地 `src/cn/runs/`：`models.py`（17 字段 `RunManifest` + `RunEvent` + `RunConfig` + `ReplayPlan`/`RunResult` + `Stage`/`ExecutionMode` 枚举 + `digest_of`/`sha256_file`/`collect_tool_versions`/`detect_git_commit`）、`recorder.py`（`RunRecorder.start/emit/finish/verify_replayable` + module-level `replay/list_runs/load_*`）、`cli.py`（list/show/verify/replay，Demo 现场重放）、`__init__.py`。只追加红线在 `_append_event` 用 append 模式一处落实；fail-closed：`emit` 写盘失败抛 `RunRecordError`；interrupted = `finished_at` 空。`replay` 分「确定性层全等 + LLM/采样层 drift」两段 diff（`sampled=True` 的 claim 事件计入采样层）。`calculation` 事件带 `calculation_id`（对齐 CARD-09 `Calculation`），`file_load` 事件带 `sha256`+`path`（replay 重校验输入未被篡改）。测试 `tests/test_cn_run_manifest.py` 15 项离线全过。全量套件失败集合仍为 23 不变（14 workbench_service + 6 workbench_api + 2 cn_report + 1 cn_report_cli），冒烟 14/14 clean。偏差：未把本模块直接接进现有 ResearchState/`workbench_service` 执行循环（保持扩展不重写；CARD-09 将借 `run_id` 关联），仅以集成测试驱动一次完整研究链路验证 replay。未伪造 Tushare 快照。 |
 | 2026-09-20 | **跨卡：tushare 快照真实重建**。用户填好 `.env` 的 `TUSHARE_TOKEN` 后，真实重建 9 个 `_tushare_v1` 快照（4 个标的 + 5 个白酒同业）→ 全量离线 **0 failed / 1531 passed / 0 skipped**。§15「全部测试离线通过」由 ☐ 转 ☑ —— 该条此前被 23 项快照缺失阻塞，与本卡代码无关。重建流程及三个坑（同业快照要一起建、bars 窗口不得越过研究时点、688836 上市日）见 `MEMORY.md`「快照重建」段。 |
+| 2026-09-27 | **交付缺口修复：本卡源码包此前从未进过 Git**。`.gitignore` 第 69 行原文是**裸写** `runs/` —— git 的语义是"在**任意深度**匹配名为 `runs` 的目录"，于是它同时吃掉了**仓库根**的运行产物目录（`recorder._DEFAULT_STORE_DIR == _REPO_ROOT / "runs"`，这是本意）**和源码包 `src/cn/runs/`**（`__init__.py` / `cli.py` / `models.py` / `recorder.py`，四个 `.py` 全部未跟踪）。`git ls-files src/cn/runs/` 为空即证。**这类缺陷在 `git status` 里完全不可见**，只有在别人 clone 后 `import src.cn.runs` 报 `ModuleNotFoundError` 时才会暴露。修法：改为锚定的 `/runs/`（运行产物仍被忽略，源码包回到跟踪范围），并把这条规则固化成守卫 `tests/test_repo_hygiene.py`（纯 Python，不起 `git` 子进程）：① 任何**裸目录模式**（形状恰为 `name/`，无其它斜杠、无通配）不得匹配到"含 `.py` 的目录"（`__pycache__/` 只含 `.pyc`，合法通过；`runs/` 当时含 4 个 `.py`，会被点名）；② 锚定后的 `/runs/` 必须仍与 `_DEFAULT_STORE_DIR` 对得上，防止有人搬走运行时目录后规则失效。修复后 `git ls-files src/cn/runs/` 可见四条源码，守卫 2 项通过。 |

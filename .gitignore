@@ -66,7 +66,12 @@ data/
 .env.local
 .env.production
 config/secrets.yml
-runs/
+# 只忽略**仓库根**的运行产物目录：`src/cn/runs/recorder.py` 的
+# `_DEFAULT_STORE_DIR` 就是 `_REPO_ROOT / "runs"`。前导 `/` 不能省 —— 裸写
+# `runs/` 会连带把源码包 `src/cn/runs/`（CARD-07 Run Manifest）整个吃掉，而
+# **被忽略的文件在 `git status` 里根本不出现**，clone 下来直接 ImportError。
+# 守卫见 `tests/test_repo_hygiene.py`。
+/runs/
 .streamlit/secrets.toml
 
 # 本地源码目录快照（transfer/carry 用的 *.zip）。
