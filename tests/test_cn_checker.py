@@ -36,7 +36,12 @@ from typing import Any, Dict, List, Optional, Sequence
 import pytest
 
 from src.cn.checker.benchmark import Score, evaluate_corpus, format_markdown
-from src.cn.checker.checker import check_report, is_forward_looking, summarize
+from src.cn.checker.checker import (
+    check_report,
+    industry_check_capability,
+    is_forward_looking,
+    summarize,
+)
 from src.cn.checker.draft_corpus import (
     DRAFT_SPECS,
     MARKET_DOCUMENT,
@@ -352,6 +357,178 @@ class TestThirteenCheckTypes:
         )])
         assert _types(findings) == [CheckType.VALUATION_MULTIPLE_ERROR.value]
         assert "10.0" in findings[0].expected
+
+    def test_a_multiple_only_claim_with_no_inputs_is_counted_as_opinion(self):
+        """§7.1: an unverifiable target multiple is skipped *and counted*.
+
+        With no fact base at all, neither basis of ``valuation_multiple_error`` can
+        run, so the sentence must be reported as a *skip* — not as a finding, and
+        not as verified. That distinction is the whole reason the counter exists.
+        """
+        claims = [_claim(claim_id="c-op", sentence="给予公司 25 倍 PE 的目标估值。",
+                         multiple="PE 25倍", period=None, references=[])]
+        findings = _run(claims, facts=[])
+        assert _types(findings) == []
+        summary = summarize(findings, claims=claims)
+        assert summary["claims_skipped_opinion"] == 1
+        assert summary["claims_checked"] == 0
+
+
+class TestIndustryMultipleMismatch:
+    """§7.1's second half — a multiple borrowed from the wrong industry.
+
+    The branch only fires when the draft *says* where the multiple came from, names
+    exactly one target company, and that company has a frozen Shenwan industry.
+    Each of those is a separate test below, because the whole risk of this rule is
+    a false accusation dressed up as diligence.
+
+    The unit tests below run with **no fact base** (``facts=[]``), which silences
+    the recompute branch entirely — so any ``valuation_multiple_error`` they see can
+    only have come from the industry branch. The last two tests put the fact base
+    back to prove the two bases are independent rather than alternatives.
+    """
+
+    #: 300750 is 电力设备 (L1_11) in the frozen mapping; the sentence below borrows
+    #: a 银行 (L1_04) multiple, which is the demo's E4 defect verbatim.
+    TARGET = "宁德时代（300750.SZ）2024 年营业收入为 100 万元。"
+    BORROWED = "若以银行业 6 倍 PE 作为宁德时代的目标估值倍数，当前估值仍然合理。"
+
+    def _claims(self, sentence: str, target: Optional[str] = None) -> List[DraftClaim]:
+        return [
+            _claim(claim_id="c-target", sentence=target or self.TARGET, metric="revenue",
+                   value=100.0, value_literal="100", unit="万元", references=[]),
+            _claim(claim_id="c-mult", sentence=sentence, multiple="PE 6倍",
+                   period=None, references=[]),
+        ]
+
+    @staticmethod
+    def _industry_findings(claims: Sequence[Any]) -> List[Any]:
+        """Only the industry branch's output — the fact base is deliberately empty."""
+        return [
+            item for item in _run(claims, facts=[])
+            if item.check_type == CheckType.VALUATION_MULTIPLE_ERROR.value
+        ]
+
+    def test_borrowed_multiple_is_failed(self):
+        findings = self._industry_findings(self._claims(self.BORROWED))
+        assert len(findings) == 1
+        finding = findings[0]
+        assert finding.claim_id == "c-mult"
+        # The borrowed phrase is quoted verbatim — that is what the page displays.
+        assert "银行业 6 倍 PE" in finding.original
+        # `expected` names the industry the multiple should have come from.
+        assert "电力设备" in finding.expected
+        assert "L1_04" in finding.detail and "L1_11" in finding.detail
+        # The basis is the frozen mapping, not a disclosure — so no evidence id is
+        # invented. An empty list is honest; a fabricated id would not be.
+        assert finding.evidence_ids == []
+
+    def test_matching_industry_is_silent(self):
+        """Borrowing the target's *own* industry multiple is not a defect."""
+        findings = self._industry_findings([
+            _claim(claim_id="c-target", sentence="贵州茅台（600519.SH）属食品饮料。",
+                   metric="revenue", value=100.0, value_literal="100", unit="万元",
+                   references=[]),
+            _claim(claim_id="c-mult", sentence="以食品饮料行业 25 倍 PE 为参考，估值合理。",
+                   multiple="PE 25倍", period=None, references=[]),
+        ])
+        assert findings == []
+
+    def test_no_declared_industry_is_never_judged(self):
+        """The common case: a target multiple with no stated source industry."""
+        findings = self._industry_findings(
+            self._claims("若以 6 倍 PE 作为宁德时代的目标估值倍数，当前估值合理。")
+        )
+        assert findings == []
+
+    def test_two_declared_industries_are_not_guessed_between(self):
+        findings = self._industry_findings(self._claims(
+            "以银行业 6 倍 PE 与食品饮料行业 20 倍 PE 为参考，当前估值仍然合理。"
+        ))
+        assert findings == []
+
+    def test_two_target_companies_are_not_guessed_between(self):
+        findings = self._industry_findings([
+            _claim(claim_id="c-a", sentence="宁德时代（300750.SZ）与贵州茅台（600519.SH）。",
+                   metric="revenue", value=100.0, value_literal="100", unit="万元",
+                   references=[]),
+            _claim(claim_id="c-mult", sentence=self.BORROWED, multiple="PE 6倍",
+                   period=None, references=[]),
+        ])
+        assert findings == []
+
+    def test_a_bare_six_digit_number_is_not_read_as_a_ticker(self):
+        """A figure is not a symbol — only an exchange-qualified code identifies one."""
+        findings = self._industry_findings(
+            self._claims(self.BORROWED, target="本期营业收入为 300750 元。")
+        )
+        assert findings == []
+
+    def test_an_unmapped_target_company_is_not_judged(self):
+        findings = self._industry_findings(self._claims(
+            self.BORROWED, target="某新股（999999.SZ）2024 年营业收入为 100 万元。",
+        ))
+        assert findings == []
+
+    def test_the_two_bases_are_independent_not_alternatives(self):
+        """With a fact base present both bases can fire on one claim.
+
+        A wrong figure and a wrong source are two defects, not one — and neither
+        may switch the other off. Asserting the pair here is what stops a later
+        refactor from turning the branches into an if/else.
+        """
+        findings = [
+            item for item in _run(self._claims(self.BORROWED))
+            if item.check_type == CheckType.VALUATION_MULTIPLE_ERROR.value
+        ]
+        assert len(findings) == 2
+        originals = sorted(item.original for item in findings)
+        # One quotes the disputed figure, the other quotes the borrowed phrase.
+        assert originals == ["市盈率 6x", "银行业 6 倍 PE"]
+
+    def test_capability_is_reported_for_every_silent_case(self):
+        """§9: "never ran" and "ran and found nothing" must be distinguishable."""
+        assert industry_check_capability(self._claims(self.BORROWED)) == (True, None)
+
+        ran, reason = industry_check_capability(self._claims("若以 6 倍 PE 为目标倍数。"))
+        assert ran is False and "未声明倍数取自哪个行业" in reason
+
+        ran, reason = industry_check_capability(
+            self._claims(self.BORROWED, target="本期营业收入为 300750 元。")
+        )
+        assert ran is False and "目标公司代码" in reason
+
+        ran, reason = industry_check_capability([_claim(metric="revenue", value=1.0)])
+        assert ran is False and "没有任何估值倍数声明" in reason
+
+    def test_coverage_splits_the_two_branches_of_the_rule(self):
+        """One ``ran`` flag cannot describe a rule with two independent bases."""
+        coverage = coverage_of(
+            extractor=EXTRACTOR_RULES, references=[],
+            index=FactIndex([_nf("revenue", 1_000_000)]), as_of=AS_OF, signals=[],
+            claims=self._claims(self.BORROWED),
+        )
+        rule = coverage["rules"]["valuation_multiple_error"]
+        # No price / shares / profit in this fact base, so the recompute cannot run…
+        assert rule["branches"]["recompute_from_disclosure"]["ran"] is False
+        assert "不可复算" in rule["branches"]["recompute_from_disclosure"]["reason"]
+        # …but the industry branch can, and the rule is therefore live overall.
+        assert rule["branches"]["declared_industry_mismatch"]["ran"] is True
+        assert rule["ran"] is True
+        # The rule ran, so its own reason is empty; the per-branch reasons carry it.
+        assert rule["reason"] is None
+
+    def test_coverage_says_why_neither_branch_could_run(self):
+        coverage = coverage_of(
+            extractor=EXTRACTOR_RULES, references=[],
+            index=FactIndex([_nf("revenue", 1_000_000)]), as_of=AS_OF, signals=[],
+            claims=[_claim(claim_id="c-op", sentence="给予公司 25 倍 PE。",
+                           multiple="PE 25倍", period=None)],
+        )
+        rule = coverage["rules"]["valuation_multiple_error"]
+        assert rule["ran"] is False
+        assert "不可复算" in rule["reason"]
+        assert "未声明倍数取自哪个行业" in rule["reason"]
 
     def test_missing_citation(self):
         findings = _run([_claim(

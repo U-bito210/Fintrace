@@ -151,13 +151,14 @@ Latency（页面响应）粗粒度记录入执行备注即可，不设专项。
 - [x] smoke 通过（22/22 clean）+ 页面渲染无异常（`AppTest` 逐页跑）+ 对照原页面无回归
       （全量离线 **23 failed / 1497 passed / 2 skipped**，失败集合与 CARD-26 时**逐条一致**，
       均为缺失的 Tushare 快照工件，与本卡无关）
-- [ ] 5 分钟 Demo 剧本可全程无卡点走完（彩排验证）← 真实材料**已就位**
+- [x] 5 分钟 Demo 剧本可全程无卡点走完（彩排验证）← 真实材料**已就位**
       （`data/demo/annual_report.pdf` 229 页 + `report_draft.md` 含错草稿），见 §16
       现状已可**机器化核查**：`python scripts/rehearse_demo.py --strict` 逐条走剧本 13 步。
-      当前 **1 步会卡**（6+7：植入 8 处经逐条对齐检出 **7/8**，唯一漏检 E4
-      `valuation_multiple_error` —— CARD-05 §7.1 要求检「行业错配」但该分支未实现，见 CARD-05 §16）、
-      3 步待人工走查 ——
-      **按 §5 硬项「8/8 检出方可上台」，未解决前不满足上台条件**
+      当前 **0 步会卡**（可讲 3 / 可讲需声明 7 / 待人工 3，`--strict` 退出码 0）——
+      步骤 6+7 的植入 8 处**逐条对齐 8/8 全部检出**：E4 `valuation_multiple_error` 曾经
+      是唯一漏检（CARD-05 §7.1 要求检「行业错配」而该分支未实现），该分支 2026-09-26
+      已落地，见 CARD-05 §16。**§5 硬项「8/8 检出方可上台」达标**；
+      剩下 3 步是「待人工走查」（脚本查不了 ≠ 通过），仍需现场人工过一遍
 - [x] 新增页面代码均在 `workbench/demo/` 内；`workbench.py` 只多了挂载行；
       `src/cn/document_service.py` 只把 `render_pdf_page` 抽出来给 Demo 复用（不另写一份渲染器）
 
@@ -175,4 +176,5 @@ Latency（页面响应）粗粒度记录入执行备注即可，不设专项。
 | 2026-09-20 | **踩坑（剧本自检）**：① ACME 载荷的 `violations` 是**全部已评估约束**（含 `passed`/`skipped_missing_field`），违反数在 `totals["violated"]` —— 实测 `len(violations)=7` 而 `violated=1`，拿列表长度当命中数会报错 7 倍。② 引擎没自带 `status` 时 `_envelope` 搬过来的 `acme_status` / `finfuzz_status` 是 `None`，展示处必须 `or payload["status"]` 兜底（`workbench/demo/acme.py` 页面已修）。③ 同一文件多处 Edit 放同一条消息会只落一处而回执都是"成功"（本轮又复现一次）。 |
 | 2026-09-20 | **测试**：`tests/test_cn_demo_rehearsal.py` 9 项全绿。刻意**不**断言每步是 ready 还是 blocked —— 那会随材料到位而变化，且会逼人伪造材料去修绿。只防**漂移**：步骤表与剧本一一对应（含顺序）、状态不越界且每步都有输出、`--strict` 退出码 ≡ 存在 blocked、传错步骤名返回 2。全量离线 **23 failed / 1506 passed / 0 errors**，失败集合与 CARD-15 收尾时逐条一致（14/6/2/1）。 |
 | 2026-09-20 | **跨卡：tushare 快照真实重建**。用户填好 `.env` 的 `TUSHARE_TOKEN` 后，真实重建 9 个 `_tushare_v1` 快照（4 个标的 + 5 个白酒同业）→ 全量离线 **0 failed / 1531 passed / 0 skipped**。§15「全部测试离线通过」由 ☐ 转 ☑ —— 该条此前被 23 项快照缺失阻塞，与本卡代码无关。重建流程及三个坑（同业快照要一起建、bars 窗口不得越过研究时点、688836 上市日）见 `MEMORY.md`「快照重建」段。 |
-| 2026-09-26 | **真实材料彩排复测 + 抓到一个潜伏回归**。① 材料就位后完整彩排：**可讲 2 / 可讲需声明 7 / 会卡 1 / 待人工 3**（会卡由 2 降 1 —— 步骤 1+2 因 `data/demo/annual_report.pdf` + `report_draft.md` 就位而转 `[可讲]`）。步骤 6+7：植入 8 处**逐条对齐检出 7/8**；E3 改稿后**真的产生 `calculation_error`**；首次构建 **39s < 50s 窗口**，"现场必须预热"不再成立。② ⚠️ **潜伏回归**：`tests/test_cn_demo_ui.py::test_real_material_draft_end_to_end` 标了 `@pytest.mark.integration`，被默认套件 `-m "not integration"` **整条排除** —— 所以默认套件报"1568 passed 全绿"时它**实际是红的**：硬编码断言还停在"检出 3 处（E1/E2/E8）"，而 E3 改动后是 7 处。已按该测试**自己注释的要求**（"数字变了就必须重新核对"）先用 `scripts/rehearse_demo.py --step 6+7` 独立复核，再更新为 7 项，并**新增「未检出必须恰好是 E4」的断言**（该分支一旦落地会被顶红，逼人同步 DEMO_FLOW §1 + CARD-05 §16 + 本卡，而不是只改数字）。复跑 **1 passed**。**教训：`-m "not integration"` 全绿 ≠ 全绿；材料在的机器上必须显式跑 `-m integration`。** ③ 唯一会卡仍是 E4 `valuation_multiple_error`：CARD-05 §7.1 要求检「行业错配」，而 `_multiple_findings` 只实现了「可复算倍数」那一半 —— 已记入 CARD-05 §16，**§5 判据不下调**。 |
+| 2026-09-26 | **唯一会卡项清零：§15「剧本可全程走完」由 ☐ 转 ☑**。E4 的行业错配分支（CARD-05 §16 当日第二条记录）落地后复测：**完整 13 步 可讲 3 / 可讲需声明 7 / 会卡 0 / 待人工 3**（会卡 1 → 0，`--strict` 退出码 0）；步骤 6+7 植入 8 处**逐条对齐 8/8**（`errors 7 → 8`、`claims_skipped_opinion 1 → 0`、检出 16 条、首次构建 39s/50s 窗口）。`tests/test_cn_demo_ui.py::test_real_material_draft_end_to_end` 随之更新：检出清单由 7 项补到 8 项、**漏检必须为空**（该断言是那个分支的守门人——回落即报警，不许改回 7 项了事），并**新增一条钉住 E4 按其设计没有 evidence ID、只能靠 `claim_page` 回跳**（`evidence_ids == []`）—— 本条同时守住 §10 规则 1「evidence 必须可解析」不被"补一个假 ID"绕过。⚠️ 上一条记录里的经验仍然成立：`-m "not integration"` 全绿 ≠ 全绿，材料在的机器必须显式跑 `-m integration`。**剩余缺口是 3 步「待人工走查」（步骤 5 / 8 / 11），脚本查不了不等于通过。** |
+| 2026-09-26 | **真实材料彩排复测 + 抓到一个潜伏回归**。① 材料就位后完整彩排：**可讲 2 / 可讲需声明 7 / 会卡 1 / 待人工 3**（会卡由 2 降 1 —— 步骤 1+2 因 `data/demo/annual_report.pdf` + `report_draft.md` 就位而转 `[可讲]`）。步骤 6+7：植入 8 处**逐条对齐检出 7/8**；E3 改稿后**真的产生 `calculation_error`**；首次构建 **39s < 50s 窗口**，"现场必须预热"不再成立。② ⚠️ **潜伏回归**：`tests/test_cn_demo_ui.py::test_real_material_draft_end_to_end` 标了 `@pytest.mark.integration`，被默认套件 `-m "not integration"` **整条排除** —— 所以默认套件报"1568 passed 全绿"时它**实际是红的**：硬编码断言还停在"检出 3 处（E1/E2/E8）"，而 E3 改动后是 7 处。已按该测试**自己注释的要求**（"数字变了就必须重新核对"）先用 `scripts/rehearse_demo.py --step 6+7` 独立复核，再更新为 7 项，并**新增「未检出必须恰好是 E4」的断言**（该分支一旦落地会被顶红，逼人同步 DEMO_FLOW §1 + CARD-05 §16 + 本卡，而不是只改数字）。复跑 **1 passed**。**教训：`-m "not integration"` 全绿 ≠ 全绿；材料在的机器上必须显式跑 `-m integration`。** ③ 唯一会卡仍是 E4 `valuation_multiple_error`：CARD-05 §7.1 要求检「行业错配」，而 `_multiple_findings` 只实现了「可复算倍数」那一半 —— 已记入 CARD-05 §16，**§5 判据不下调**。（③ **当日即被上一条记录闭合**：该分支落地后 6+7 已达 8/8、会卡归零。） |

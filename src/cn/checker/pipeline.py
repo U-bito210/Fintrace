@@ -26,7 +26,7 @@ from ..analysis import detect_scope_signals
 from ..documents.models import DocumentType
 from ..documents.registry import DocumentRegistry
 from ..normalization import normalize_financials
-from .checker import build_report, check_report
+from .checker import build_report, check_report, industry_check_capability
 from .extractor import ClaimExtractionClient, ExtractionOutcome, extract_claims
 from .facts import FactIndex, ReferenceIndex, format_amount
 from .models import DraftClaim
@@ -217,12 +217,20 @@ def coverage_of(
     index: FactIndex,
     as_of: Optional[str],
     signals: Sequence[Any],
+    claims: Sequence[DraftClaim] = (),
 ) -> Dict[str, Any]:
     """§9's "检测覆盖范围声明": which rules were actually live for this run.
 
     A rule that could not run is listed with the reason. "No finding" from a rule
     that never executed is not evidence of a clean draft, and the payload has to
     say which is which.
+
+    ``valuation_multiple_error`` is the one rule with two independent bases — a
+    multiple that contradicts disclosed inputs, and a multiple borrowed from the
+    wrong industry — so it reports both branches separately. Collapsing them into
+    one ``ran`` would let "the recompute had no price to work with" read as "the
+    industry branch found nothing either", which is exactly the confusion §9
+    forbids.
     """
     metrics = index.metrics()
     has_price = any(metric in metrics for metric in ("raw_price",))
@@ -236,6 +244,17 @@ def coverage_of(
         for item in index.disclosures
     )
     stale_ran = bool(as_of and (has_publication_date or has_dated_extra))
+
+    recompute_ran = bool(has_price and has_shares and has_profit)
+    recompute_reason = (
+        None if recompute_ran
+        else "缺少股价/总股本/归母指标，倍数不可复算（分析师目标倍数按 opinion 计数）"
+    )
+    industry_ran, industry_reason = industry_check_capability(claims)
+    multiple_ran = bool(recompute_ran or industry_ran)
+    multiple_reasons = [
+        reason for reason in (recompute_reason, industry_reason) if reason
+    ]
 
     rules: Dict[str, Dict[str, Any]] = {
         "numeric_error": {"ran": bool(metrics), "reason": None if metrics else "事实库为空"},
@@ -253,11 +272,22 @@ def coverage_of(
             "reason": None if multi_period else "事实库只有单一期间，无法复算同比",
         },
         "valuation_multiple_error": {
-            "ran": bool(has_price and has_shares and has_profit),
-            "reason": (
-                None if (has_price and has_shares and has_profit)
-                else "缺少股价/总股本/归母指标，倍数不可复算（分析师目标倍数按 opinion 计数）"
-            ),
+            "ran": multiple_ran,
+            # ``reason`` explains the *rule*, so it is only set when neither basis
+            # could run. Which basis was missing is named per branch below — mixing
+            # "the recompute had no price" into the rule's own reason would read as
+            # "the industry check did not run either".
+            "reason": None if multiple_ran else "；".join(multiple_reasons),
+            "branches": {
+                "recompute_from_disclosure": {
+                    "ran": recompute_ran,
+                    "reason": recompute_reason,
+                },
+                "declared_industry_mismatch": {
+                    "ran": industry_ran,
+                    "reason": industry_reason,
+                },
+            },
         },
         "missing_citation": {"ran": True, "reason": None},
         "wrong_citation": {"ran": True, "reason": None},
@@ -406,6 +436,7 @@ def _assemble(
         coverage=coverage_of(
             extractor=extraction.extractor, references=references,
             index=index, as_of=as_of, signals=signals,
+            claims=extraction.claims,
         ),
     )
     report["coverage"]["injected_facts"] = {

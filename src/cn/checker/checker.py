@@ -38,6 +38,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 from ..analysis.calculations import CalculationRegistry
 from ..analysis.comparisons import compute_yoy
 from ..analysis.series import previous_year_key
+from ..industries import L1_INDUSTRIES, get_industry_code
 from ..normalization.units import looks_like_percent, unit_scale
 from .facts import (
     Citation,
@@ -83,6 +84,49 @@ _FORWARD_MARKERS = ("预计", "预期", "将达", "有望", "目标价", "预计
 _CITATION_SHARE = 0.5
 _UNANCHORED_PERIOD_RE = re.compile(r"上半年|下半年|前三季度|第[一二三四]季度|[一二三四]季度")
 
+# --------------------------------------------------------------------------- #
+# §7.1's second half — a multiple borrowed from another industry
+# --------------------------------------------------------------------------- #
+#: Declared-industry wording → Shenwan Level-1 code, **longest wording first** so
+#: that 非银金融 is tried before 银行 inside a phrase like 非银金融业.
+#:
+#: Only the frozen L1 names are accepted, with an optional 业/行业 suffix. A phrase
+#: that is not exactly one of them is not an industry declaration for this rule:
+#: the point of §7.1's limit is that a *verifiable* defect may be failed, and a
+#: fuzzy industry guess is exactly how this rule would start manufacturing the
+#: false positives the limit exists to prevent. Broad words that are really a
+#: sub-sector (白酒 / 新能源 / 券商 / 保险) are deliberately absent — declaring one
+#: of them is not a mismatch with the company's own L1 industry.
+_INDUSTRY_WORDS: Dict[str, str] = {
+    name: ind.code
+    for ind, name in sorted(
+        ((item, item.name) for item in L1_INDUSTRIES.values()),
+        key=lambda pair: len(pair[1]),
+        reverse=True,
+    )
+}
+_INDUSTRY_NAME_BY_CODE: Dict[str, str] = {
+    ind.code: ind.name for ind in L1_INDUSTRIES.values()
+}
+_INDUSTRY_ALTERNATION = "|".join(re.escape(word) for word in _INDUSTRY_WORDS)
+
+#: 「行业名(+业/行业) + 倍数」. The industry word must sit **next to** the multiple,
+#: so an incidental mention of a sector elsewhere in the sentence is never read as
+#: a declaration of where the multiple came from.
+_INDUSTRY_MULTIPLE_RE = re.compile(
+    rf"(?P<word>{_INDUSTRY_ALTERNATION})(?:业|行业)?\s*的?\s*"
+    r"(?P<num>\d+(?:\.\d+)?)\s*倍\s*"
+    r"(?P<label>市盈率|市净率|市销率|PE|P/E|PB|P/B|PS|P/S)?",
+    re.IGNORECASE,
+)
+
+#: An *exchange-qualified* code, the only form accepted as a draft's self-declared
+#: target. A bare six-digit number in a research draft is far more often a figure
+#: than a ticker, so accepting one would trade a silent miss for a loud false alarm.
+_DRAFT_SYMBOL_RE = re.compile(
+    r"(?<!\d)(\d{6})\s*[.．]\s*(?:SH|SZ|BJ)(?![A-Za-z])", re.IGNORECASE
+)
+
 
 @dataclass
 class CheckContext:
@@ -93,6 +137,10 @@ class CheckContext:
     scope_signals: Tuple[Any, ...] = ()
     as_of: Optional[str] = None
     registry: CalculationRegistry = None          # type: ignore[assignment]
+    #: The target company the draft names, resolved once from all its sentences.
+    #: A document-level property, so it cannot live on a single claim; ``None``
+    #: whenever the draft names no target or names more than one.
+    draft_symbol: Optional[str] = None
 
     def __post_init__(self) -> None:
         if self.registry is None:
@@ -192,6 +240,7 @@ def check_report(
         references=references,
         scope_signals=tuple(scope_signals or ()),
         as_of=as_of,
+        draft_symbol=draft_target_symbol(claims),
     )
     findings: List[Finding] = []
     for claim in claims or ():
@@ -326,6 +375,12 @@ def _check_claim(claim: DraftClaim, context: CheckContext) -> List[Finding]:
 
     if claim.valuation_multiple and not citation_defect:
         findings.extend(_multiple_findings(claim, index))
+
+    if claim.valuation_multiple:
+        # §7.1's other basis. Independent of citations and of the fact base: it
+        # compares what the sentence says it borrowed from against the target
+        # company's own industry, so a citation defect does not switch it off.
+        findings.extend(_industry_multiple_findings(claim, context.draft_symbol))
 
     if claim.claim_type == ClaimType.CAUSAL.value:
         findings.extend(_causal_findings(claim, citations))
@@ -776,14 +831,138 @@ def _growth_findings(
 
 
 # -- valuation multiples -------------------------------------------------------
+#
+# §7.1 names two things a ``valuation_multiple_error`` may be based on: a multiple
+# that contradicts the disclosed inputs, and a multiple borrowed from the wrong
+# industry. They are separate branches with separate preconditions, and both are
+# deliberately narrow — an analyst's target multiple ("给 25 倍 PE") is an opinion,
+# and failing an opinion would be the single largest source of false positives in
+# this card.
+
+
+def draft_target_symbol(claims: Sequence[DraftClaim]) -> Optional[str]:
+    """The one company a draft declares itself to be about, else ``None``.
+
+    Read from the draft's own sentences — never from the reference filings, which
+    may well cover several issuers. Two rules keep this from guessing:
+
+    * only an exchange-qualified code counts (``300750.SZ``), because a bare
+      six-digit number in a research draft is usually a figure;
+    * zero or several distinct codes mean "the draft does not name one target",
+      in which case :func:`_industry_multiple_findings` stays silent rather than
+      deciding which company a page of prose is about.
+    """
+    seen: List[str] = []
+    for claim in claims or ():
+        for match in _DRAFT_SYMBOL_RE.finditer(str(claim.sentence or "")):
+            code = match.group(1)
+            if code not in seen:
+                seen.append(code)
+    return seen[0] if len(seen) == 1 else None
+
+
+def _declared_industries(sentence: Optional[str]) -> List[Tuple[str, str, str]]:
+    """``(wording, L1 code, matched text)`` for every industry the sentence ties to
+    a multiple. Empty when the sentence declares no source industry at all — which
+    is the overwhelmingly common case and must never produce a finding."""
+    found: List[Tuple[str, str, str]] = []
+    for match in _INDUSTRY_MULTIPLE_RE.finditer(str(sentence or "")):
+        wording = match.group("word")
+        code = _INDUSTRY_WORDS.get(wording)
+        if code is None:  # pragma: no cover - the alternation is built from the keys
+            continue
+        found.append((wording, code, match.group(0)))
+    return found
+
+
+def industry_check_capability(claims: Sequence[DraftClaim]) -> Tuple[bool, Optional[str]]:
+    """Could §7.1's industry branch actually run on this draft? And if not, why not.
+
+    §9 requires the payload to distinguish "checked and clean" from "never ran".
+    The branch silently returning nothing is indistinguishable from a clean draft,
+    so the coverage block asks this function instead of inferring.
+    """
+    claims = tuple(claims or ())
+    multipled = [claim for claim in claims if claim.valuation_multiple]
+    if not multipled:
+        return False, "草稿没有任何估值倍数声明，无从判断倍数来源行业"
+    if not any(_declared_industries(claim.sentence) for claim in multipled):
+        return False, "草稿未声明倍数取自哪个行业（零猜测：不声明就不判）"
+    symbol = draft_target_symbol(claims)
+    if symbol is None:
+        return False, "草稿未唯一给出目标公司代码（需形如 300750.SZ 的带交易所后缀写法）"
+    if get_industry_code(symbol) is None:
+        return False, f"目标公司 {symbol} 不在冻结的申万一级行业映射内"
+    return True, None
+
+
+def _industry_multiple_findings(
+    claim: DraftClaim, target_symbol: Optional[str]
+) -> List[Finding]:
+    """§7.1's second half: a multiple taken from a sector the draft is not about.
+
+    Fires only when all three of these hold, each read straight off the draft:
+
+    1. the sentence **declares** which industry the multiple came from, and names
+       exactly one;
+    2. the draft identifies exactly one target company, and that company is in the
+       frozen Shenwan mapping;
+    3. the declared industry and the target's industry are different L1 codes.
+
+    Anything less is silence, not a warning: "may have borrowed a multiple" is not
+    a defect a reader can act on. The rule carries no ``evidence_ids`` by
+    construction — its basis is the frozen industry mapping plus the draft's own
+    wording, and neither is a disclosure in the fact base. Inventing an id there
+    would make the report look better evidenced than it is.
+    """
+    if not target_symbol:
+        return []
+    target_code = get_industry_code(target_symbol)
+    if target_code is None:
+        return []
+
+    declared = _declared_industries(claim.sentence)
+    codes = {code for _wording, code, _text in declared}
+    if len(codes) != 1:
+        # None declared, or two different sectors named for one multiple: the
+        # sentence does not say what it borrowed from, so there is nothing to
+        # compare. Guessing which of the two it "meant" is how false positives start.
+        return []
+    wording, declared_code, matched = declared[0]
+    if declared_code == target_code:
+        return []
+
+    target_name = _INDUSTRY_NAME_BY_CODE[target_code]
+    declared_name = _INDUSTRY_NAME_BY_CODE[declared_code]
+    return [_finding(
+        claim,
+        CheckType.VALUATION_MULTIPLE_ERROR,
+        original=matched,
+        expected=f"{target_name}可比公司的目标倍数",
+        suggestion=(
+            f"该句把「{wording}」的倍数（{matched}）当作目标倍数，"
+            f"而目标公司 {target_symbol} 属申万一级「{target_name}」（{target_code}），"
+            f"「{declared_name}」是 {declared_code}。两个行业的估值倍数不可直接套用，"
+            "请改用同行业可比公司的倍数，或改写为不含跨行业比照的表述。"
+        ),
+        evidence_ids=[],
+        confidence=CONFIDENCE_BY_MATCH[MatchKind.EXACT.value],
+        detail=(
+            f"行业错配：草稿声明的倍数来源是「{wording}」（{declared_code}），"
+            f"目标公司 {target_symbol} 的申万一级行业是「{target_name}」（{target_code}）。"
+            "判定依据是冻结的行业映射与草稿自身的措辞，不含任何事实库披露，故无证据 ID。"
+        ),
+    )]
+
 
 def _multiple_findings(claim: DraftClaim, index: FactIndex) -> List[Finding]:
-    """§7.1's deliberate limit: only a *verifiable* multiple is ever failed.
+    """§7.1's recompute branch: a multiple that contradicts the disclosed inputs.
 
     An analyst's target multiple ("给 25 倍 PE") is an opinion. Failing it would be
     the single largest source of false positives in this card, so it is skipped and
     counted instead. Only a multiple that can be recomputed from disclosed inputs —
-    price × shares / net profit — is judged.
+    price × shares / net profit — is judged here; the industry branch above covers
+    §7.1's other named basis.
     """
     parsed = _parse_multiple(claim.valuation_multiple)
     if parsed is None:
@@ -1019,8 +1198,10 @@ __all__ = [
     "CheckContext",
     "build_report",
     "check_report",
+    "draft_target_symbol",
     "format_amount",
     "format_percent",
+    "industry_check_capability",
     "is_forward_looking",
     "looks_like_growth",
     "summarize",

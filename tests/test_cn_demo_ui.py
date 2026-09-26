@@ -176,22 +176,31 @@ def test_real_material_draft_end_to_end():
     rows = list(view["aligned"]["rows"])
     assert len(rows) == len(service.DEMO_PLANTED) == 8
     detected = [row for row in rows if row["检出"]]
-    # 现状（2026-09-26 真实材料彩排复核）：8 处注入里检出 7 处。§5 的 8/8 硬项
-    # **仍未达标**，但唯一漏检的是 E4 `valuation_multiple_error` —— 它是 CARD-05 §7.1
-    # 明文要求检「行业错配」、而 checker 尚未实现的分支（见 DEMO_FLOW.md §1 彩排记录
-    # 与 CARD-05 §16），**不是可以调松的判据**。顺序变了就说明引擎或草稿变了 ——
-    # 必须先用 `scripts/rehearse_demo.py --step 6+7` 重新核对，再来改这里。
+    # 现状（2026-09-26 §7.1 行业错配分支落地后的彩排复核）：**8 处注入全部检出**。
+    # E4 曾是唯一漏检 —— 它属 CARD-05 §7.1 明文要求检「行业错配」、而 checker 未实现
+    # 的分支；该分支现已实现（声明来源行业 + 草稿唯一目标代码 + 冻结申万映射三者齐备
+    # 且行业不同才判），所以这里从 7 项变成 8 项。下面的顺序就是 `DEMO_PLANTED` 的顺序
+    # （E1–E8），不是按检出先后排的；顺序变了就说明引擎或草稿变了 —— 必须先用
+    # `scripts/rehearse_demo.py --step 6+7` 重新核对，再来改这里。
     assert [row["植入类型"] for row in detected] == [
-        "numeric_error", "numeric_error", "calculation_error", "wrong_page",
-        "period_error", "unsupported_causal_claim", "scope_error",
+        "numeric_error", "numeric_error", "calculation_error", "valuation_multiple_error",
+        "wrong_page", "period_error", "unsupported_causal_claim", "scope_error",
     ]
-    # 未检出项必须**恰好**是 E4。它一旦被检出，说明 §7.1 的行业错配分支已经落地 ——
-    # 那时要同步改本断言 + DEMO_FLOW.md §1 + CARD-05 §16，而不是只把这里改成 8/8。
-    assert [row["植入类型"] for row in rows if not row["检出"]] == [
-        "valuation_multiple_error",
-    ]
-    # 清单之外的检出必须有出口，不能被吞掉（本材料当前 8 条）。
+    # 漏检必须**恰好为空**。这条断言是那个分支的守门人：一旦它回落（E4 重新漏检），
+    # 要么是行业映射被改坏了，要么是「零猜测」的条件被放宽了 —— 两种都要先查原因，
+    # 不许把这里改回 7 项了事。
+    assert [row["植入类型"] for row in rows if not row["检出"]] == []
+    # 清单之外的检出必须有出口，不能被吞掉（本材料当前 8 条，全是 missing_citation）。
     assert len(view["aligned"]["unmatched"]) >= 1
+    # E4 的依据是冻结行业映射 + 草稿自身措辞，不含事实库披露，所以它按设计**没有**
+    # 证据 ID，只能靠 claim_page 指回草稿。这里显式钉住，免得日后被"补"一个假 ID。
+    e4 = [
+        item for item in view["findings"]
+        if item.get("check_type") == "valuation_multiple_error"
+    ]
+    assert len(e4) == 1
+    assert e4[0]["evidence_ids"] == []
+    assert e4[0]["claim_page"] is not None
     # 每条检出都要能指回证据或草稿页，否则「可回跳」不成立。
     for item in view["findings"]:
         assert item.get("evidence_ids") or item.get("claim_page") is not None
