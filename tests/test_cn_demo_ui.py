@@ -176,12 +176,21 @@ def test_real_material_draft_end_to_end():
     rows = list(view["aligned"]["rows"])
     assert len(rows) == len(service.DEMO_PLANTED) == 8
     detected = [row for row in rows if row["检出"]]
-    # 已记录的现状：8 处注入里检出 3 处（E1/E2/E8）。§5 的 8/8 硬项**未达标**，
-    # 页面与剧本自检都照实说。数字变了就说明引擎或草稿变了 —— 必须重新核对。
+    # 现状（2026-09-26 真实材料彩排复核）：8 处注入里检出 7 处。§5 的 8/8 硬项
+    # **仍未达标**，但唯一漏检的是 E4 `valuation_multiple_error` —— 它是 CARD-05 §7.1
+    # 明文要求检「行业错配」、而 checker 尚未实现的分支（见 DEMO_FLOW.md §1 彩排记录
+    # 与 CARD-05 §16），**不是可以调松的判据**。顺序变了就说明引擎或草稿变了 ——
+    # 必须先用 `scripts/rehearse_demo.py --step 6+7` 重新核对，再来改这里。
     assert [row["植入类型"] for row in detected] == [
-        "numeric_error", "numeric_error", "scope_error",
+        "numeric_error", "numeric_error", "calculation_error", "wrong_page",
+        "period_error", "unsupported_causal_claim", "scope_error",
     ]
-    # 清单之外的检出必须有出口，不能被吞掉（本材料当前 19 条）。
+    # 未检出项必须**恰好**是 E4。它一旦被检出，说明 §7.1 的行业错配分支已经落地 ——
+    # 那时要同步改本断言 + DEMO_FLOW.md §1 + CARD-05 §16，而不是只把这里改成 8/8。
+    assert [row["植入类型"] for row in rows if not row["检出"]] == [
+        "valuation_multiple_error",
+    ]
+    # 清单之外的检出必须有出口，不能被吞掉（本材料当前 8 条）。
     assert len(view["aligned"]["unmatched"]) >= 1
     # 每条检出都要能指回证据或草稿页，否则「可回跳」不成立。
     for item in view["findings"]:

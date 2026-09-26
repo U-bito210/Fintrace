@@ -33,6 +33,7 @@ from .periods import (
     canonical_period,
     column_period_role,
     period_kind_decision,
+    period_year,
     previous_period_key,
 )
 from .scope import detect_scope, scope_token
@@ -320,8 +321,29 @@ def normalize_financials(
             # A label / note cell: it provides the row label, not a figure.
             continue
 
-        token = (getattr(fact, "meta", None) or {}).get("column_label")
+        meta = getattr(fact, "meta", None) or {}
+        token = meta.get("column_label")
         role = context.role(column) if column is not None else "current"
+        if meta.get("period_year_unresolved"):
+            log.tally(
+                "year-column-unresolved",
+                "年份表头与数值列无法可靠对应，已跳过该值",
+                f"{context.table} 第{getattr(fact, 'page', None)}页第{column}列",
+            )
+            continue
+        explicit_year = meta.get("period_year")
+        if explicit_year is not None:
+            if explicit_year == period_year(report_period):
+                role = "current"
+            elif explicit_year == period_year(report_period) - 1:
+                role = "prior"
+            else:
+                log.tally(
+                    "year-column-outside-report",
+                    "年份表头与报告期不相邻，已跳过该值",
+                    f"{context.table} 第{getattr(fact, 'page', None)}页第{column}列",
+                )
+                continue
 
         match = resolve_metric(context.label(row))
         if not match.known:

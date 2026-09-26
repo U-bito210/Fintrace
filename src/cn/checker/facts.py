@@ -527,6 +527,7 @@ class ReferenceIndex:
     _ids: Dict[str, str] = field(default_factory=dict)       # lowercased alias -> document_id
     _names: Dict[str, Optional[str]] = field(default_factory=dict)
     _available: Dict[str, List[Optional[str]]] = field(default_factory=dict)
+    _publication_dates: Dict[str, Optional[str]] = field(default_factory=dict)
 
     @classmethod
     def build(
@@ -545,6 +546,7 @@ class ReferenceIndex:
                 continue
             filename = getattr(document, "filename", None)
             index._remember(document_id, str(filename) if filename else None)
+            index._publication_dates[document_id] = getattr(document, "publication_date", None)
         return index
 
     def _remember(self, document_id: str, filename: Optional[str]) -> None:
@@ -565,6 +567,10 @@ class ReferenceIndex:
 
     def filename_of(self, document_id: str) -> Optional[str]:
         return self._names.get(document_id)
+
+    def publication_date_of(self, document_id: str) -> Tuple[bool, Optional[str]]:
+        """Return whether a registered document supplied a verified disclosure date."""
+        return document_id in self._publication_dates, self._publication_dates.get(document_id)
 
     def resolve(self, reference: object) -> Optional[Citation]:
         raw = str(reference or "").strip()

@@ -192,7 +192,8 @@ _CAUSAL_SIDES = dict(
 
 
 def _document(document_id: str, filename: str, *, document_type: str = "annual",
-              company: str = "示例制造股份有限公司") -> DocumentRecord:
+              company: str = "示例制造股份有限公司",
+              publication_date: Optional[str] = "2026-04-25") -> DocumentRecord:
     return DocumentRecord(
         document_id=document_id,
         sha256="0" * 64,
@@ -201,6 +202,7 @@ def _document(document_id: str, filename: str, *, document_type: str = "annual",
         document_type=document_type,
         company=company,
         report_period="2025FY",
+        publication_date=publication_date,
     )
 
 
@@ -307,6 +309,22 @@ class TestThirteenCheckTypes:
         assert _types(findings) == [CheckType.PERIOD_ERROR.value]
         assert findings[0].confidence == CONFIDENCE_BY_MATCH[MatchKind.PERIOD_INFERRED.value]
 
+    def test_period_error_shows_current_value_and_both_evidence_ids(self):
+        facts = [
+            _nf("research_expense", 18_606_756_000, period_key="2024FY",
+                scope="合并", unit="千元", page=119),
+            _nf("research_expense", 18_356_108_000, period_key="2023FY",
+                scope="合并", unit="千元", page=119),
+        ]
+        claim = _claim(
+            metric="research_expense", period="2024FY", value=183.56,
+            value_literal="183.56", unit="亿元", references=["DOC-A#p119"],
+        )
+        findings = check_report([claim], facts)
+        assert _types(findings) == [CheckType.PERIOD_ERROR.value]
+        assert findings[0].expected == "18,606,756千元（2024FY）"
+        assert len(findings[0].evidence_ids) == 2
+
     def test_scope_error(self):
         """The parent-company label on the consolidated figure — the A-share classic."""
         findings = _run([_claim(
@@ -375,6 +393,17 @@ class TestThirteenCheckTypes:
         )
         assert _types(findings) == [CheckType.STALE_CITATION.value]
         assert findings[0].severity == Severity.WARNING.value
+
+    def test_ingest_time_is_not_a_publication_date(self):
+        claim = _claim(
+            metric="revenue", value=110.0, value_literal="110", unit="万元",
+            references=["DOC-A#p1"],
+        )
+        findings = _run(
+            [claim], as_of="2025-04-01",
+            documents=[_document("DOC-A", "annual_a.pdf", publication_date=None)],
+        )
+        assert CheckType.STALE_CITATION.value not in _types(findings)
 
     def test_revision_superseded(self):
         """§8 edge case 4: version before value — 调整前 is superseded by 调整后."""
@@ -797,6 +826,23 @@ class TestCoverageIsDeclared:
         assert coverage["rules"]["calculation_error"]["ran"] is False
         assert "事实库只有单一期间" in coverage["rules"]["calculation_error"]["reason"]
 
+    def test_ingest_only_date_does_not_enable_stale_rule(self):
+        facts = FactIndex([_nf("revenue", 1_100_000, available_at="2026-09-26")])
+        undated = coverage_of(
+            extractor=EXTRACTOR_RULES,
+            references=[_document("DOC-A", "annual.pdf", publication_date=None)],
+            index=facts, as_of="2025-04-01", signals=[],
+        )
+        assert undated["rules"]["stale_citation"]["ran"] is False
+        assert "导入时间" in undated["rules"]["stale_citation"]["reason"]
+
+        dated = coverage_of(
+            extractor=EXTRACTOR_RULES,
+            references=[_document("DOC-A", "annual.pdf", publication_date="2025-03-15")],
+            index=facts, as_of="2025-04-01", signals=[],
+        )
+        assert dated["rules"]["stale_citation"]["ran"] is True
+
     def test_scope_coverage_says_absence_is_not_evidence(self):
         coverage = coverage_of(
             extractor=EXTRACTOR_RULES, references=[],
@@ -1046,6 +1092,43 @@ class TestExtractors:
         assert first.claims[0].extractor == EXTRACTOR_RULES
         assert first.claims[0].unit == "万元"
         assert first.claims[0].growth == 10.0
+
+    def test_result_before_cause_is_extracted_and_warned_without_sources(self):
+        sentence = DraftSentence(
+            sentence_id="D#s1", document_id="D",
+            text="2024 年利润增长主要是因为**海外订单大幅放量**。",
+        )
+        claims = extract_claims_rules([sentence]).claims
+        assert len(claims) == 1
+        assert claims[0].claim_type == ClaimType.CAUSAL.value
+        assert claims[0].causal_antecedent == "海外订单大幅放量"
+        assert claims[0].causal_consequent == "2024 年利润增长"
+        assert _types(check_report(claims, [])) == [CheckType.UNSUPPORTED_CAUSAL_CLAIM.value]
+
+    @pytest.mark.parametrize("filename", ["annual_report.pdf", "DOC-A.pdf"])
+    def test_named_pdf_page_in_prose_is_resolved_and_checked(self, filename):
+        sentence = DraftSentence(
+            sentence_id="D#s1", document_id="D",
+            text=f"公司2024年营业收入为110万元，见 {filename} 第 45 页。",
+        )
+        claim = extract_claims_rules([sentence]).claims[0]
+        assert claim.source_reference == f"{filename}#p45"
+        findings = check_report(
+            [claim], [_nf("revenue", 1_100_000, period_key="2024FY", page=9)],
+            documents=[_document("DOC-A", filename)],
+        )
+        assert _types(findings) == [CheckType.WRONG_PAGE.value]
+
+    def test_unanchored_half_year_is_not_failed_against_full_year(self):
+        sentence = DraftSentence(
+            sentence_id="D#s1", document_id="D",
+            text="公司上半年营业收入为166万元。（来源：DOC-A#p1）",
+        )
+        claim = extract_claims_rules([sentence]).claims[0]
+        assert claim.period is None
+        findings = check_report([claim], [_nf("revenue", 362_000_000)])
+        assert _types(findings) == [CheckType.MISSING_CITATION.value]
+        assert "期间未明确" in findings[0].expected
 
     def test_the_rule_extractor_reads_the_declared_scope(self):
         sentences = [

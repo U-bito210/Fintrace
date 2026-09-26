@@ -91,12 +91,12 @@ DEMO_ASSETS: Tuple[Path, ...] = (
 # §2 含错草稿 8 处注入清单。右列是 checker 实际输出的 check_type 提示名；
 # 名字可能对不上（剧本设计名 vs 实现名），对不上就如实列出来，不去猜等价。
 PLANTED_ERROR_PLAN: Tuple[Tuple[str, str, str], ...] = (
-    ("E1", "numeric_error", "营业收入写 35.2 亿（实际 32.6 亿）"),
-    ("E2", "numeric_scale_error", "净利润写 31,000 亿（实际 3.1 亿，量级错 10000 倍）"),
-    ("E3", "calculation_error", "直接拿 H1 累计值算 Q2 环比（YTD 未转单季）"),
+    ("E1", "numeric_error", "营业收入写 352,012,554 千元（年报为 362,012,554 千元）"),
+    ("E2", "numeric_scale_error", "归母净利润写 31,000,000 亿元（年报为 50,744,682 千元，量级错误）"),
+    ("E3", "calculation_error", "2024 年营业收入同比写成增长 15%（年报两期复算约下降 9.70%）"),
     ("E4", "valuation_multiple_error", "目标 PE 用了银行业可比值"),
-    ("E5", "wrong_citation", "引用『年报第 45 页』（实际在 118 页）"),
-    ("E6", "stale_citation", "引用上一年度旧披露值"),
+    ("E5", "wrong_citation", "营业收入引用『年报第 45 页』（对应页由证据定位）"),
+    ("E6", "period_error", "把 2023 年研发费用约 183.56 亿元写成 2024 年数值"),
     ("E7", "unsupported_causal_claim", "『利润增长主要因海外订单放量』无证据"),
     ("E8", "scope_error", "母公司口径数据当成合并口径使用"),
 )

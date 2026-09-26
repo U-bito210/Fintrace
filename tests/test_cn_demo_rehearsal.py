@@ -92,8 +92,19 @@ def test_planted_error_plan_matches_the_script():
     assert MODULE.REQUIRED_PLANTED == len(PLANTED_CODES) == 8
 
 
-def test_e1_e2_carry_the_scripted_examples():
-    """E2 在 v3.1 改成量级错误（不是单位错误）——别退回旧设计。"""
+def test_e1_e2_carry_the_real_demo_figures():
+    """剧本数字必须与本地真实材料的注入清单保持一致。"""
     by_code = {plan[0]: plan for plan in MODULE.PLANTED_ERROR_PLAN}
     assert "scale" in by_code["E2"][1], "E2 必须是量级错误"
-    assert "31,000" in by_code["E2"][2] and "3.1" in by_code["E2"][2]
+    assert "352,012,554" in by_code["E1"][2]
+    assert "362,012,554" in by_code["E1"][2]
+    assert "31,000,000" in by_code["E2"][2]
+    assert "50,744,682" in by_code["E2"][2]
+
+
+def test_e3_uses_annual_report_comparatives():
+    """The real-material calculation case must not depend on an absent H1 filing."""
+    by_code = {plan[0]: plan for plan in MODULE.PLANTED_ERROR_PLAN}
+    assert by_code["E3"][1] == "calculation_error"
+    assert "2024" in by_code["E3"][2]
+    assert "9.70%" in by_code["E3"][2]

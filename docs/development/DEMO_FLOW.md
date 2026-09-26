@@ -30,16 +30,24 @@
 
 | # | 错误类型 | 示例设计 | 预期系统行为 |
 |---|---|---|---|
-| E1 | numeric_error | 营业收入写 35.2 亿元（实际 32.6 亿） | checker 定位 + 给出正确值 + 跳原文页 |
-| E2 | numeric_scale_error | 净利润写 31,000 亿元（实际 3.1 亿元，多写两个零，量级错误） | numeric_scale checker 报错 + 跳原文页对比 |
-| E3 | calculation_error | 直接用 H1 累计值算 Q2 QoQ（YTD 未转单季） | 系统展示正确单季换算过程 |
-| E4 | valuation_multiple_error | 目标 PE 用了银行业可比值 | ValuationApplicabilityGate / multiple 校验 |
-| E5 | wrong_citation | 引用"年报第 45 页"（实际在第 118 页） | wrong_page 检出 + 跳正确页 |
-| E6 | stale_citation | 引用上一年度旧披露值 | revision/staleness 检出 |
+| E1 | numeric_error | 营业收入写 352,012,554 千元（年报为 362,012,554 千元） | checker 定位 + 给出正确值 + 跳原文页 |
+| E2 | numeric_scale_error（设计名；checker 实际为 numeric_error） | 归母净利润写 31,000,000 亿元（年报为 50,744,682 千元，量级错误） | checker 报错 + 跳原文页对比 |
+| E3 | calculation_error | 2024 年营业收入同比写成增长 15%（年报 2024/2023 年复算约下降 9.70%） | 展示两期原值、证据页和同比复算过程 |
+| E4 | valuation_multiple_error | 目标 PE 用了银行业可比值 | §7.1 限界含「**行业错配**」，但该分支**尚未实现**（见下方彩排记录 + CARD-05 §16） |
+| E5 | wrong_citation（设计名；checker 实际为 wrong_page） | 营业收入引用"年报第 45 页"（对应页由证据定位） | wrong_page 检出 + 跳正确页 |
+| E6 | period_error | 把 2023 年研发费用约 183.56 亿元写成 2024 年数值 | 核对 2024/2023 两列及原文页，给出本期值 |
 | E7 | unsupported_causal_claim | "利润增长主要因海外订单放量"（年报无此表述，证据不足） | 标记 unsupported，要求 evidence 绑定 |
 | E8 | scope_error | 母公司口径数据当成合并口径使用 | scope checker 报错 |
 
-> **v3.1 修正说明**：E2 原设计为"3.1 亿元写成 31,000 万元"，但 3.1 亿 = 31,000 万，数值相等不构成错误。修正为量级错误（31,000 亿元 vs 3.1 亿元，10000 倍偏差），由 FinFuzz `numeric_scale` mutation 类型覆盖。
+> **2026-09-26 真实材料彩排（当前）**：逐条对齐 **7/8** —— E1、E2、E3、E5、E6、E7、E8 全部检出，**仅 E4 未检出**。E3 已改为「2024 年营业收入同比写成增长 15%，年报 2024/2023 两期复算约下降 9.70%」，现在**真的产生 `calculation_error`**（旧稿的 166,766,834 千元不在这份年报中，已废弃）。E6 的期间错误给出两期证据及本期值；参考年报缺可确认披露日时 `stale_citation` 明确不运行，导入时间不能代替披露时间。首次构建 **39s**（步骤窗口 50s），**不再需要现场预热**。
+>
+> **E4 未检出的根因 —— 是「已规定但未实现」，既不是"人工审查项"，也不能靠放宽判据解决**：CARD-05 §7.1 对该类型的限界原文是「仅检『引用的可比倍数与事实不符』**和『行业错配』**」，而 `src/cn/checker/checker.py::_multiple_findings` **只实现了前半句**（只判可由「价 × 股本 ÷ 归母净利」复算的倍数）。「把银行业的可比倍数套到电力设备公司」正属**行业错配**——该分支在 `src/cn/checker/` 内**零实现**（全目录检索 `industry`/`行业` 无相关逻辑），checker 上下文里也没有目标公司及其申万行业。补齐它需要新增「草稿 → 目标代码 → `src/cn/industries.py` 申万一级行业名」的数据通路。已记入 CARD-05 §16。
+>
+> 因此步骤 6+7 仍为 **会卡**：§5「8/8 检出方可上台」**不因该分支未实现而下调**，也不得照读"8 处全部检出"的目标话术。以 `python scripts/rehearse_demo.py --step 6+7 --strict` 的当次结果为准。
+>
+> ⚠️ 另注：`rehearse_demo.py` 报的「E1–E8 类型覆盖 命中 5/8」**不是漏检**，而是剧本 `PLANTED_ERROR_PLAN` 里 E2/E5 写的仍是**旧设计名**（`numeric_scale_error`/`wrong_citation`），而 `demo_service.py` 现值是 `numeric_error`/`wrong_page`。**不得**把清单类型名改成实现名来"凑"这个分数 —— 那正是"为了凑 8/8 改数据"。
+
+> **历史设计说明**：E2 曾设计为"3.1 亿元写成 31,000 万元"，但两者数值相等，不构成错误。当前真实材料采用上述量级错误；FinFuzz 的 `numeric_scale` 是扰动类型，不等于 checker 的 `check_type`。
 
 ---
 
@@ -100,7 +108,7 @@
 **步骤 6+7**：检测草稿中的错误数字、错误单位、错误同比、错误估值倍数、错误引用、无证据因果推断；点击错误跳转原始 PDF 页。
 
 - 话术："LLM 只做一件事：把自然语言句子结构化成 Claim。之后全部由确定性 Checker 判断对错——错误类型、原始值、正确值、证据、建议修改。"
-- 现场操作：逐条点开 2–3 处错误（优先 E1 数字错、E2 量级错、E3 YTD 环比错、E7 无证据因果），**点击跳转 PDF 第 N 页**。
+- 现场操作：逐条点开 2–3 处错误（优先 E1 数字错、E2 量级错、E3 同比复算错、E7 无证据因果），**点击跳转 PDF 第 N 页**。
 - 评委看到：8 处错误全部检出，每处给出 Evidence ID 与修改建议。
 
 ### ★创新展示二：Financial Claim Passport（金融AI结论护照）（2:25–2:35）｜Claim Passport 页 ★核心动作

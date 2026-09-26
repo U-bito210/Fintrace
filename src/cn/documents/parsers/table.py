@@ -71,6 +71,7 @@ PERIOD_COLUMN_KEYWORDS: List[Tuple[re.Pattern[str], str]] = [
     (re.compile(r"本报告期末"), "period_end"),
     (re.compile(r"本报告期"), "current_period"),
 ]
+_YEAR_HEADER_RE = re.compile(r"(20\d{2})\s*年(?:度)?")
 
 # Version-column keywords live in the shared lexicon so CARD-01's reader and
 # CARD-02's labeller can never drift apart. ``_version_label`` below turns a
@@ -203,6 +204,34 @@ def _label_version_columns_from_grid(grid: List[dict], header_row_idx: int) -> D
     return labels
 
 
+def _year_header_anchors(grid: List[dict], header_row_idx: int) -> List[Tuple[float, Optional[int]]]:
+    """Locate explicit year headings by their PDF positions, not grid column ids."""
+    header = [cell for cell in grid if cell["row"] == header_row_idx and cell["text"].strip()]
+    years = [
+        int(match.group(1)) for cell in header
+        if (match := _YEAR_HEADER_RE.fullmatch(cell["text"].strip()))
+    ]
+    if len(set(years)) < 2:
+        return []
+    anchors: List[Tuple[float, Optional[int]]] = []
+    for cell in header:
+        match = _YEAR_HEADER_RE.fullmatch(cell["text"].strip())
+        x0, _, x1, _ = cell["bbox"]
+        anchors.append(((x0 + x1) / 2, int(match.group(1)) if match else None))
+    return anchors
+
+
+def _year_for_cell(cell: dict, anchors: List[Tuple[float, Optional[int]]]) -> Optional[int]:
+    if not anchors:
+        return None
+    x0, _, x1, _ = cell["bbox"]
+    center = (x0 + x1) / 2
+    distances = sorted(((abs(center - x), year) for x, year in anchors), key=lambda item: item[0])
+    if distances[0][0] > 80 or (len(distances) > 1 and distances[1][0] - distances[0][0] < 4):
+        return None
+    return distances[0][1]
+
+
 class TableParser(BaseParser):
     name = "table"
 
@@ -273,6 +302,7 @@ class TableParser(BaseParser):
                     header_idx = _grid_header_row(grid)
                     column_labels = _label_columns_from_grid(grid, header_idx)
                     version_labels = _label_version_columns_from_grid(grid, header_idx)
+                    year_anchors = _year_header_anchors(grid, header_idx)
                     # Group cells by grid row so the global row index advances once
                     # per logical table row (not per cell).
                     by_row: Dict[int, List[dict]] = {}
@@ -285,7 +315,7 @@ class TableParser(BaseParser):
                         next_global_row += 1
                         for cell in by_row[gr]:
                             cell_text = cell["text"].strip()
-                            raw_value = _looks_numeric(cell_text)
+                            raw_value = None if year_anchors and gr == header_idx else _looks_numeric(cell_text)
                             meta: Dict[str, object] = {}
                             if statement_key in STATEMENT_HEADERS:
                                 meta["statement_type"] = stype
@@ -295,6 +325,12 @@ class TableParser(BaseParser):
                                 meta["period_kind"] = column_labels[cell["col"]]
                             if cell["col"] in version_labels:
                                 meta["version_label"] = version_labels[cell["col"]]
+                            if year_anchors and gr != header_idx and raw_value is not None:
+                                period_year = _year_for_cell(cell, year_anchors)
+                                if period_year is None:
+                                    meta["period_year_unresolved"] = True
+                                else:
+                                    meta["period_year"] = period_year
                             facts.append(RawFact(
                                 page=idx,
                                 bbox=cell["bbox"],

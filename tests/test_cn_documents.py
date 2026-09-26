@@ -17,6 +17,7 @@ import pytest
 
 from src.cn.documents.fixtures_builder import (
     build_annual_pdf,
+    build_multi_page_report,
     build_announcement_pdf,
     build_report_draft_pdf,
     build_scan_page_pdf,
@@ -44,6 +45,8 @@ from src.cn.documents.models import (
     FACT_STATUS_FAILED,
     FACT_STATUS_OK,
 )
+from src.cn.documents.parsers.table import _year_for_cell, _year_header_anchors
+from src.cn.normalization import normalize_financials
 from src.cn.documents.evidence_bridge import register_document_facts
 from src.agents.tools.cn_tools import IngestCnDocumentTool
 from src.agents.tools.base import ToolRegistry, tool_ok
@@ -150,6 +153,49 @@ def test_annual_pdf_multi_page_merge(registry):
     assert net and net[0].page == 2 and net[0].row == 4
     # Exactly one continuation-skip warning.
     assert any("续表" in w for w in res.warnings)
+
+
+def test_explicit_year_headers_keep_comparative_periods_and_scopes(registry):
+    pdf = build_multi_page_report(
+        company="示例股份有限公司",
+        year=2024,
+        pages=[
+            {
+                "title": "合并利润表",
+                "header": ["项目", "2024年度", "2023年度"],
+                "rows": [["研发费用", "18,606,756", "18,356,108"]],
+            },
+            {
+                "title": "母公司利润表",
+                "header": ["项目", "2024年度", "2023年度"],
+                "rows": [["营业收入", "191,320,942", "222,629,450"]],
+            },
+        ],
+        unit_note="单位：千元",
+    )
+    parsed = registry.ingest(pdf, declared_type="annual", filename="years.pdf")
+    result = normalize_financials(parsed.facts, parsed.document)
+    expenses = [fact for fact in result.facts if fact.metric == "research_expense"]
+    assert {(fact.period_key, fact.value) for fact in expenses} == {
+        ("2024FY", 18_606_756_000.0), ("2023FY", 18_356_108_000.0)
+    }
+    parent_revenue = [fact for fact in result.facts if fact.metric == "revenue" and fact.scope.value == "母公司"]
+    assert {(fact.period_key, fact.value) for fact in parent_revenue} == {
+        ("2024FY", 191_320_942_000.0), ("2023FY", 222_629_450_000.0)
+    }
+    assert all(fact.source_fact_id and fact.page for fact in expenses + parent_revenue)
+
+
+def test_year_header_alignment_uses_pdf_position_not_grid_column_number():
+    grid = [
+        {"row": 0, "col": 2, "text": "项目", "bbox": (100, 0, 140, 10)},
+        {"row": 0, "col": 3, "text": "2024年度", "bbox": (280, 0, 320, 10)},
+        {"row": 0, "col": 5, "text": "2023年度", "bbox": (440, 0, 480, 10)},
+    ]
+    anchors = _year_header_anchors(grid, 0)
+    assert _year_for_cell({"bbox": (330, 20, 370, 30)}, anchors) == 2024
+    assert _year_for_cell({"bbox": (490, 20, 530, 30)}, anchors) == 2023
+    assert _year_for_cell({"bbox": (360, 20, 400, 30)}, anchors) is None
 
 
 # ---------------------------------------------------------------------------

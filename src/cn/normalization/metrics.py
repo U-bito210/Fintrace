@@ -57,6 +57,10 @@ STANDARD_METRICS: Tuple[MetricSpec, ...] = (
         "income", MetricSemantics.FLOW, "operating_cost", note="不含税金及期间费用",
     ),
     MetricSpec(
+        "research_expense", ("研发费用",),
+        "income", MetricSemantics.FLOW, "research_expense", note="利润表研发费用，不与研发投入混用",
+    ),
+    MetricSpec(
         "gross_profit", ("毛利", "毛利润", "营业毛利"),
         "income", MetricSemantics.DERIVED, "gross_profit",
         note="无披露行时由 revenue − operating_cost 派生",

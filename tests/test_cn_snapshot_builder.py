@@ -109,3 +109,29 @@ def test_statements_dedupes_repeated_end_dates_and_keeps_latest(tmp_path):
     records = _statements(tmp_path, "income", "raw_income.csv")
     assert len(records) == 1
     assert records[0]["available_at"] == "2026-08-18T00:00:00+08:00"
+
+
+def test_statements_apply_cutoff_before_revision_selection(tmp_path):
+    """A future restatement must not erase the version known at the cutoff."""
+    headers = [
+        "end_date", "end_type", "report_type", "comp_type",
+        "ann_date", "f_ann_date", "update_flag", "revenue", "n_income_attr_p",
+    ]
+    rows = [
+        ["20241231", "4", "1", "1", "20250320", "20250320", "0", "100", "10"],
+        ["20241231", "4", "1", "1", "20260731", "20260731", "1", "120", "12"],
+    ]
+    with (tmp_path / "raw_income.csv").open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(headers)
+        writer.writerows(rows)
+
+    records = _statements(
+        tmp_path,
+        "income",
+        "raw_income.csv",
+        research_as_of="2025-04-01T00:00:00+08:00",
+    )
+    assert len(records) == 1
+    assert records[0]["values"]["revenue"] == 100.0
+    assert records[0]["available_at"] == "2025-03-20T00:00:00+08:00"

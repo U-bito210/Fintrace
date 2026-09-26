@@ -229,6 +229,13 @@ def coverage_of(
     has_shares = "diluted_shares" in metrics
     has_profit = "net_profit_parent" in metrics or "equity_parent" in metrics
     multi_period = len({item.period_key for item in index.disclosures}) > 1
+    registered_ids = {str(getattr(item, "document_id", "") or "") for item in references}
+    has_publication_date = any(getattr(item, "publication_date", None) for item in references)
+    has_dated_extra = any(
+        item.document_id not in registered_ids and item.available_at
+        for item in index.disclosures
+    )
+    stale_ran = bool(as_of and (has_publication_date or has_dated_extra))
 
     rules: Dict[str, Dict[str, Any]] = {
         "numeric_error": {"ran": bool(metrics), "reason": None if metrics else "事实库为空"},
@@ -257,8 +264,12 @@ def coverage_of(
         "unsupported_citation": {"ran": True, "reason": None},
         "wrong_page": {"ran": True, "reason": None},
         "stale_citation": {
-            "ran": bool(as_of),
-            "reason": None if as_of else "未提供草稿 as_of 时点，无法判定引用是否过期",
+            "ran": stale_ran,
+            "reason": (
+                None if stale_ran else
+                "未提供草稿 as_of 时点，无法判定引用是否过期" if not as_of else
+                "参考文档无可核验披露日；导入时间不能代替披露时间"
+            ),
         },
         "revision_superseded": {"ran": True, "reason": None},
         "unsupported_causal_claim": {"ran": True, "reason": None},

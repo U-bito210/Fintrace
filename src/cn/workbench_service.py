@@ -23,7 +23,7 @@ from .domain import FinancialStatement
 from .demo_data import ensure_demo_snapshots
 from .industries import get_industry_code, is_financial_institution
 from .peer_workflow import PeerCandidate, result_to_dict, value_with_peers
-from .periods import FinancialPeriodEngine, supports_period_engine
+from .periods import FinancialPeriodEngine, period_sort_key, supports_period_engine
 from .providers.snapshot import SnapshotProvider
 from .report import CnResearchReportBuilder
 from .symbols import normalize_cn_symbol
@@ -41,6 +41,12 @@ BUILD_SCRIPT = PROJECT_ROOT / "scripts" / "build_cn_snapshot_from_probe.py"
 TASK_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="fintrace-task")
 TASK_LOCK = Lock()
 ACTIVE_TASK_STATUSES = {"queued", "running"}
+
+# These fields are useful when a provider exposes them, but they are not
+# required for the core revenue / profit / balance-sheet view or peer PE/PB/PS
+# calculations. Missing values must remain visible; this classification only
+# tells the UI whether the gap is informational or valuation-critical.
+OPTIONAL_FINANCIAL_METRICS = frozenset({"ebit", "ebitda", "free_cash_flow"})
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -71,6 +77,36 @@ def _snapshot_path(snapshot_id: str) -> Path:
     raise KeyError(f"Unknown snapshot_id: {snapshot_id}")
 
 
+def _report_sidecar(path: Path, snapshot_id: str) -> Path | None:
+    """Find a metadata sidecar that proves which snapshot produced a report."""
+    payload = load_snapshot(snapshot_id)
+    sidecars = [path.with_suffix(".metadata.json")]
+    if path.name == f"{payload['symbol']}_research_report.md":
+        sidecars.append(OUTPUT_DIR / f"{payload['symbol']}_cn_report.metadata.json")
+    for sidecar in sidecars:
+        if not sidecar.exists():
+            continue
+        try:
+            metadata = _read_json(sidecar)
+        except (OSError, json.JSONDecodeError):
+            continue
+        if metadata.get("snapshot_id") == snapshot_id:
+            return sidecar
+    return None
+
+
+def _report_path(snapshot_id: str) -> tuple[Path | None, Path | None]:
+    """Return only a report whose metadata binds it to ``snapshot_id``."""
+    payload = load_snapshot(snapshot_id)
+    symbol = payload["symbol"]
+    candidates = sorted(OUTPUT_DIR.glob(f"{symbol}_*_report.md"), key=lambda item: item.stat().st_mtime, reverse=True)
+    for path in candidates:
+        sidecar = _report_sidecar(path, snapshot_id)
+        if sidecar is not None:
+            return path, sidecar
+    return None, None
+
+
 def _ledger_validation(payload: dict[str, Any]):
     return CnResearchReportBuilder(SnapshotProvider(_snapshot_path(payload["snapshot_id"]))).build(
         normalize_cn_symbol(payload["symbol"]), research_as_of=payload["research_as_of"]
@@ -87,6 +123,7 @@ def list_research() -> list[dict[str, str]]:
             "id": payload["snapshot_id"], "symbol": payload["symbol"],
             "name": profile.get("name", payload["symbol"]),
             "industry": profile.get("industry_name", "未覆盖"),
+            "provider": payload.get("provider", "snapshot"),
             "research_as_of": payload["research_as_of"],
         })
     return items
@@ -530,24 +567,26 @@ def collect_snapshot(symbol_text: str, *, start_date: str, end_date: str, runner
 
 
 def _latest_value(statements: list[dict[str, Any]], metric: str) -> float | None:
-    ranked = [(item["fiscal_period"], item["values"].get(metric)) for item in statements if item["values"].get(metric) is not None]
-    return max(ranked, default=("", None))[1]
+    candidates = [item for item in statements if item.get("values", {}).get(metric) is not None]
+    latest = max(candidates, key=lambda item: period_sort_key(item.get("fiscal_period")), default=None)
+    return latest.get("values", {}).get(metric) if latest else None
 
 
 def _latest_statement_value(statements: list[dict[str, Any]], statement_type: str, metric: str) -> float | None:
     """Return a balance-sheet fact from the latest available reporting period."""
-    ranked = [
-        (item.get("fiscal_period", ""), item.get("values", {}).get(metric))
+    candidates = [
+        item
         for item in statements
         if item.get("statement_type") == statement_type and item.get("values", {}).get(metric) is not None
     ]
-    return max(ranked, default=("", None))[1]
+    latest = max(candidates, key=lambda item: period_sort_key(item.get("fiscal_period")), default=None)
+    return latest.get("values", {}).get(metric) if latest else None
 
 
 def _ttm_value(statements: list[dict[str, Any]], metric: str) -> float | None:
     statements = [item for item in statements if supports_period_engine(item.get("fiscal_period"))]
     ttm = FinancialPeriodEngine.derive_ttm([FinancialStatement(**item) for item in statements], "income")
-    latest = max(ttm, key=lambda item: item.fiscal_period, default=None)
+    latest = max(ttm, key=lambda item: period_sort_key(item.fiscal_period), default=None)
     return latest.values.get(metric) if latest else None
 
 
@@ -556,7 +595,32 @@ def _latest_fact_period(statements: list[dict[str, Any]], statement_type: str, m
         item.get("fiscal_period") for item in statements
         if item.get("statement_type") == statement_type and item.get("values", {}).get(metric) is not None
     ]
-    return max(periods, default=None)
+    return max(periods, key=period_sort_key, default=None)
+
+
+#: Why a target snapshot cannot enter peer selection at all, and what to do
+#: about it.  A bare ``available: False`` hides the difference between "this
+#: stock has no Shenwan industry, so it can never have peers" and "its snapshot
+#: lacks a price / share count / parseable period".  The first is a
+#: configuration gap that a user adding a stock must fix, so it gets its own
+#: reason and an actionable remediation instead of a generic message.
+PEER_UNAVAILABLE_REMEDIATION: dict[str, str] = {
+    "industry_not_classified": (
+        "该代码不在申万一级行业映射中，无法确定同行。请把它加入 "
+        "src/cn/industries.py 的 _STOCK_INDUSTRY，并同步 scripts/build_cn_universe.py "
+        "的 CURATED_UNIVERSE（两处代码集合必须一致）。"
+    ),
+    "target_snapshot_missing_peer_inputs": (
+        "快照缺少可用的 RAW 收盘价、总股本或可解析的财报期间，无法构造估值输入。"
+    ),
+}
+
+
+def _peer_unavailable_reason(symbol: str) -> str:
+    """Tell a missing industry classification apart from missing snapshot inputs."""
+    if get_industry_code(symbol.split(".")[0]) is None:
+        return "industry_not_classified"
+    return "target_snapshot_missing_peer_inputs"
 
 
 def _peer_candidate(payload: dict[str, Any], cutoff: str) -> PeerCandidate | None:
@@ -566,7 +630,11 @@ def _peer_candidate(payload: dict[str, Any], cutoff: str) -> PeerCandidate | Non
     industry_code = get_industry_code(code)
     if industry_code is None:
         return None
-    statements = [item for item in payload["data"].get("statements", []) if supports_period_engine(item.get("fiscal_period"))]
+    statements = [
+        item for item in payload["data"].get("statements", [])
+        if supports_period_engine(item.get("fiscal_period"))
+        and (not item.get("available_at") or item["available_at"] <= cutoff)
+    ]
     bars = [bar for bar in payload["data"].get("bars", []) if bar.get("adjustment") == "RAW" and bar["trade_date"] <= cutoff[:10]]
     latest_bar = max(bars, key=lambda item: item["trade_date"], default=None)
     if latest_bar is None:
@@ -577,7 +645,7 @@ def _peer_candidate(payload: dict[str, Any], cutoff: str) -> PeerCandidate | Non
     revenue = _ttm_value(statements, "revenue")
     symbol_key = symbol.replace(".", "_")
     ttm = FinancialPeriodEngine.derive_ttm([FinancialStatement(**item) for item in statements], "income")
-    latest_ttm = max(ttm, key=lambda item: item.fiscal_period, default=None)
+    latest_ttm = max(ttm, key=lambda item: period_sort_key(item.fiscal_period), default=None)
     evidence_ids = {"price": f"fact_{symbol_key}_close_{latest_bar['trade_date']}_RAW"}
     shares_period = _latest_fact_period(statements, "balance", "total_shares")
     equity_period = _latest_fact_period(statements, "balance", "equity")
@@ -598,6 +666,11 @@ def _peer_candidate(payload: dict[str, Any], cutoff: str) -> PeerCandidate | Non
         industry_code=industry_code,
         evidence_ids=evidence_ids,
         is_bank_or_insurer=is_financial_institution(code),
+        financial_periods={
+            "ttm": latest_ttm.fiscal_period if latest_ttm else None,
+            "shares": shares_period,
+            "equity": equity_period,
+        },
     )
 
 
@@ -612,11 +685,12 @@ def _summary(payload: dict[str, Any]) -> dict[str, Any]:
     statements = [
         item for item in data.get("statements", [])
         if supports_period_engine(item.get("fiscal_period"))
+        and (not item.get("available_at") or item["available_at"] <= payload["research_as_of"])
     ]
     ttm = FinancialPeriodEngine.derive_ttm(
         [FinancialStatement(**item) for item in statements], "income"
     )
-    latest_ttm = max(ttm, key=lambda item: item.fiscal_period, default=None)
+    latest_ttm = max(ttm, key=lambda item: period_sort_key(item.fiscal_period), default=None)
     shares = _latest_value(statements, "total_shares")
     price = latest["close"] if latest else None
     market_cap = price * shares if price is not None and shares is not None else None
@@ -715,7 +789,8 @@ def research_financials(snapshot_id: str) -> dict[str, Any]:
             continue
         statement = dict(raw)
         published_at = statement.get("published_at")
-        is_future = bool(published_at and published_at > cutoff)
+        available_at = statement.get("available_at")
+        is_future = bool(available_at and available_at > cutoff)
         values = statement.get("values") if isinstance(statement.get("values"), dict) else {}
         evidence_ids = {
             metric: f"fact_{symbol_key}_{metric}_{statement['fiscal_period']}"
@@ -726,10 +801,16 @@ def research_financials(snapshot_id: str) -> dict[str, Any]:
         statement.update({"evidence_ids": evidence_ids, "available_as_of": not is_future})
         statements.append(statement)
         if is_future:
-            issues.append({"code": "future_disclosure", "status": "blocked", "period": statement["fiscal_period"], "published_at": published_at})
+            issues.append({"code": "future_disclosure", "status": "blocked", "period": statement["fiscal_period"], "published_at": published_at, "available_at": available_at})
         for metric, value in values.items():
             if value is None:
-                issues.append({"code": "missing_value", "status": "warning", "period": statement["fiscal_period"], "metric": metric})
+                issues.append({
+                    "code": "missing_value",
+                    "status": "warning",
+                    "severity": "optional" if metric in OPTIONAL_FINANCIAL_METRICS else "required",
+                    "period": statement["fiscal_period"],
+                    "metric": metric,
+                })
     return {
         "snapshot_id": snapshot_id, "research_as_of": cutoff,
         "currency": payload["data"].get("profile", {}).get("currency", "CNY"),
@@ -793,7 +874,7 @@ def research_financial_trends(snapshot_id: str, period_basis: str = "FY") -> dic
         "snapshot_id": snapshot_id, "research_as_of": payload["research_as_of"],
         "provider": payload.get("provider", "snapshot"), "currency": financials["currency"],
         "unit": {"revenue": "CNY", "net_profit": "CNY", "net_margin": "percent"},
-        "period_basis": period_basis, "points": sorted(points, key=lambda item: item["fiscal_period"]),
+        "period_basis": period_basis, "points": sorted(points, key=lambda item: period_sort_key(item["fiscal_period"])),
         "issues": financials["issues"],
     }
 
@@ -803,9 +884,17 @@ def research_display_guardrails(snapshot_id: str) -> dict[str, Any]:
     financials = research_financials(snapshot_id)
     validation = research_validation(snapshot_id)
     missing = [issue for issue in financials["issues"] if issue["code"] == "missing_value"]
+    missing_required = [issue for issue in missing if issue.get("severity", "required") == "required"]
+    missing_optional = [issue for issue in missing if issue.get("severity") == "optional"]
     future = [issue for issue in financials["issues"] if issue["code"] == "future_disclosure"]
     return {
         "missing_data": {"visible": bool(missing), "count": len(missing), "action": "show_unavailable"},
+        "missing_data_breakdown": {
+            "required_count": len(missing_required),
+            "optional_count": len(missing_optional),
+            "required_metrics": sorted({issue.get("metric") for issue in missing_required if issue.get("metric")}),
+            "optional_metrics": sorted({issue.get("metric") for issue in missing_optional if issue.get("metric")}),
+        },
         "future_data": {"visible": bool(future), "count": len(future), "action": "exclude_from_charts"},
         "validation_block": {
             "visible": validation["status"] == "blocked",
@@ -851,27 +940,57 @@ def research_overview_insights(snapshot_id: str) -> dict[str, Any]:
 def research_peer_valuation(snapshot_id: str) -> dict[str, Any]:
     """Value a snapshot against compatible local-snapshot peers, or explain why not.
 
-    No live prices are fetched and no different-date snapshot is treated as a
-    compatible peer.  A date gap of over three days is surfaced as exclusion.
+    Keep one snapshot per symbol, preferring the closest research cutoff, then
+    the later cutoff, fetch time and snapshot ID. Date gaps over three days
+    remain excluded; financial input periods must also match the target.
     """
     target_payload = load_snapshot(snapshot_id)
     cutoff = target_payload["research_as_of"]
     target = _peer_candidate(target_payload, cutoff)
     if target is None:
-        return {"snapshot_id": snapshot_id, "available": False, "reason": "target_snapshot_missing_peer_inputs"}
+        reason = _peer_unavailable_reason(target_payload["symbol"])
+        return {
+            "snapshot_id": snapshot_id, "available": False, "reason": reason,
+            "remediation": PEER_UNAVAILABLE_REMEDIATION[reason],
+            "industry_code": get_industry_code(target_payload["symbol"].split(".")[0]),
+            "peer_count": 0,
+        }
     candidates: list[PeerCandidate] = []
     candidate_context: dict[str, dict[str, Any]] = {}
     names = {target.valuation.symbol: target_payload["data"].get("profile", {}).get("name", target.valuation.symbol)}
     excluded_for_date = []
+    snapshot_exclusions = []
+    peer_payloads: dict[str, dict[str, Any]] = {}
+    cutoff_instant = datetime.fromisoformat(cutoff)
+
+    def snapshot_rank(payload: dict[str, Any]) -> tuple[float, float, float, str]:
+        instant = datetime.fromisoformat(payload["research_as_of"])
+        fetched_at = payload.get("fetched_at")
+        fetched = datetime.fromisoformat(fetched_at).timestamp() if fetched_at else float("-inf")
+        return (-abs((instant - cutoff_instant).total_seconds()), instant.timestamp(), fetched, payload["snapshot_id"])
+
     target_date = cutoff[:10]
-    for path in SNAPSHOT_DIR.glob("*.json"):
+    for path in sorted(SNAPSHOT_DIR.glob("*.json")):
         payload = _read_json(path)
-        if payload["snapshot_id"] == snapshot_id:
+        if payload["symbol"] == target_payload["symbol"]:
             continue
         date_gap = abs((datetime.fromisoformat(payload["research_as_of"][:10]).date() - datetime.fromisoformat(target_date).date()).days)
         if date_gap > 3:
             excluded_for_date.append(payload["symbol"])
             continue
+        previous = peer_payloads.get(payload["symbol"])
+        if previous is not None:
+            preferred, discarded = sorted((previous, payload), key=snapshot_rank, reverse=True)
+            snapshot_exclusions.append({
+                "symbol": discarded["symbol"], "snapshot_id": discarded["snapshot_id"],
+                "reason": "duplicate_symbol", "selected_snapshot_id": preferred["snapshot_id"],
+            })
+            peer_payloads[payload["symbol"]] = preferred
+        else:
+            peer_payloads[payload["symbol"]] = payload
+    for exclusion in snapshot_exclusions:
+        exclusion["selected_snapshot_id"] = peer_payloads[exclusion["symbol"]]["snapshot_id"]
+    for payload in peer_payloads.values():
         candidate = _peer_candidate(payload, cutoff)
         if candidate is not None:
             candidates.append(candidate)
@@ -904,6 +1023,7 @@ def research_peer_valuation(snapshot_id: str) -> dict[str, Any]:
                 "snapshot_id": candidate_context[symbol]["snapshot_id"],
                 "research_as_of": candidate_context[symbol]["research_as_of"],
                 "price_basis": "RAW", "period_basis": candidate.valuation.period_basis,
+                "financial_periods": candidate.financial_periods,
                 "evidence_ids": candidate_context[symbol]["evidence_ids"],
             })
         distributions[name] = rows
@@ -942,9 +1062,11 @@ def research_peer_valuation(snapshot_id: str) -> dict[str, Any]:
         "industry_code": target.industry_code,
         "peer_count": len(selected),
         "peer_names": {symbol: names.get(symbol, symbol) for symbol in selected},
-        "date_excluded_symbols": excluded_for_date,
+        "date_excluded_symbols": sorted(set(excluded_for_date)),
+        "snapshot_exclusions": snapshot_exclusions,
         "target_multiples": target_multiples,
         "period_basis": target.valuation.period_basis,
+        "financial_periods": target.financial_periods,
         "price_basis": "RAW",
         "method_boundary": "financial_institution_pe_pb_only" if target.is_bank_or_insurer else None,
         "distributions": distributions, "valuation_ranges": valuation_ranges, "formulas": formulas,
@@ -1066,7 +1188,7 @@ def research_evidence(snapshot_id: str) -> dict[str, Any]:
         })
     eligible_statements = [
         statement for statement in payload["data"].get("statements", [])
-        if (not statement.get("published_at") or statement["published_at"] <= payload["research_as_of"])
+        if (not statement.get("available_at") or statement["available_at"] <= payload["research_as_of"])
         and supports_period_engine(statement.get("fiscal_period"))
     ]
     for statement in eligible_statements:
@@ -1095,7 +1217,7 @@ def research_evidence(snapshot_id: str) -> dict[str, Any]:
     ttm_statements = FinancialPeriodEngine.derive_ttm(
         [FinancialStatement(**item) for item in eligible_statements], "income"
     )
-    latest_ttm = max(ttm_statements, key=lambda item: item.fiscal_period, default=None)
+    latest_ttm = max(ttm_statements, key=lambda item: period_sort_key(item.fiscal_period), default=None)
     ttm_id = summary["evidence_ids"]["ttm_net_profit"]
     ttm_period = latest_ttm.fiscal_period if latest_ttm else None
     ttm_sources = [
@@ -1186,18 +1308,19 @@ def research_trace(snapshot_id: str) -> dict[str, Any]:
 def research_report(snapshot_id: str) -> dict[str, Any]:
     payload = load_snapshot(snapshot_id)
     validation = research_validation(snapshot_id)
-    report_path = OUTPUT_DIR / f"{payload['symbol']}_research_report.md"
-    available = report_path.exists() and validation["conclusion_allowed"]
+    report_path, metadata_path = _report_path(snapshot_id)
+    available = report_path is not None and validation["conclusion_allowed"]
     return {
         "snapshot_id": snapshot_id, "research_as_of": payload["research_as_of"],
         "provider": payload.get("provider", "snapshot"), "currency": payload["data"].get("profile", {}).get("currency", "CNY"),
         "validation_status": validation["status"], "conclusion_allowed": validation["conclusion_allowed"],
         "available": available, "format": "markdown",
-        "filename": report_path.name if report_path.exists() else None,
-        "content": report_path.read_text(encoding="utf-8") if available else None,
+        "filename": report_path.name if report_path else None,
+        "content": report_path.read_text(encoding="utf-8") if available and report_path else None,
+        "metadata_filename": metadata_path.name if metadata_path else None,
         "unavailable_reason": (
             "validator_blocked" if not validation["conclusion_allowed"]
-            else "report_not_generated" if not report_path.exists() else None
+            else "report_not_generated" if report_path is None else None
         ),
     }
 
@@ -1205,11 +1328,16 @@ def research_report(snapshot_id: str) -> dict[str, Any]:
 def research_artifacts(snapshot_id: str) -> dict[str, Any]:
     payload = load_snapshot(snapshot_id)
     symbol = payload["symbol"]
-    candidates = [
-        ("report", OUTPUT_DIR / f"{symbol}_research_report.md", "text/markdown"),
-        ("excel", OUTPUT_DIR / f"{symbol}_cn_report.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
-        ("metadata", OUTPUT_DIR / f"{symbol}_cn_report.metadata.json", "application/json"),
-    ]
+    report_path, metadata_path = _report_path(snapshot_id)
+    candidates = []
+    if report_path:
+        candidates.append(("report", report_path, "text/markdown"))
+    if metadata_path:
+        candidates.append(("metadata", metadata_path, "application/json"))
+    peer_path = report_path.with_suffix(".peer_valuation.json") if report_path else None
+    if peer_path and peer_path.exists():
+        candidates.append(("peer_valuation", peer_path, "application/json"))
+    candidates.append(("excel", OUTPUT_DIR / f"{symbol}_cn_report.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
     artifacts = [{
         "kind": kind, "filename": path.name, "media_type": media_type, "size_bytes": path.stat().st_size,
     } for kind, path, media_type in candidates if path.exists()]

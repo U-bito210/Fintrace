@@ -76,6 +76,12 @@ python scripts/bootstrap_demo.py
 python -m streamlit run workbench.py
 ~~~
 
+如果 pip 配置的镜像提示 `No matching distribution found`，镜像同步不完整时可临时指定官方 PyPI：
+
+```powershell
+python -m pip install -r requirements.txt -i https://pypi.org/simple
+```
+
 bootstrap_demo.py 只生成确定性的 illustrative 数据，不访问网络，不使用真实公司财务数字。工作台也会在首次启动时自动补齐这套演示数据。
 
 打开 http://localhost:8501，建议依次演示：
@@ -139,6 +145,7 @@ python scripts/smoke_workbench.py
 
 ## 文档
 
+- [本地运行与自测说明](docs/RUN_GUIDE.md)
 - [架构说明](ARCHITECTURE.md)
 - [数据来源与口径](DATA_SOURCES.md)
 - [估值方法](VALUATION_METHODOLOGY.md)

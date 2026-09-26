@@ -81,6 +81,7 @@ _MULTIPLE_PATTERNS: Tuple[Tuple[re.Pattern, str, str], ...] = (
 #: Words that make a sentence a forecast rather than a statement of fact (§8.5).
 _FORWARD_MARKERS = ("预计", "预期", "将达", "有望", "目标价", "预计将", "未来", "指引")
 _CITATION_SHARE = 0.5
+_UNANCHORED_PERIOD_RE = re.compile(r"上半年|下半年|前三季度|第[一二三四]季度|[一二三四]季度")
 
 
 @dataclass
@@ -433,7 +434,15 @@ def _citation_findings(
 
     if context.as_of:
         for citation in citations:
-            disclosure_dates = [
+            if claim.metric and not any(
+                item.document_id == citation.document_id and item.metric == claim.metric
+                for item in cited_facts
+            ):
+                continue
+            registered, published_at = context.references.publication_date_of(citation.document_id)
+            disclosure_dates = (
+                [published_at] if published_at else []
+            ) if registered else [
                 item.available_at for item in cited_facts
                 if item.document_id == citation.document_id and item.available_at
             ]
@@ -466,6 +475,18 @@ def _value_findings(claim: DraftClaim, index: FactIndex) -> List[Finding]:
         # to compare it to; §9 forbids inventing one, so this is counted as
         # unverifiable by ``summarize`` and produces no finding.
         return []
+
+    if claim.period is None and _UNANCHORED_PERIOD_RE.search(claim.sentence):
+        return [_finding(
+            claim,
+            CheckType.MISSING_CITATION,
+            original=_original_text(claim),
+            expected="无法核验（期间未明确）",
+            suggestion="该句提及半年或季度但未写明年份；请补全年份及对应披露来源后再核验数值。",
+            confidence=CONFIDENCE_BY_MATCH[MatchKind.UNVERIFIABLE.value],
+            severity=Severity.WARNING,
+            detail="相对期间未锚定年份，不得拿全年披露值判定数字错误。",
+        )]
 
     declared_unit = claim.unit
     scale = unit_scale(declared_unit) if declared_unit else 1.0
@@ -552,6 +573,15 @@ def _finding_from_match(
         )
 
     if outcome.kind == MatchKind.PERIOD.value:
+        counterpart = (
+            index.primary(claim.metric, period_key=claim.period, scope=disclosure.scope)
+            if index is not None and disclosure is not None and disclosure.scope is not None
+            and claim.metric and claim.period else None
+        )
+        if counterpart is not None:
+            expected = format_amount(counterpart.value, counterpart.unit)
+            period_note = f"（{counterpart.period_key}）"
+            evidence_ids.append(counterpart.fact_id)
         return _finding(
             claim,
             CheckType.PERIOD_ERROR,

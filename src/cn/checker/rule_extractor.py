@@ -57,6 +57,7 @@ _PERIOD_RES = (
 )
 _REFERENCE_RES = (
     re.compile(r"[（(]\s*(?:来源|见|参见|详见)\s*[:：]?\s*(?P<ref>[^）)]+)[）)]"),
+    re.compile(r"(?:来源|见|参见|详见)\s*[:：]?\s*(?P<ref>[\w.-]+\.pdf\s*(?:第\s*\d+\s*页|#p\d+)?)", re.IGNORECASE),
     re.compile(r"(?:来源|见|参见|详见)\s*[:：]?\s*(?P<ref>(?:SYN|DOC|doc)[\w\-]*(?:\.pdf)?(?:#p\d+|第\d+页)?)"),
 )
 _PAGE_IN_REF_RE = re.compile(r"第\s*(\d+)\s*页")
@@ -68,6 +69,10 @@ _MULTIPLE_RE = re.compile(
 _CAUSAL_RE = re.compile(
     r"[，,]?\s*(?P<antecedent>(?:因|由于|受|受益于)[^，,。；;]{2,40}?)[，,]?\s*"
     r"(?P<consequent>[^。；;]{0,6}?(?:导致|使得|致使|推动|带动|拖累|拉动)[^。；;]{2,60})"
+)
+_REVERSE_CAUSAL_RE = re.compile(
+    r"(?P<consequent>[^。；;，,]{2,60}?)\s*(?:主要)?(?:是因为|归因于|源于)\s*"
+    r"(?P<antecedent>[^。；;，,]{2,60})"
 )
 
 #: Verbs that flip the sign of a growth figure.
@@ -111,7 +116,7 @@ def _claim_from_sentence(sentence: DraftSentence) -> Optional[DraftClaim]:
     growth_match = _GROWTH_RE.search(text)
     period = _find_period(text)
     multiple = _find_multiple(text)
-    causal = _CAUSAL_RE.search(text)
+    causal = _CAUSAL_RE.search(text) or _REVERSE_CAUSAL_RE.search(text)
     forward = is_forward_looking(text)
 
     has_figure = bool(value_match or growth_match or multiple)
@@ -177,8 +182,8 @@ def _claim_from_sentence(sentence: DraftSentence) -> Optional[DraftClaim]:
         claim_type=claim_type,
         scope=_find_scope(text, metric_label),
         source_references=(reference,) if reference else (),
-        causal_antecedent=causal.group("antecedent").strip() if causal else None,
-        causal_consequent=causal.group("consequent").strip() if causal else None,
+        causal_antecedent=causal.group("antecedent").strip(" *") if causal else None,
+        causal_consequent=causal.group("consequent").strip(" *") if causal else None,
         document_id=sentence.document_id,
         fact_id=sentence.fact_id,
         extractor=EXTRACTOR_RULES,

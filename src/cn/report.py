@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional
 
 from .evidence import EvidenceLedger, EvidenceRecord, LedgerValidation
-from .periods import FinancialPeriodEngine, supports_period_engine
+from .periods import FinancialPeriodEngine, period_sort_key, supports_period_engine
 from .providers.snapshot import SnapshotProvider
 from .symbols import CanonicalSymbol
 
@@ -71,19 +71,15 @@ class CnResearchReportBuilder:
         # so TTM stays deterministic and the report still renders.
         supported = [item for item in statements if supports_period_engine(getattr(item, "fiscal_period", None))]
         candidates = FinancialPeriodEngine.derive_ttm(supported, "income")
-        return max(candidates, key=lambda item: item.fiscal_period) if candidates else None
+        return max(candidates, key=lambda item: period_sort_key(item.fiscal_period)) if candidates else None
 
     @staticmethod
     def _latest_value(statements, metric: str) -> Optional[float]:
         values = [item for item in statements if item.values.get(metric) is not None]
         if not values:
             return None
-        period_rank = {"Q1": 1, "H1": 2, "9M": 3, "FY": 4}
         def key(item):
-            for suffix, rank in period_rank.items():
-                if item.fiscal_period.endswith(suffix):
-                    return int(item.fiscal_period[:4]), rank
-            return 0, 0
+            return period_sort_key(item.fiscal_period)
         return max(values, key=key).values[metric]
 
     @staticmethod

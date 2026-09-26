@@ -357,3 +357,35 @@ def test_agent_ablation_artifact_keeps_measured_operational_metrics(tmp_path, mo
     assert detail["kind"] == "ablation"
     assert detail["variants"][0]["validator_intercept_rate"] == 1.0
     assert detail["missing_variants"] == ["direct_llm", "agent_tools", "agent_tools_evidence"]
+
+
+def test_unclassified_stock_names_the_missing_industry_instead_of_a_generic_failure(monkeypatch):
+    """A stock with no Shenwan code can never have peers; say so, and say how to fix it."""
+    monkeypatch.setattr(service, "get_industry_code", lambda code: None)
+
+    result = service.research_peer_valuation("600519.SH_20260810_tushare_v1")
+
+    assert result["available"] is False
+    assert result["reason"] == "industry_not_classified"
+    assert result["industry_code"] is None
+    assert result["peer_count"] == 0
+    assert result["remediation"] == service.PEER_UNAVAILABLE_REMEDIATION["industry_not_classified"]
+    assert "industries.py" in result["remediation"]
+
+
+def test_classified_stock_with_unusable_snapshot_inputs_keeps_the_input_reason(monkeypatch):
+    """Missing price/shares/period is a data gap, not a configuration gap."""
+    monkeypatch.setattr(service, "_peer_candidate", lambda payload, cutoff: None)
+
+    result = service.research_peer_valuation("600519.SH_20260810_tushare_v1")
+
+    assert result["available"] is False
+    assert result["reason"] == "target_snapshot_missing_peer_inputs"
+    assert result["remediation"] == service.PEER_UNAVAILABLE_REMEDIATION["target_snapshot_missing_peer_inputs"]
+
+
+def test_every_peer_unavailable_reason_has_a_remediation():
+    reasons = set(service.PEER_UNAVAILABLE_REMEDIATION)
+
+    assert reasons == {"industry_not_classified", "target_snapshot_missing_peer_inputs"}
+    assert all(text.strip() for text in service.PEER_UNAVAILABLE_REMEDIATION.values())

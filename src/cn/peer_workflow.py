@@ -14,6 +14,7 @@ class PeerCandidate:
     industry_code: str
     evidence_ids: Dict[str, str] = field(default_factory=dict)
     is_bank_or_insurer: bool = False
+    financial_periods: Dict[str, Optional[str]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,7 @@ def select_peers(target: PeerCandidate, candidates: Iterable[PeerCandidate]) -> 
     """Keep only same-industry, same-period peers with the required evidence."""
     selected: List[PeerCandidate] = []
     decisions: List[PeerDecision] = []
+    selected_symbols: set[str] = set()
     for candidate in candidates:
         if candidate.valuation.symbol == target.valuation.symbol:
             decisions.append(PeerDecision(candidate.valuation.symbol, False, "target_company"))
@@ -41,12 +43,22 @@ def select_peers(target: PeerCandidate, candidates: Iterable[PeerCandidate]) -> 
             decisions.append(PeerDecision(candidate.valuation.symbol, False, "industry_mismatch"))
         elif candidate.valuation.period_basis != target.valuation.period_basis:
             decisions.append(PeerDecision(candidate.valuation.symbol, False, "period_basis_mismatch"))
+        elif (target.financial_periods or candidate.financial_periods) and (
+            not target.financial_periods or not candidate.financial_periods
+            or any(period is None for period in (*target.financial_periods.values(), *candidate.financial_periods.values()))
+        ):
+            decisions.append(PeerDecision(candidate.valuation.symbol, False, "missing_financial_periods"))
+        elif candidate.financial_periods != target.financial_periods:
+            decisions.append(PeerDecision(candidate.valuation.symbol, False, "financial_period_mismatch"))
         elif candidate.valuation.raw_price <= 0 or candidate.valuation.total_shares <= 0:
             decisions.append(PeerDecision(candidate.valuation.symbol, False, "invalid_price_or_shares"))
         elif not candidate.evidence_ids:
             decisions.append(PeerDecision(candidate.valuation.symbol, False, "missing_evidence_ids"))
+        elif candidate.valuation.symbol in selected_symbols:
+            decisions.append(PeerDecision(candidate.valuation.symbol, False, "duplicate_symbol"))
         else:
             selected.append(candidate)
+            selected_symbols.add(candidate.valuation.symbol)
             decisions.append(PeerDecision(candidate.valuation.symbol, True, "same_industry_same_period"))
     return selected, decisions
 

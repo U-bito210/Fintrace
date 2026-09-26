@@ -16,6 +16,7 @@ from .domain import FinancialStatement
 
 _PERIOD = re.compile(r"^(?P<year>\d{4})(?P<kind>Q1|H1|9M|FY)$")
 _FLOW_TYPES = {"income", "cashflow"}
+_PERIOD_KINDS = ("Q1", "H1", "9M", "FY")
 
 
 def supports_period_engine(fiscal_period: str | None) -> bool:
@@ -29,6 +30,17 @@ def supports_period_engine(fiscal_period: str | None) -> bool:
     deterministic and the page renderable.
     """
     return bool(fiscal_period) and bool(_PERIOD.fullmatch(str(fiscal_period)))
+
+
+def period_sort_key(fiscal_period: object) -> Tuple[int, int, str]:
+    """Order supported periods chronologically within each fiscal year."""
+    text = str(fiscal_period or "")
+    for index, kind in enumerate(_PERIOD_KINDS):
+        if text.endswith(kind):
+            year = text[: -len(kind)]
+            if year.isdigit():
+                return int(year), index, text
+    return 0, 0, text
 
 
 class PeriodEngineError(ValueError):

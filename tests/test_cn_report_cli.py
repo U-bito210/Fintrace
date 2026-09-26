@@ -20,7 +20,12 @@ def test_snapshot_report_cli_is_reproducible_and_writes_provenance(tmp_path):
     assert metadata["snapshot_id"] == "600519.SH_20260810_tushare_v1"
     assert metadata["validation"]["valid"]
     assert "calc_market_cap" in output.read_text(encoding="utf-8")
-    assert json.loads(output.with_suffix(".metadata.json").read_text(encoding="utf-8"))["report_path"] == str(output)
+    rendered = output.read_text(encoding="utf-8")
+    assert "## 同行估值" in rendered
+    saved_metadata = json.loads(output.with_suffix(".metadata.json").read_text(encoding="utf-8"))
+    assert saved_metadata["report_path"] == str(output)
+    assert saved_metadata["peer_valuation"]["available"] is True
+    assert Path(saved_metadata["peer_valuation_path"]).exists()
 
 
 def test_snapshot_report_cli_renders_bank_boundary_case_without_network(tmp_path):
