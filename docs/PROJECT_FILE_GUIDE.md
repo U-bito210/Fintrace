@@ -93,6 +93,7 @@ FinTrace-CN/
 ├── EVALUATION.md          评测方法 + 四组 Agent 消融 + 换模型厂商的办法
 ├── LIMITATIONS.md         限制与合规边界（改动后要同步）
 ├── DEMO_GUIDE.md          面试 60 秒 Demo 路线
+├── THIRD_PARTY_NOTICES.md 第三方依赖与资产合规声明（许可证已逐项核实到官方源）
 ├── LICENSE                Apache-2.0（含上游版权）
 ├── api.py                 版本化 FastAPI（研究 / 任务 / Agent / 每日复盘）
 ├── workbench.py           Streamlit 主入口（22 个页面）
@@ -128,6 +129,7 @@ FinTrace-CN/
 | **`pytest.ini`** | 只注册 `integration` marker，`asyncio_mode = strict`。默认 `pytest -q` 就是**零成本离线**。 |
 | **`requirements.txt`** | 关键依赖：`openai`/`anthropic`（模型客户端）、`pandas`、`tushare`、`akshare`、`fastapi`/`uvicorn`、`streamlit`/`plotly`、`jieba`（CARD-06 分词，**缺失时自动降级**到确定性空白+CJK 二元切分，离线测试仍可跑）、`reportlab`+`pdfplumber`（PDF fixture 生成与解析）。 |
 | **`Dockerfile` / `docker-compose.yml`** | 非 root 运行，启动自动生成 illustrative Demo；真实数据与输出放具名卷。 |
+| **`THIRD_PARTY_NOTICES.md`** | 第三方依赖与资产的**最终合规声明**（提交材料）。17 项直接依赖 + 2 项关键传递依赖 + 2 项可选隔离依赖，每项含**核实 URL 与日期**。许可证取值**以官方源核实**，不凭记忆；MinerU 的实际许可为 Apache-2.0 + 附加条款（**不是 AGPL**）。改依赖后必须同步它。 |
 
 ---
 
@@ -382,7 +384,7 @@ FinTrace-CN/
 | `INNOVATION_DESIGN.md` | 四大创新体系设计。 |
 | `DUAL_COMPETITION_POSITIONING.md` | 双赛同构的叙事定位。 |
 | `COMPETITION_REQUIREMENTS_MATRIX.md` | 竞赛要求 → 模块 → 状态 → CARD → 验收标准 → Demo 体现，逐项对照。 |
-| `THIRD_PARTY_NOTICES_PLAN.md` | 第三方清单计划（名称/版本/来源/许可证/用途）。 |
+| `THIRD_PARTY_NOTICES_PLAN.md` | 第三方清单**计划**（v3.2 执行完成版）；License 栏已改为指向最终声明，**权威取值在仓库根 [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)**。 |
 
 ### `docs/development/cards/` — 27 张任务卡
 
@@ -390,9 +392,10 @@ FinTrace-CN/
 
 | 已实现（有代码 + 测试） | 仅有设计文档（`src/` 中零实现） |
 |---|---|
-| CARD-01 ~ CARD-13、CARD-15、CARD-22 ~ CARD-26 | **CARD-14（Prompt Registry）、CARD-16（DCF）、CARD-17（质量诊断）、CARD-18（多 Agent）、CARD-19（Bull/Bear）、CARD-20（MCP Server）、CARD-21（产业链）** |
+| CARD-01 ~ CARD-15、CARD-22 ~ CARD-26 | **CARD-16（DCF）、CARD-17（质量诊断）、CARD-18（多 Agent）、CARD-19（Bull/Bear）、CARD-20（MCP Server）、CARD-21（产业链）** |
 
-> 已用 `grep -rl "CARD-1[4-9]\|CARD-2[01]" src/` 核实：这 7 张卡在 `src/` 中**零引用**。它们是"计划中/暂缓"，不要以为代码藏在别处。其中 CARD-16（DCF）与 CARD-20（MCP）在 `LIMITATIONS.md`/需求矩阵里明确写成"不属于已验证主线 / 暂缓"。
+> 已用 `grep -rl "CARD-16\|CARD-1[7-9]\|CARD-2[01]" src/` 核实：这 6 张卡在 `src/` 中**零引用**。它们是"计划中/暂缓"，不要以为代码藏在别处。其中 CARD-16（DCF）与 CARD-20（MCP）在 `LIMITATIONS.md`/需求矩阵里明确写成"不属于已验证主线 / 暂缓"。
+> **CARD-14（Prompt Registry）已于 2026-09-27 从"仅有设计文档"移出并落地**：`src/agents/prompts/`（11 段提示词模板 + `registry.py` + `registry.lock.json`）。它是本项目**唯一**的提示词出栈点，业务模块里不再有硬编码提示词，改提示词必须走模板 + 版本锁。
 
 ---
 

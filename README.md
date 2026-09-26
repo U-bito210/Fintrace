@@ -152,6 +152,7 @@ python scripts/smoke_workbench.py
 - [评测方法](EVALUATION.md)
 - [演示指南](DEMO_GUIDE.md)
 - [限制与合规](LIMITATIONS.md)
+- [第三方依赖与许可声明](THIRD_PARTY_NOTICES.md)
 - [简历与面试准备](docs/RESUME_AND_INTERVIEW.md)
 
 ## License

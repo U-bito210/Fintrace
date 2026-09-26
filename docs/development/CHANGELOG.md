@@ -1,6 +1,36 @@
 # CHANGELOG.md — 开发文档体系变更记录
 
-> 版本：v2.0 → v3.0 → v3.1 → v3.2 编码前冻结版 ｜ 变更日期：2026-09-16
+> 版本：v2.0 → v3.0 → v3.1 → v3.2 → **v3.3 提交冻结版** ｜ 变更日期：2026-09-27
+
+---
+
+## v3.3 提交冻结版（2026-09-27）—— 依赖合规声明落地 + Prompt 注册表
+
+### 一、文档体系新增 / 升级
+
+| 文档 | 变化 |
+|---|---|
+| **`THIRD_PARTY_NOTICES.md`（仓库根，新增交付物）** | 第三方依赖与资产合规**最终声明**。范围：14 项运行时 + 3 项开发/测试直接依赖、2 项关键传递依赖（`openpyxl` / `Pillow`）、2 项可选隔离依赖（MinerU / PaddleOCR）。**每项含核实 URL 与核实日期（2026-09-27）**，模糊项另附随包分发的许可证正文作证。 |
+| `docs/development/THIRD_PARTY_NOTICES_PLAN.md` | v3.1 → **v3.2 执行完成版**：§4 的 License 栏改为指向最终声明（**单一事实源，避免两处漂移**）；§5 三张"计划引入依赖"全部结清；§6 MinerU 许可证更正；§8 验收四项勾选。 |
+| `docs/PROJECT_FILE_GUIDE.md` | 根目录清单与逐个说明补 `THIRD_PARTY_NOTICES.md`；**CARD-14 从"仅有设计文档"移入"已实现"**（原文写的是"src/ 中零引用"，已随之更新为 6 张卡零引用）。 |
+
+### 二、必须记住的三处许可证更正（核实后，不是印象）
+
+1. **MinerU 不是 AGPL-3.0。** 其现行许可为 **"MinerU Open Source License" = Apache-2.0 + 附加条款**：商用免费，但"你与关联方合并计算"下 MAU > 1 亿、或月收入 > 2000 万美元时须另取商业许可；**基于它向第三方提供在线服务须显著署名 MinerU**；违反任一条许可证自动终止。因此"AGPL 类依赖必须隔离为可选 extras"这条红线**当前没有适用对象**（隔离仍保留，但理由是体量与可选性，不是许可证传染）。
+2. **`pytest-asyncio` 是 Apache-2.0**，不是 MIT。
+3. **`openpyxl` / `Pillow` 未 pin 但必须登记**：分别由 `akshare`、`pdfplumber`+`reportlab`+`streamlit` 传递引入，同时**被本项目代码直接调用**（前者解析 `.xlsx`，后者渲染披露页 bbox 高亮），故按"明确影响运行的关键传递依赖"登记。
+
+### 三、CARD 台账
+
+| CARD | 变化 |
+|---|---|
+| 14 Prompt Registry | 代码/测试/文档全部落地，**成为台账里第一张走完 `[x]` 的卡**。`src/agents/prompts/`：11 段真实提示词出栈 + `registry.lock.json` 版本锁 + `RUN_PROMPT_BUNDLES`；`prompt_hash` **首次真正被赋值**并进入 Run Manifest（此前全仓无人赋值）。 |
+| 07 Run Manifest | **跨卡修复一处不可见的交付缺口**：`.gitignore` 的裸写 `runs/` 把源码包 `src/cn/runs/`（四个 `.py`）一起忽略了整整一个开发周期。已锚定为 `/runs/`，并新增守卫 `tests/test_repo_hygiene.py`（详见该卡 §16）。 |
+
+### 四、其他文档变更
+
+- **`ARCHITECTURE.md`**：核心组件表新增"Prompt 注册表"一行；审计工件段的 `Prompt 哈希` 改为"由提示词注册表算出的 prompt 组合哈希"。
+- **`COMPETITION_REQUIREMENTS_MATRIX.md`**：第三方清单行 `待建` → **现有**（指向 `THIRD_PARTY_NOTICES.md`）；Prompt 行 `待建` → **已建**；Skill 行 `待定` → **已决策：不建**（理由见 CARD-14 §16）。
 
 ---
 
