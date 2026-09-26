@@ -427,6 +427,57 @@ def test_unknown_run_id_is_reported(tmp_path, monkeypatch):
     assert service.replay_view("__no_such_run__")["status"] == service.STATUS_UNAVAILABLE
 
 
+# --------------------------------------------------------------------------- #
+# C.3 CARD-14 · Prompt 注册表（审计回放页的 ③）
+# --------------------------------------------------------------------------- #
+def test_prompt_registry_view_is_read_only_and_in_sync_with_the_lock():
+    payload = service.prompt_registry_view()
+    assert payload["status"] == service.STATUS_OK, payload.get("unavailable_reason")
+    assert payload["count"] == len(payload["prompts"]) > 0
+    assert payload["lock_in_sync"] is True, payload["lock"]
+    for row in payload["prompts"]:
+        assert len(row["prompt_hash"]) == 64
+        assert row["version"] >= 1 and row["source_file"]
+    # 只读：再读一次给出同一张表（不写文件、不改内容）。
+    assert service.prompt_registry_view()["prompts"] == payload["prompts"]
+
+
+def test_prompt_registry_view_names_every_pipeline_bundle():
+    payload = service.prompt_registry_view()
+    assert {bundle["run_kind"] for bundle in payload["bundles"]} == {
+        "research", "ablation", "report_checker", "memo", "daily_review",
+    }
+    for bundle in payload["bundles"]:
+        assert bundle["keys"] and len(bundle["prompt_hash"]) == 64
+
+
+def test_prompt_registry_view_never_invents_a_recorded_manifest(tmp_path, monkeypatch):
+    """空的 run 目录 → 那一列如实为空；录一条之后它出现，并写明为什么是 null。"""
+    monkeypatch.setattr(service, "RUN_STORE_DIR", tmp_path / "runs")
+    monkeypatch.setattr(service, "PACK_DIR", tmp_path / "packs")
+    assert service.prompt_registry_view()["recorded_runs"] == []
+
+    service.record_demo_run()
+    rows = service.prompt_registry_view()["recorded_runs"]
+    assert len(rows) == 1
+    # 这个 run 只做解析/归一化/计算/校验，没有发送任何提示词 —— 空值是真实陈述。
+    assert rows[0]["prompt_hash"] is None
+    assert "未调用 LLM prompt" in rows[0]["prompt_hash_note"]
+
+
+def test_prompt_registry_view_degrades_to_an_envelope_instead_of_raising(monkeypatch):
+    """§9 服务层契约：注册表读不出来也只返回 unavailable 信封。"""
+    from src.agents import prompts as prompts_module
+
+    def boom(**kwargs):
+        raise RuntimeError("templates unreadable")
+
+    monkeypatch.setattr(prompts_module, "registry_table", boom)
+    payload = service.prompt_registry_view()
+    assert payload["status"] == service.STATUS_UNAVAILABLE
+    assert payload["reason"]
+
+
 def test_reset_drops_cached_filings():
     service.graph_view("equity")
     assert service._FILINGS, "前置条件：应已建立缓存"
@@ -542,6 +593,25 @@ def test_demo_page_renders_without_exception(label):
     if at.exception:
         err = at.exception[0]
         pytest.fail(f"{label} 渲染抛出 {type(err.value).__name__}: {err.value}")
+
+
+def test_the_replay_page_shows_the_prompt_registry_even_with_no_runs(tmp_path, monkeypatch):
+    """CARD-14 §14 要求演示注册表页 —— 它不能依赖「碰巧有 run」。
+
+    把 run 目录指到空临时目录：页面走的是"尚无 run 记录"这条分支，但 ③ 仍然要渲染。
+    注册表可不可审计，和 run 目录里有没有东西无关。
+    """
+    from streamlit.testing.v1 import AppTest
+
+    monkeypatch.setattr(service, "RUN_STORE_DIR", tmp_path / "no_runs")
+    at = AppTest.from_file(str(WORKBENCH), default_timeout=120)
+    at.session_state["workbench_page"] = "审计回放"
+    at.run()
+    assert not at.exception, at.exception
+    headings = [str(element.value) for element in at.markdown]
+    assert any("Prompt 注册表" in text for text in headings), headings
+    captions = " ".join(str(element.value) for element in at.caption)
+    assert "src/agents/prompts/templates/" in captions
 
 
 # --------------------------------------------------------------------------- #

@@ -59,6 +59,7 @@ def render() -> None:
             "仓库里目前没有任何 run（`runs/` 目录从未生成）—— 所以这一步不是可选的，"
             "没有 run 就没有可回放的时间线。"
         )
+        _render_prompt_registry()
         return
 
     run_ids = [str(item.get("run_id")) for item in items]
@@ -72,6 +73,9 @@ def render() -> None:
             ("模型", manifest_row.get("model")),
             ("解析器", manifest_row.get("parser")),
             ("git commit", manifest_row.get("git_commit")),
+            # CARD-14: this cell existed in the manifest before the registry did.
+            # It reads the recorded value, and says why it is empty when it is.
+            ("Prompt hash", manifest_row.get("prompt_hash") or manifest_row.get("prompt_hash_note")),
         ]
     )
 
@@ -155,6 +159,8 @@ def render() -> None:
         )
     st.caption(f"包目录 `{pack.get('pack_dir')}` · 引擎状态 `{pack.get('pack_status')}`")
 
+    _render_prompt_registry()
+
     _shared.honesty(
         [
             "回放是**视图**：它按记录重排事件，不重新执行管线。"
@@ -162,5 +168,86 @@ def render() -> None:
             "本演示 run 只产生解析/归一化/计算/结论/校验五类产物，不含 report.md 与估值表 —— "
             "所以证据包会显示为不完整。这如实反映了这个 run 实际做了什么。",
             "「重放 UI 呈现完整性人工验收 + 截图入执行备注」需要人工走查，本页交付的是可走查的界面。",
+            "上述 run 的 `prompt_hash` 是**空**的，而这不是缺件：这个 run 只做解析/归一化/"
+            "计算/校验，一个字都没发给模型 —— 空值是对该 run 的真实陈述。prompt 真正被发送的"
+            "路径（research agent / 提取器 / 备忘录叙述）在 ③ 里列出，其 hash 由注册表算出。",
         ]
     )
+
+
+def _render_prompt_registry() -> None:
+    """③ Prompt 注册表（CARD-14 §14）。
+
+    刻意放在两个分支都会走到的地方：注册表是否可审计，和"这个 run 目录里有没有东西"
+    无关，所以没有 run 时这一节也照样渲染 —— 空目录不该顺手藏掉一段证据。
+    """
+    st.markdown("#### ③ Prompt 注册表（CARD-14）")
+    st.caption(
+        "源代码清单点名的 Prompt 模块：文本只有 `src/agents/prompts/templates/` 一处，"
+        "注册表按 `name@version` 寻址，`prompt_hash` 进 manifest —— 所以一个 run 能被指回"
+        "它实际用过的那几段提示词字节。"
+    )
+    registry = demo_service.prompt_registry_view()
+    if _shared.unavailable(registry, what="Prompt 注册表"):
+        return
+    recorded_runs = list(registry.get("recorded_runs") or ())
+    _shared.stat_row(
+        [
+            ("已登记 prompt", registry.get("count")),
+            ("lock 同步", "是" if registry.get("lock_in_sync") else "**否**"),
+            ("本次进程使用记录", len(registry.get("usage") or ())),
+            ("manifest 已记录 hash", sum(1 for row in recorded_runs if row.get("prompt_hash"))),
+        ]
+    )
+    prompt_rows: List[Dict[str, Any]] = [
+        {
+            "name": row.get("name"),
+            "version": row.get("version"),
+            "variables": "、".join(row.get("variables") or ()) or "（无变量）",
+            "prompt_hash": str(row.get("prompt_hash") or "")[:16],
+            "model": row.get("model") or "—",
+            "source_file": row.get("source_file"),
+        }
+        for row in registry.get("prompts") or ()
+    ]
+    st.dataframe(prompt_rows, width="stretch", hide_index=True)
+
+    bundle_rows: List[Dict[str, Any]] = [
+        {
+            "流程": bundle.get("run_kind"),
+            "使用的 prompt": " + ".join(bundle.get("keys") or ()),
+            "组合 prompt_hash": str(bundle.get("prompt_hash") or "")[:16],
+        }
+        for bundle in registry.get("bundles") or ()
+    ]
+    st.dataframe(bundle_rows, width="stretch", hide_index=True)
+
+    lock = registry.get("lock") or {}
+    if not registry.get("lock_in_sync"):
+        st.error(
+            "注册表与 `registry.lock.json` 不一致（同版本内容被改过或版本被删）："
+            f"missing={lock.get('missing')} changed={lock.get('changed')} added={lock.get('added')}。"
+            "这会让已发布的结论失去可复现性。"
+        )
+    usage_rows: List[Dict[str, Any]] = [
+        {
+            "prompt": row.get("prompt_name"),
+            "版本": row.get("prompt_version"),
+            "模型": row.get("model") or "—",
+            "温度": row.get("temperature"),
+        }
+        for row in list(registry.get("usage") or ())[-8:]
+    ]
+    if usage_rows:
+        st.caption("本次进程内最近 8 条使用记录（prompt / 版本 / 模型 / 温度）：")
+        st.dataframe(usage_rows, width="stretch", hide_index=True)
+    else:
+        st.caption("本次进程还没有记录到 prompt 使用 —— 上面这些页面走的是确定性管线，没有发送提示词。")
+    if recorded_runs:
+        st.caption(
+            "已录制 run 的 manifest prompt_hash："
+            + "；".join(
+                f"`{row.get('run_id', '')[:8]}` → {row.get('prompt_hash') or row.get('prompt_hash_note')}"
+                for row in recorded_runs[:5]
+            )
+        )

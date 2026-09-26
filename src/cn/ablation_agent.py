@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Optional, Protocol, Sequence, Tuple
 from src.agents.tools.base import ToolRegistry
 from src.agents.tools.cn_tools import build_cn_snapshot_tools
 from src.cn.benchmark import METRIC_KEYS
+from src.agents.prompts import RUN_PROMPT_BUNDLES, record_usage, render
 from src.cn.evidence import EvidenceLedger
 from src.cn.providers.snapshot import SnapshotProvider
 from src.cn.research import ResearchState
@@ -34,16 +35,11 @@ ABLATION_VARIANTS = (
     "agent_tools_evidence_validator",
 )
 
-SYSTEM_PROMPT = """You are an offline A-share research agent.
-Use only the supplied tools. Snapshot data is historical, not live. Resolve an
-A-share symbol before fetching its data, even when the query already contains a
-canonical ticker. Preserve evidence IDs, and never invent financial figures.
-For a point-in-time request, pass the supplied research cutoff as the complete
-ISO-8601 ``research_as_of`` value (including time and UTC offset). If a tool
-returns an error, do not retry with a guessed payload: stop and explain the
-limitation. Use the minimum necessary tools; do not create a research plan
-unless the user explicitly asks for one. Stop after you have answered the
-user's request."""
+#: CARD-14 §10: registered, not hard-coded. Kept as a module name for callers.
+SYSTEM_PROMPT = render("cn_ablation_agent_base")
+
+#: The prompts one ablation trajectory sends to the model (CARD-11 §7b).
+RUN_PROMPTS = RUN_PROMPT_BUNDLES["ablation"]
 
 
 class ToolCallingProvider(Protocol):
@@ -144,6 +140,12 @@ class AblationAgent:
             {"role": "system", "content": self._system_prompt()},
             {"role": "user", "content": query},
         ]
+        # CARD-14: audit which prompt versions this variant used (no-tools prompt
+        # is not sent by the tool-enabled variants, so it is not recorded here).
+        for prompt_name in RUN_PROMPTS:
+            if prompt_name == "cn_ablation_agent_no_tools":
+                continue
+            record_usage(prompt_name, self.model_name, self.temperature)
 
         for step in range(self.max_steps):
             step_start = time.monotonic()
@@ -215,10 +217,9 @@ class AblationAgent:
         """Call the LLM without any tools — the model must answer from knowledge."""
         step_start = time.monotonic()
         is_openai_style = getattr(self.provider, "api_style", "openai") == "openai"
-        prompt = self._system_prompt() + (
-            "\n\nYou do NOT have any tools available. Answer the user's query based on your "
-            "knowledge alone. Do not make up specific financial figures."
-        )
+        prompt = self._system_prompt() + "\n\n" + render("cn_ablation_agent_no_tools")
+        for prompt_name in RUN_PROMPTS:
+            record_usage(prompt_name, self.model_name, self.temperature)
         messages = [
             {"role": "system", "content": prompt},
             {"role": "user", "content": query},
@@ -238,13 +239,9 @@ class AblationAgent:
         return state
 
     def _system_prompt(self) -> str:
-        """Bind the pinned cutoff into every trajectory's system context."""
-        return (
-            f"{SYSTEM_PROMPT}\n\n"
-            f"RUN CONTEXT: The fixed research cutoff is {self.research_as_of}. "
-            "When any tool accepts research_as_of, use this exact value unless "
-            "the user explicitly supplies a different cutoff."
-        )
+        """Bind the pinned cutoff into every trajectory's system context (CARD-14)."""
+        context = render("cn_ablation_agent_run_context", cutoff=self.research_as_of)
+        return f"{SYSTEM_PROMPT}\n\n{context}"
 
     # ------------------------------------------------------------------
     # Validator Gate

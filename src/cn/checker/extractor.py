@@ -27,6 +27,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Protocol, runtime_checkable
 
+from src.agents.prompts import RUN_PROMPT_BUNDLES, record_usage, render
 from ..normalization.metrics import is_known_metric, resolve_metric
 from ..normalization.models import Scope
 from ..normalization.periods import canonical_period
@@ -39,33 +40,11 @@ EXTRACTOR_LLM = "llm"
 #: A period written as nothing but a year — 「2025年」. See :func:`resolve_period_label`.
 _BARE_YEAR_RE = re.compile(r"^\s*(\d{4})\s*年\s*$")
 
-SYSTEM_PROMPT = """你是研报草稿的「信息搬运工」，只做一件事：把句子里的数字与出处原样抄出来。
+#: CARD-14 §10: registered, not hard-coded. Both messages are registered because
+#: the *instruction* is prompt content even when it travels in the user turn.
+SYSTEM_PROMPT = render("cn_claim_extractor_system")
 
-绝对禁止：
-- 不要判断对错，不要纠正数字，不要补充任何句子中没有的信息。
-- 不要换算单位，不要推算同比，不要改写指标名称。
-- 不要输出 JSON 以外的任何文字。
-
-对每个输入句子输出一个对象，字段如下（没有的字段留 null，不要臆造）：
-  sentence_id      : 输入中给出的 id，原样返回
-  sentence         : 该句原文，必须逐字照抄，一个字都不能改
-  metric_label     : 句子里出现的指标原词，例如「营业收入」「归母净利润」「市盈率」
-  period_label     : 句子里出现的期间原词，例如「2025年」「2025年上半年」「2025年第一季度」
-  value_literal    : 数值的原始写法，包含千分位与小数点，例如「32.6」「1,234,567」，不要带单位
-  unit             : 句子里出现的单位原词，例如「亿元」「万元」「元」；没有则 null
-  scope            : 句子**明确声明**的口径原词，只有「合并」或「母公司」两种取值。
-                     句子没有明说口径时填 null——不要从上下文推断，不要因为指标名里
-                     含「母公司」（如「归属于母公司股东的净利润」）就填写「母公司」。
-  growth_literal   : 百分比数字的原始写法，例如「18.7」；下降/减少请填负数，例如「-5.2」
-  valuation_multiple: 倍数字样的原始写法，例如「市盈率25倍」
-  source_reference : 句子里给出的出处原文，例如「见2025年年报第12页」「SYN-ANNUAL-01#p1」；没有则 null
-  claim_type       : factual | valuation | causal | opinion | forward_looking
-                     （含预计/预期/有望/目标价的句子填 forward_looking）
-  causal_antecedent: claim_type 为 causal 时，原因侧的文字
-  causal_consequent: claim_type 为 causal 时，结果侧的文字
-
-输出格式：{"claims": [ ... ]}，claims 数组与输入句子一一对应。
-"""
+RUN_PROMPTS = RUN_PROMPT_BUNDLES["report_checker"]
 
 
 @runtime_checkable
@@ -197,6 +176,10 @@ async def extract_claims(
 
     outcome = ExtractionOutcome(extractor=EXTRACTOR_LLM)
     by_id = {item.sentence_id: item for item in sentences}
+    # CARD-14: audit the prompt versions used. ``model`` stays None when the client
+    # does not expose one — an unknown model is recorded as unknown, never guessed.
+    for prompt_name in RUN_PROMPTS:
+        record_usage(prompt_name, getattr(llm_client, "model_name", None), temperature)
     for start in range(0, len(sentences), max(1, batch_size)):
         batch = sentences[start:start + max(1, batch_size)]
         user = _render_batch(batch)
@@ -220,10 +203,9 @@ def _render_batch(batch: Sequence[DraftSentence]) -> str:
         {"sentence_id": item.sentence_id, "page": item.page, "text": item.text}
         for item in batch
     ]
-    return (
-        "请逐句提取，返回 {\"claims\": [...]}：\n"
-        + json.dumps(payload, ensure_ascii=False, indent=2)
-    )
+    # CARD-14: the instruction line lives in the registry like every other prompt;
+    # the JSON payload is data and stays here.
+    return render("cn_claim_extractor_user", payload=json.dumps(payload, ensure_ascii=False, indent=2))
 
 
 def _parse_batch(

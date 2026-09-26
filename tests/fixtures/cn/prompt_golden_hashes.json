@@ -1,0 +1,139 @@
+{
+  "note": "sha256 of every prompt as it existed before CARD-14 moved it into a template. 'prompts' pins the *template body* (placeholders kept as {{name}}) for each registered prompt; 'rendered_with' records the arguments the migration test renders with before checking the matching entry in 'composites', which pins the full text call sites emit.",
+  "cutoff": "2026-08-12T10:45:00+08:00",
+  "resolved_symbol": "600519.SH",
+  "prompts": {
+    "cn_ablation_agent_base@1": {
+      "sha256": "83f3cee57652131d772cd3599129524d48341d6fa99c6c752b81f0b9e82474ce",
+      "length": 675,
+      "placeholders": [],
+      "rendered_with": {}
+    },
+    "cn_ablation_agent_no_tools@1": {
+      "sha256": "4d8d54f540dfa4c58516039de66c84a9c098e1ae3db4cfc438f89d30add046c1",
+      "length": 134,
+      "placeholders": [],
+      "rendered_with": {}
+    },
+    "cn_ablation_agent_run_context@1": {
+      "sha256": "7331e0428393e5b9dc1bde58d5d0021087615a6d7bdf3ab985f16cad76f3bc1b",
+      "length": 168,
+      "placeholders": [
+        "cutoff"
+      ],
+      "rendered_with": {
+        "cutoff": "2026-08-12T10:45:00+08:00"
+      }
+    },
+    "cn_claim_extractor_system@1": {
+      "sha256": "3a141a9c0d790836809231a96a2752590206ebfd4f2240f995cf6b575b3e7f4c",
+      "length": 1101,
+      "placeholders": [],
+      "rendered_with": {}
+    },
+    "cn_claim_extractor_user@1": {
+      "sha256": "aa9c4a222cea0a9c3c7183d5079a02c12820de260a3092c3e220d2024d3b82c9",
+      "length": 39,
+      "placeholders": [
+        "payload"
+      ],
+      "rendered_with": {
+        "payload": "[\n  {\n    \"sentence_id\": \"S1\",\n    \"page\": 1,\n    \"text\": \"营业收入为 100 亿元。\"\n  },\n  {\n    \"sentence_id\": \"S2\",\n    \"page\": 2,\n    \"text\": \"归母净利润为 10 亿元。\"\n  }\n]"
+      }
+    },
+    "cn_daily_review_theme_polish_system@1": {
+      "sha256": "6b57df8944c1537d18e1a0db0891e07f48b80b9059e419992a7c1240bd6ff52d",
+      "length": 85,
+      "placeholders": [],
+      "rendered_with": {}
+    },
+    "cn_daily_review_theme_polish_user@1": {
+      "sha256": "8f7b402ecfa85d95d130a13eb8e617d3f7d5147d0ef609b5598f715a43750c8c",
+      "length": 107,
+      "placeholders": [
+        "theme_name",
+        "news_text"
+      ],
+      "rendered_with": {
+        "theme_name": "测试题材",
+        "news_text": "- 甲：乙"
+      }
+    },
+    "cn_memo_section_narrator@1": {
+      "sha256": "daf74d07b2690510cd9f977ff3a5f338b289013f91b4fad9804c17ce85c3863f",
+      "length": 552,
+      "placeholders": [
+        "section_name",
+        "whitelist",
+        "analysis",
+        "valuation"
+      ],
+      "rendered_with": {
+        "section_name": "investment_thesis",
+        "whitelist": "[\"C11\", \"C18\"]",
+        "analysis": "{\"a\": 1}",
+        "valuation": "{\"b\": 2}"
+      }
+    },
+    "cn_research_agent_base@1": {
+      "sha256": "4a11c31378e2137163add78922bb868318fdf8023e871194be87d34f6af05cbb",
+      "length": 510,
+      "placeholders": [],
+      "rendered_with": {}
+    },
+    "cn_research_agent_preflight@1": {
+      "sha256": "fb31d7ff9ac26b25d168881128e6be9df755559e52051adbfba99864ad8b0855",
+      "length": 184,
+      "placeholders": [
+        "resolved_symbol"
+      ],
+      "rendered_with": {
+        "resolved_symbol": "600519.SH"
+      }
+    },
+    "cn_research_agent_run_context@1": {
+      "sha256": "7331e0428393e5b9dc1bde58d5d0021087615a6d7bdf3ab985f16cad76f3bc1b",
+      "length": 168,
+      "placeholders": [
+        "cutoff"
+      ],
+      "rendered_with": {
+        "cutoff": "2026-08-12T10:45:00+08:00"
+      }
+    }
+  },
+  "composites": {
+    "_ablation_direct_llm_system": {
+      "sha256": "be2579c4be80670570613d1453bfa94c9aa0857932aae0ec9b44b2992be70b6f",
+      "length": 996
+    },
+    "_ablation_system": {
+      "sha256": "42db2abd22c2b3b542f5ff9bdd05a192a6ed47c1c3f8e21888e741eaa925a18b",
+      "length": 860
+    },
+    "_memo_narrator_realistic": {
+      "sha256": "9775e6eb13f58ae28a6f3cbfc5c179bb1041046e934f477dcbd4a3a06a1044df",
+      "length": 676
+    },
+    "_memo_narrator_simple": {
+      "sha256": "de7f45cae8768c955fd7edc1b2536ab02d3204bf5f5acd1a11fb9db4aaa3717b",
+      "length": 545
+    },
+    "_research_system_no_preflight": {
+      "sha256": "755564d54972115ef6dae52acac9dbb6068412631a02b3b8783184ac98993721",
+      "length": 695
+    },
+    "_research_system_preflight": {
+      "sha256": "c26e823ac7395dddcda33d2d06a584ea0f84a6c26200b9b7a2779ca61b03a8a8",
+      "length": 869
+    },
+    "cn_ablation_agent_base": {
+      "sha256": "83f3cee57652131d772cd3599129524d48341d6fa99c6c752b81f0b9e82474ce",
+      "length": 675
+    },
+    "cn_research_agent_base": {
+      "sha256": "4a11c31378e2137163add78922bb868318fdf8023e871194be87d34f6af05cbb",
+      "length": 510
+    }
+  }
+}

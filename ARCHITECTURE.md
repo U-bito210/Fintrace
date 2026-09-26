@@ -19,6 +19,7 @@ FinTrace-CN 是离线优先的 A 股研究工作流。系统将模型驱动的�
 | 领域标准 | `src/cn/domain.py`、`symbols.py`、`periods.py` | A 股代码、财报期间和时点规则 |
 | 数据 Provider | `src/cn/providers/` | 中立 Provider 合约、本地快照、可选 Tushare |
 | 研究工具 | `src/agents/tools/cn_tools.py` | 代码、行情、财务、估值、报告的 `status: ok\|error` 结构化返回 |
+| Prompt 注册表 | `src/agents/prompts/` | 提示词唯一落点：`templates/<name>.<version>.md` + `registry.lock.json`；按 `name@version` 寻址，`prompt_hash` 进 manifest，代码库零提示词字面量 |
 | 可靠性 | `src/cn/evidence.py`、`src/validation/research_gate.py` | Evidence ID、公式/时点校验和结论阻断 |
 | Agent 状态 | `src/cn/research.py`、`src/cn/offline_agent.py` | 计划、工具轨迹、证据、成本及有界执行 |
 | 评测 | `src/cn/benchmark.py`、`scripts/run_benchmark.py` | 可复现的路由、证据与回归评测 |
@@ -33,4 +34,4 @@ LLM 可以从已提供工具中选择操作并撰写受约束文字；它不负�
 
 ## 审计工件
 
-`ResearchState` 保存问题、研究截止时间、标准代码、工具轨迹、返回的 Evidence ID、校验结果、报告文本和成本轨迹。基准 `results.json` 还保存基准/快照 ID、模型、温度、最大步数、Prompt 哈希、Git 提交、延迟与成本。
+`ResearchState` 保存问题、研究截止时间、标准代码、工具轨迹、返回的 Evidence ID、校验结果、报告文本和成本轨迹。基准 `results.json` 还保存基准/快照 ID、模型、温度、最大步数、**由提示词注册表算出的 prompt 组合哈希**、Git 提交、延迟与成本。

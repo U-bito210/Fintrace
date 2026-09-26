@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
-from src.cn.research_agent import SYSTEM_PROMPT, CnResearchAgent
+from src.cn.research_agent import RUN_PROMPTS, SYSTEM_PROMPT, CnResearchAgent
 from src.cn.research import ResearchState
 # Pure data lookup (stdlib only) — importing the registry does NOT pull in any
 # model SDK, so this module stays importable and runnable offline.
@@ -300,7 +300,13 @@ def config_fingerprint(
     temperature: float,
     max_steps: int,
 ) -> str:
-    """Deterministic reproducibility anchor for a benchmark run."""
+    """Deterministic reproducibility anchor for a benchmark run.
+
+    ``SYSTEM_PROMPT`` is the CARD-14 registry's rendering of
+    ``cn_research_agent_base``. Moving the text out of Python did not change its
+    bytes (``tests/test_cn_prompt_migration.py`` pins that), so existing
+    fingerprints stay valid — this function's output is unchanged by CARD-14.
+    """
     digest = hashlib.sha256()
     digest.update(dataset_path.read_bytes())
     for path in snapshot_paths:
@@ -425,6 +431,11 @@ class RealBenchmarkRunner:
                 f"总额会恒小于上限而永不触发。请去掉预算上限，或改用已定价模型。"
             )
 
+        # CARD-14: the run descriptor carries *which* prompt versions produced these
+        # numbers, with their covering hash — the audit trail a benchmark needs to be
+        # reproducible. Recorded here, not recomputed by the reader.
+        from src.agents.prompts import prompt_bundle_hash
+
         snapshot_paths = [_resolve_snapshot(case, project_root, snapshot_dir) for case in self.cases]
         fingerprint = config_fingerprint(
             dataset_path=self.dataset_path, snapshot_paths=snapshot_paths,
@@ -436,6 +447,8 @@ class RealBenchmarkRunner:
             "model": model,
             "temperature": temperature,
             "max_steps": max_steps,
+            "prompt_names": list(RUN_PROMPTS),
+            "prompt_hash": prompt_bundle_hash(list(RUN_PROMPTS)),
             "dry_run": dry_run,
             "config_fingerprint": fingerprint,
             "network": False,

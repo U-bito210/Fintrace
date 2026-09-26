@@ -38,6 +38,10 @@ from .schema import (
     SYNTHETIC_DATA_QUALITY,
     SYNTHETIC_PROVIDER,
 )
+from src.agents.prompts import RUN_PROMPT_BUNDLES, record_usage, render
+
+#: CARD-14: which registered prompts this step sends to the model.
+RUN_PROMPTS = RUN_PROMPT_BUNDLES["daily_review"]
 
 
 def _as_of_iso(review_date: str) -> str:
@@ -382,22 +386,19 @@ def _polish_theme_with_llm(theme_name: str, news_items: List[Dict[str, Any]]) ->
     messages = [
         {
             "role": "system",
-            "content": (
-                "你是A股复盘助手。仅依据用户给出的真实新闻标题与摘要，"
-                "浓缩成一句客观、简洁的中文市场主线说明。"
-                "严禁编造新闻中没有的信息，严禁给出任何投资建议，严禁提及具体个股代码或名称。"
-            ),
+            "content": render("cn_daily_review_theme_polish_system"),
         },
         {
             "role": "user",
-            "content": (
-                f"题材：{theme_name}\n"
-                f"相关真实新闻：\n{news_text}\n\n"
-                f"请只输出一句不超过40字的中文主线说明（仅基于上述新闻，"
-                f"不添加未提及信息，不荐股，不提个股）。只输出这句话本身，不要解释、不要引号。"
+            "content": render(
+                "cn_daily_review_theme_polish_user", theme_name=theme_name, news_text=news_text
             ),
         },
     ]
+    # CARD-14: both prompts come from the registry; the model and temperature this
+    # step pins are declared on the template itself, so record them from there.
+    for prompt_name in RUN_PROMPTS:
+        record_usage(prompt_name)
     try:
         text, _cost = fn(messages, temperature=0.3)
         text = (text or "").strip().strip('"').strip("'").strip()

@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Protocol, Sequence
 
+from src.agents.prompts import RUN_PROMPT_BUNDLES, record_usage, render
 from src.agents.tools.base import ToolRegistry
 from src.agents.tools.cn_tools import build_cn_snapshot_tools
 from src.cn.providers.snapshot import SnapshotProvider
@@ -32,13 +33,14 @@ from src.validation.research_gate import (
 )
 
 
-SYSTEM_PROMPT = """You are an offline A-share research agent.
-Use only the supplied tools. Snapshot data is historical, not live. Resolve an
-A-share symbol before fetching its data, even when the query already contains a
-canonical ticker. Preserve evidence IDs, and never invent financial figures.
-For a point-in-time request, use the supplied complete ISO-8601 cutoff. Use the
-minimum necessary tools; do not create a research plan unless the user asks for
-one. If a tool errors, stop rather than retrying with guessed payloads."""
+#: CARD-14 §10: the text lives in ``src/agents/prompts/templates/``, not here.
+#: The module-level name is kept because callers import it and the real-model
+#: benchmark fingerprints it — only its *source* moved.
+SYSTEM_PROMPT = render("cn_research_agent_base")
+
+#: The prompts one research trajectory sends to the model. CARD-07's manifest
+#: records their covering hash, so a run states exactly which prompt bytes it used.
+RUN_PROMPTS = RUN_PROMPT_BUNDLES["research"]
 
 
 class ToolCallingProvider(Protocol):
@@ -121,6 +123,13 @@ class CnResearchAgent:
             {"role": "system", "content": self._system_prompt(cutoff, resolved_symbol)},
             {"role": "user", "content": query},
         ]
+        # CARD-14: declare the prompt versions this trajectory used so the run can
+        # be pointed back at exact prompt bytes. Auditing only — it never edits a
+        # prompt, and it records the pre-flight note only when it was really sent.
+        for prompt_name in RUN_PROMPTS:
+            if prompt_name == "cn_research_agent_preflight" and not resolved_symbol:
+                continue
+            record_usage(prompt_name, self.model_name, self.temperature)
 
         for step in range(self.max_steps):
             if cancellation_check and cancellation_check():
@@ -233,19 +242,18 @@ class CnResearchAgent:
 
     @staticmethod
     def _system_prompt(cutoff: str, resolved_symbol: Optional[str] = None) -> str:
+        """Compose the system prompt from registered fragments (CARD-14).
+
+        The three pieces are separate prompts on purpose: the base never changes,
+        the run context binds the cutoff, and the pre-flight note appears only
+        when deterministic code already resolved the symbol. Concatenation is
+        assembly, not prompt content, so it stays in Python.
+        """
         preflight = ""
         if resolved_symbol:
-            preflight = (
-                f"\nPRE-FLIGHT: deterministic code has already resolved the request "
-                f"to {resolved_symbol}. Do not repeat symbol resolution; fetch the "
-                "requested snapshot data using that canonical ticker."
-            )
-        return (
-            f"{SYSTEM_PROMPT}\n\n"
-            f"RUN CONTEXT: The fixed research cutoff is {cutoff}. When any tool "
-            "accepts research_as_of, use this exact value unless the user "
-            f"explicitly supplies a different cutoff.{preflight}"
-        )
+            preflight = render("cn_research_agent_preflight", resolved_symbol=resolved_symbol)
+        context = render("cn_research_agent_run_context", cutoff=cutoff)
+        return f"{SYSTEM_PROMPT}\n\n{context}{preflight}"
 
     async def _resolve_symbol_preflight(
         self, query: str, state: ResearchState,

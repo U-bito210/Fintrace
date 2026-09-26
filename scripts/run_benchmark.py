@@ -11,7 +11,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import hashlib
 import subprocess
 import sys
 import time
@@ -28,7 +27,8 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 load_dotenv(PROJECT_ROOT / ".env")
 
 from src.cn.benchmark import BenchmarkCase, BenchmarkRunner, load_cases
-from src.cn.offline_agent import OfflineCnAgent, SYSTEM_PROMPT
+from src.cn.offline_agent import OfflineCnAgent
+from src.cn.research_agent import RUN_PROMPTS
 
 
 DEFAULT_CASES = PROJECT_ROOT / "tests" / "fixtures" / "cn" / "benchmarks" / "cn_agent_v1.json"
@@ -96,6 +96,25 @@ def _all_snapshot_cases(snapshot_dir: Path) -> list[BenchmarkCase]:
     return cases
 
 
+def _prompt_metadata() -> dict:
+    """CARD-14: name every registered prompt version this run sends to the model.
+
+    The old field was a 12-hex-digit slice of ``sha256(SYSTEM_PROMPT)`` — one
+    prompt, unnameable, truncating at a different width than the real-model
+    benchmark used. This reports the *set* and its covering hash instead, so a
+    result file says which prompt bytes produced it.
+    """
+    from src.agents.prompts import prompt_bundle
+
+    bundle = prompt_bundle(list(RUN_PROMPTS))
+    base = bundle["prompts"][0]
+    return {
+        "prompt_version": f"{base['name']}@{base['version']}",
+        "prompt_versions": [f"{item['name']}@{item['version']}" for item in bundle["prompts"]],
+        "prompt_hash": bundle["prompt_hash"],
+    }
+
+
 async def _run(args: argparse.Namespace, cases) -> dict:
     snapshot_dir = Path(args.snapshot_dir)
     snapshot_paths = [_snapshot_for(case, snapshot_dir) for case in cases]
@@ -117,7 +136,7 @@ async def _run(args: argparse.Namespace, cases) -> dict:
         "max_steps": args.max_steps,
         "network": False,
         "executor": "OfflineCnAgent",
-        "prompt_version": f"offline-cn-agent-{hashlib.sha256(SYSTEM_PROMPT.encode()).hexdigest()[:12]}",
+        **_prompt_metadata(),
         "git_commit": _git_commit(),
         "run_at": time.strftime("%Y-%m-%dT%H:%M:%S+08:00"),
     }

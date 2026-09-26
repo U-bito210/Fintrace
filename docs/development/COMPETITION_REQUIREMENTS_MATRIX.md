@@ -42,11 +42,11 @@
 | 封闭/半封闭环境运行 | 快照+文档注册表，无出站依赖 | 现有 | 01 | 离线可跑全流程 | 断网演示 |
 | 记录文件访问/工具调用/计算/结果 | events.jsonl + manifest | 待建 | 07 | 四类事件全覆盖 | Audit Replay |
 | 源代码+依赖+运行说明可复现 | 仓库 + THIRD_PARTY_NOTICES | 现有 | — | 评审环境安装复现测试通过 | 视频中展示安装 |
-| Prompt 模块 | Prompt Registry | 待建 | 14 | prompt_hash 入 manifest | 展示注册表 |
+| Prompt 模块 | Prompt Registry | **已建**（`src/agents/prompts/`：11 段提示词 + `registry.lock.json`） | 14 | prompt_hash 入 manifest | 审计回放页 ③ 注册表 |
 | Tool 模块 | cn_tools 注册表 | 现有 | 各卡 | status 信封契约测试 | 工具面板 |
-| Skill 模块 | 仅在有真实功能价值时实现 | 待定 | 14 | 不建空壳目录 | — |
+| Skill 模块 | 仅在有真实功能价值时实现 | **已决策：不建**（CARD-14 §8 edge 3） | 14 | 不建空壳目录 | — |
 | MCP 模块 | 决赛可选，须有服务化真实需求 | 暂缓 | 20 | 不为 PPT 增加协议层 | — |
-| 第三方清单（名称/版本/来源/许可证/用途） | THIRD_PARTY_NOTICES_PLAN.md | 待建 | 32 号文档 | 逐项核实后冻结 | 提交材料附清单 |
+| 第三方清单（名称/版本/来源/许可证/用途） | THIRD_PARTY_NOTICES.md | 现有 | — | 逐项核实后冻结 | 提交材料附清单 |
 
 ## C. 评分维度
 

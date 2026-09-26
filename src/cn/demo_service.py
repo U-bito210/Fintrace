@@ -1159,9 +1159,58 @@ def runs_catalog() -> Dict[str, Any]:
                 "parser": f"{manifest.parser_name}@{manifest.parser_version}",
                 "git_commit": manifest.git_commit,
                 "snapshot_id": manifest.snapshot_id,
+                # CARD-14: the reason is spelled out rather than shown as a blank
+                # cell — this run parses and computes, it never sends a prompt, so
+                # a null hash is a true statement about the run, not a missing field.
+                "prompt_hash": manifest.prompt_hash,
+                "prompt_hash_note": (
+                    "已记录" if manifest.prompt_hash
+                    else "未调用 LLM prompt（本 run 只解析/归一化/计算/校验）"
+                ),
             }
         )
     return {"status": STATUS_OK, "store_dir": str(RUN_STORE_DIR), "items": items, "count": len(items)}
+
+
+def prompt_registry_view() -> Dict[str, Any]:
+    """CARD-14 §14 的注册表数据：name / version / hash + 各流程的组合哈希。
+
+    §14 要求演示「注册表页 + manifest 中的 prompt_hash」。本函数**只读**：注册表来自
+    ``src/agents/prompts``，manifest 那一列来自 :func:`runs_catalog`。因此没有 run 时
+    那一列如实为空，不会补造一条。
+
+    ``lock_in_sync`` 是「同版本内容只增不改」闸门的实时状态 —— 与测试里那条断言同源。
+    """
+    try:
+        from src.agents.prompts import registry_table, usage_log
+
+        table = registry_table()
+    except Exception as exc:  # noqa: BLE001
+        return _unavailable(f"{type(exc).__name__}: {exc}")
+
+    catalog = runs_catalog()
+    recorded = [
+        {
+            "run_id": item["run_id"],
+            "prompt_hash": item.get("prompt_hash"),
+            "prompt_hash_note": item.get("prompt_hash_note"),
+        }
+        for item in catalog.get("items", ())
+        if "error" not in item
+    ]
+    lock = dict(table.get("lock") or {})
+    return {
+        "status": STATUS_OK,
+        "templates_dir": table["templates_dir"],
+        "count": table["count"],
+        "prompts": table["prompts"],
+        "bundles": table["bundles"],
+        "lock": lock,
+        "lock_in_sync": not any(lock.get(key) for key in ("lock", "missing", "changed", "added")),
+        "usage": usage_log(),
+        "recorded_runs": recorded,
+        "unavailable_reason": None if table["count"] else "no_prompt_templates_registered",
+    }
 
 
 def record_demo_run(key: str = DEFAULT_FILING_KEY) -> Dict[str, Any]:
@@ -1483,6 +1532,7 @@ __all__ = [
     "prewarm",
     "prewarm_async",
     "prewarm_state",
+    "prompt_registry_view",
     "record_demo_run",
     "render_page",
     "replay_view",

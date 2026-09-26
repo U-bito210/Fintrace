@@ -185,7 +185,8 @@
 ### 收尾（4:15–5:00）｜Audit Replay + Export 页
 
 - 话术："整个 run 的 manifest 记录了模型、prompt hash、parser 版本、git commit、snapshot——同一输入同一配置可重放。最后导出 Evidence Pack：报告、claims、evidence、calculations、events 全量打包，评委可离线复核。"
-- 现场操作：Audit Replay 选当前 run_id 展示时间线 → 点击 Export Evidence Pack 导出 zip。
+- 现场操作：Audit Replay 选当前 run_id 展示时间线 → 点击 Export Evidence Pack 导出 zip → **停在 ③「Prompt 注册表」**（CARD-14）。
+- ③ 这一节回答"prompt 凭什么叫可复现"：11 段提示词各带 `name@version` 与 `sha256`，5 条流程各自的**组合哈希**就是写进 manifest 的那个值；`lock 同步 = 是` 表示没有任何已发布的提示词被就地改过（同版本只增不改）。**没有 run 时这一节照样渲染** —— 注册表能不能审计，和 run 目录里有没有东西无关。若 manifest 那一格显示"未调用 LLM prompt"，那是真话不是缺件：这个演示 run 只做解析/归一化/计算/校验，一个字都没发给模型。
 
 ---
 

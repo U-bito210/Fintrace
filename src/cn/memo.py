@@ -39,6 +39,7 @@ from .graph import (
     Claim,
     ClaimGraph,
 )
+from src.agents.prompts import record_usage, render
 
 # --------------------------------------------------------------------------- #
 # Section vocabulary (card §5 / §7)
@@ -369,6 +370,11 @@ def build_memo(
         counter_claims=tuple(counter_claims or ()),
     )
     render_narrative = narrator or template_narrator
+    if narrator is not None:
+        # CARD-14: an injected narrator means an LLM writes the prose, so the
+        # registered narrator prompt is genuinely in use. This layer does not own
+        # the model, so it records None — "unknown", not a guess.
+        record_usage("cn_memo_section_narrator", None, None)
 
     sections: List[MemoSection] = []
     for section_id in SECTION_IDS:
@@ -973,22 +979,13 @@ def _build_memo_prompt(
     never reach the memo.
     """
     whitelist = sorted(str(item) for item in existing_claim_ids)
-    return (
-        "你是买方研究员的写作助手。请为投资备忘录的一个段落撰写中文句子。\n"
-        f"段落：{section_name}\n"
-        "硬性要求：\n"
-        "1. 只能引用下列白名单中的 claim_id，禁止自造任何 id；\n"
-        "2. 每条句子必须附逐字原句；\n"
-        "3. 事实句 claim_type=fact 且 claim_id 必填；推论句 claim_type=inference 且 derived_from 非空；"
-        "观点句 claim_type=opinion 且须给 assumption_note；\n"
-        "4. 含数值的句子必须引用已存在的 calculation_id；\n"
-        "5. 禁止编造任何未在下方数据中出现的数字。\n"
-        f"claim_id 白名单：{json.dumps(whitelist, ensure_ascii=False)}\n"
-        f"结构化分析数据：{json.dumps(analysis_dict, ensure_ascii=False, default=str)}\n"
-        f"结构化估值数据：{json.dumps(valuation_dict, ensure_ascii=False, default=str)}\n"
-        '返回 JSON 数组：[{"sentence_span": str, "claim_id": str|null, '
-        '"claim_type": "fact"|"inference"|"opinion"|null, "derived_from": [str]|null, '
-        '"calculation_id": str|null, "assumption_note": str|null}]'
+    # CARD-14: the prose lives in the registry. The JSON payloads are data.
+    return render(
+        "cn_memo_section_narrator",
+        section_name=section_name,
+        whitelist=json.dumps(whitelist, ensure_ascii=False),
+        analysis=json.dumps(analysis_dict, ensure_ascii=False, default=str),
+        valuation=json.dumps(valuation_dict, ensure_ascii=False, default=str),
     )
 
 
