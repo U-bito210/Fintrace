@@ -26,6 +26,7 @@ H 组是唯一的例外，且是**显式例外**：真实材料（``data/demo``�
 from __future__ import annotations
 
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -541,3 +542,145 @@ def test_demo_page_renders_without_exception(label):
     if at.exception:
         err = at.exception[0]
         pytest.fail(f"{label} 渲染抛出 {type(err.value).__name__}: {err.value}")
+
+
+# --------------------------------------------------------------------------- #
+# I. 演示预热（DEMO_FLOW §5「现场保障」）—— 把首次解析挪到上台之前
+# --------------------------------------------------------------------------- #
+#: 预热语义与用哪份材料无关，这里统一用**秒级**的合成件；真实材料（229 页年报，
+#: 本机实测 37–40 秒）只出现在标了 ``integration`` 的那一条里。
+SYNTHETIC_DRAFT = "SYN-DRAFT-FIGURES"
+
+
+def _await_prewarm(timeout: float = 60.0) -> dict:
+    """等到预热线程收工，返回终态。``timeout`` 只为不让测试挂死，不是判据。"""
+    deadline = time.monotonic() + timeout
+    state = service.prewarm_state()
+    while state["running"] and time.monotonic() < deadline:
+        time.sleep(0.05)
+        state = service.prewarm_state()
+    assert not state["running"], f"预热线程在 {timeout:.0f}s 内没结束"
+    return state
+
+
+def test_prewarm_is_idempotent_and_the_second_call_costs_nothing():
+    """预热必须幂等，且复跑**不重报**上一次的耗时。
+
+    这是整件事的判据所在：``build_seconds`` 就是"现场要不要等"的唯一依据。
+    第二次调用如果老老实实把 40 秒再报一遍，页面就会让评委白等一次。
+    """
+    first = service.prewarm(SYNTHETIC_DRAFT)
+    assert first["status"] == service.STATUS_OK
+    assert first["already_built"] is False
+    assert first["build_seconds"] > 0
+
+    second = service.prewarm(SYNTHETIC_DRAFT)
+    assert second["status"] == service.STATUS_OK
+    assert second["already_built"] is True
+    assert second["build_seconds"] == 0.0
+    # 首次的真实成本仍然查得到，只是不再算进"这一次"。
+    assert second["first_build_seconds"] == first["first_build_seconds"]
+    assert second["document_id"] == first["document_id"]
+
+
+def test_prewarm_hands_the_page_the_very_state_it_built():
+    """预热的状态必须就是页面会拿到的那一份 —— 不然预热等于白做。"""
+    warmed = service.prewarm(SYNTHETIC_DRAFT)
+    view = service.corrections(SYNTHETIC_DRAFT)
+
+    assert view["status"] == service.STATUS_OK
+    assert view["draft_document_id"] == warmed["document_id"]
+    assert view["build_seconds"] == warmed["first_build_seconds"]
+    assert view["finding_count"] == warmed["finding_count"]
+    assert warmed["finding_count"] > 0
+
+
+def test_prewarm_async_runs_once_and_leaves_the_registry_usable():
+    """后台线程建完的注册表，主线程还得能查 —— 这条钉的是 sqlite 跨线程复用。
+
+    ``DocumentRegistry`` 建连接时带 ``check_same_thread=False``，所以线程间复用是
+    **允许**的；允许不等于没事，预热恰好是唯一一处会让"建"和"查"落在不同线程的路径。
+    """
+    assert service.prewarm_async(SYNTHETIC_DRAFT) is True
+    # 再点一次不该变成第二次解析：预热最不该有的副作用是让首次等待翻倍。
+    assert service.prewarm_async(SYNTHETIC_DRAFT) is False
+
+    state = _await_prewarm()
+    assert state["done"] is True, f"预热报告失败：{state['error']}"
+    assert state["error"] is None
+    assert state["seconds"] > 0
+    assert state["doc_id"] == SYNTHETIC_DRAFT
+
+    view = service.corrections(SYNTHETIC_DRAFT)
+    assert view["status"] == service.STATUS_OK, f"预热后页面取不到数据：{view.get('reason')}"
+
+
+def test_reset_clears_the_prewarm_progress_together_with_the_cache():
+    """清缓存必须把预热进度一起清掉。
+
+    否则 ``done=True`` 会活过 ``reset()``，页面于是同时显示"已预热"和"查无此文档" ——
+    而这时 ``corrections()`` 真的会重新解析一遍，进度条却在说"早就好了"。
+    """
+    service.prewarm_async(SYNTHETIC_DRAFT)
+    assert _await_prewarm()["done"] is True
+
+    service.reset()
+
+    after = service.prewarm_state()
+    assert after["done"] is False
+    assert after["running"] is False
+    assert after["seconds"] == 0.0
+    assert after["doc_id"] == ""
+
+
+def test_prewarm_reports_an_unknown_draft_instead_of_raising():
+    payload = service.prewarm("NO-SUCH-DRAFT")
+
+    assert payload["status"] == service.STATUS_UNAVAILABLE
+    assert "NO-SUCH-DRAFT" in str(payload.get("reason"))
+
+
+def test_prewarm_defaults_to_the_same_draft_the_page_shows(monkeypatch):
+    """默认预热的那份，必须就是纠错页默认演的那份。
+
+    页面默认值由 ``default_draft_key()`` 决定；预热若自己另算一次默认值，就会出现
+    "预热了 A、台上演的是 B" —— 那次 40 秒白付，而且没人会发现。
+
+    这里把真实材料按缺席处理，免得为了对齐一个默认值去解析 229 页年报。
+    """
+    monkeypatch.setattr(service, "demo_material_ready", lambda: False)
+
+    warmed = service.prewarm()
+    assert warmed["status"] == service.STATUS_OK
+    assert warmed["doc_id"] == service.default_draft_key()
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(
+    not (service.DEMO_ANNUAL_PATH.exists() and service.DEMO_DRAFT_PATH.exists()),
+    reason="data/demo 的真实材料不在（已 gitignore），跳过",
+)
+def test_prewarm_removes_the_first_build_from_the_page_path():
+    """真实材料：预热之后，纠错页那次调用不再解析年报。
+
+    判据是**同一个 document_id 被复用**加上耗时量级骤降，而不是绝对秒数 ——
+    绝对秒数随机器变，这条断言不该跟着变。
+    """
+    warmed = service.prewarm()
+    assert warmed["status"] == service.STATUS_OK
+    assert warmed["already_built"] is False
+    first = warmed["first_build_seconds"]
+    assert first > 0
+    assert warmed["planted_count"] == len(service.DEMO_PLANTED)
+
+    started = time.monotonic()
+    view = service.corrections()
+    elapsed = time.monotonic() - started
+
+    assert view["draft_document_id"] == warmed["document_id"]
+    assert service.demo_case_built() is True
+    # 预热已经付过这一份的成本；页面这一次不该再付一遍。给足余量（首次的 1/4，
+    # 且不少于 2 秒），免得断言变成一条随机器抖动的计时测试。
+    assert elapsed < max(2.0, first * 0.25), (
+        f"预热没生效：首次 {first:.1f}s，预热后页面仍花了 {elapsed:.1f}s"
+    )

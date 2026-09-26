@@ -134,6 +134,77 @@ def sidebar_navigation() -> str:
                 )
     return current
 
+
+#: 自动预热开关。默认**关闭**：冒烟脚本与 UI 测试要能在「不解析 229 页年报」的
+#: 前提下跑完，而"应用一启动就解析真实材料"恰好是它们的杀手（见
+#: ``scripts/smoke_workbench.py`` 顶部那段说明）。现场想连那一次点击都省掉，
+#: 就用 ``FINTRACE_DEMO_PREWARM=1 streamlit run workbench.py`` 启动。
+PREWARM_ENV = "FINTRACE_DEMO_PREWARM"
+_PREWARM_TRUTHY = {"1", "true", "yes", "on"}
+
+
+def _prewarm_env_enabled() -> bool:
+    return os.environ.get(PREWARM_ENV, "").strip().lower() in _PREWARM_TRUTHY
+
+
+def demo_prewarm_autostart() -> None:
+    """启动时按环境变量预热真实材料（只在本进程内，幂等）。
+
+    必须是**本进程**：预热的是进程内存（``demo_service._DRAFT_STATES``），另起一个
+    脚本解析一遍，对正在服务观众的这个进程毫无帮助 —— 这也是这里不用命令行脚本的原因。
+    """
+    if not _prewarm_env_enabled():
+        return
+    try:
+        from src.cn import demo_service
+
+        if demo_service.demo_material_ready():
+            demo_service.prewarm_async()
+    except Exception:  # noqa: BLE001 - 预热是加速手段，失败不该挡住工作台
+        pass
+
+
+def demo_prewarm_controls() -> None:
+    """侧栏「演示预热」：把真实材料的首次解析挪到上台之前。
+
+    数字一律来自 ``demo_service``，页面不自己估耗时 —— 预热的意义就是把
+    ``corrections()`` 那个 ``build_seconds`` 变成 0，估出来的数会让这个判据作废。
+    """
+    from src.cn import demo_service
+
+    if not demo_service.demo_material_ready():
+        return
+    state = demo_service.prewarm_state()
+    with st.expander("演示预热", expanded=bool(state["running"] or state["error"])):
+        if state["running"]:
+            st.info(
+                f"正在后台解析 {demo_service.DEMO_ANNUAL_PAGES} 页真实年报… "
+                f"已 {state['elapsed']:.0f}s。完成后本行会自动变绿（任一次交互即刷新）。"
+            )
+        elif state["error"]:
+            st.error(f"预热未成功：{state['error']}")
+        elif state["done"]:
+            st.success(
+                f"真实材料已就绪（后台用时 {state['seconds']:.0f}s）。"
+                "步骤 6+7 现场不再需要等待。"
+            )
+        else:
+            st.caption(
+                f"未预热。首次打开「研报纠错」要现解析 {demo_service.DEMO_ANNUAL_PAGES} 页年报。"
+            )
+        if st.button(
+            "预热演示材料",
+            key="prewarm_demo_material",
+            width="stretch",
+            disabled=bool(state["running"]),
+            icon=":material/bolt:",
+            help="在后台把真实年报解析进本进程内存；不写仓库、不改任何产物。",
+        ):
+            if demo_service.prewarm_async():
+                st.rerun()
+            else:
+                st.caption("已经在预热了，不用再来一次。")
+
 #: CARD-03 vocabulary rendered in Chinese. Kept in the UI layer so the engine's
 #: tokens stay stable for the API, the ledger and the benchmark.
 _COMPARISON_LABELS = {"yoy": "同比", "qoq": "环比", "level": "水平值", "none": "—"}
@@ -2962,6 +3033,7 @@ def main() -> None:
     style()
     if not service_contract_ready():
         return
+    demo_prewarm_autostart()
     catalog = sorted(
         service.list_research(),
         key=lambda item: (str(item.get("research_as_of", "")), str(item.get("id", ""))),
@@ -2983,6 +3055,7 @@ def main() -> None:
             st.session_state.pop("snapshot_picker", None)
         selected_label = st.selectbox("研究快照", list(choices), key="snapshot_picker")
         page = sidebar_navigation()
+        demo_prewarm_controls()
         with st.expander("怎么判断有没有问题", expanded=False):
             st.markdown(
                 """<div class="sidebar-guide">

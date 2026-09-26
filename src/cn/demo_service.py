@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import shutil
 import tempfile
+import threading
 import time
 import zipfile
 from dataclasses import dataclass, field
@@ -326,9 +327,30 @@ _DOC_PATHS: Dict[str, Path] = {}
 #: 一个新的 document_id），所以这张表按 document_id 记，而不是按案例。
 _DOC_REGISTRIES: Dict[str, Any] = {}
 
+#: 草稿构建锁。后台预热线程与纠错页可能同时想建**同一份**草稿；没有这把锁就会把
+#: 整份年报解析两遍（"预热"最不该有的副作用是让首次等待变成两倍），两个注册表还会
+#: 抢同一批文件。锁只覆盖"建"，不覆盖"读" —— 建完之后读是纯查询。
+_DRAFT_BUILD_LOCK = threading.Lock()
+#: 同一时刻只允许一个预热线程；它也保护下面的进度字典。
+_PREWARM_LOCK = threading.Lock()
+#: 异步预热的**如实**进度。页面据此显示"还在建 / 建好了 / 失败了"，
+#: 而不是先渲染出一个"已就绪"再让现场干等。
+_PREWARM: Dict[str, Any] = {
+    "thread": None, "doc_id": "", "running": False, "done": False,
+    "seconds": 0.0, "elapsed": 0.0, "error": None, "started": 0.0,
+}
+
 
 def reset() -> None:
-    """丢弃缓存并关闭注册表（测试与显式重载）。"""
+    """丢弃缓存并关闭注册表（测试与显式重载）。
+
+    先把在飞的预热线程**等完**再清：否则等它建完，会把一份指向已被删除的临时目录的
+    状态写回 ``_DRAFT_STATES``，下一个用例拿到的是一个"查得到、但一碰就坏"的句柄。
+    等待有上界（真实材料这种量级的构建最多等 5 分钟），不会把收尾挂死。
+    """
+    thread = _PREWARM.get("thread")
+    if isinstance(thread, threading.Thread) and thread.is_alive():
+        thread.join(timeout=300.0)
     for state in _FILINGS.values():
         try:
             state.registry.close()
@@ -345,6 +367,13 @@ def reset() -> None:
     _DRAFT_STATES.clear()
     _DOC_PATHS.clear()
     _DOC_REGISTRIES.clear()
+    #: 预热进度也要跟着作废：清空缓存却留一个 ``done=True`` 会让页面以为材料还在，
+    #: 页面上就会出现"已预热"和"查无此文档"同时成立。
+    with _PREWARM_LOCK:
+        _PREWARM.update({
+            "thread": None, "doc_id": "", "running": False, "done": False,
+            "seconds": 0.0, "elapsed": 0.0, "error": None, "started": 0.0,
+        })
 
 
 def _case_of(key: str) -> DemoCase:
@@ -487,6 +516,123 @@ def align_planted(
     }
 
 
+def _draft_state_for(spec: Any) -> Dict[str, Any]:
+    """取草稿状态，没有就建一份。**并发安全**：无锁快查 → 加锁复检 → 建。
+
+    复检是必需的：等待构建锁的那段时间里，别的线程（通常是预热线程）可能已经
+    把同一份建好了。不加复检，预热就变成"建两遍"。
+    """
+    state = _DRAFT_STATES.get(spec.doc_id)
+    if state is not None:
+        return state
+    with _DRAFT_BUILD_LOCK:
+        state = _DRAFT_STATES.get(spec.doc_id)
+        if state is None:
+            state = _build_draft_state(spec)
+            _DRAFT_STATES[spec.doc_id] = state
+    return state
+
+
+def prewarm(doc_id: Optional[str] = None) -> Dict[str, Any]:
+    """先把一份草稿建好，让现场不必等首次解析。**幂等**。
+
+    ``build_seconds`` 只在**本次真的解析了**文件时才是非零：已经建过就报 0.0 并置
+    ``already_built=True``。把上一个进程的耗时重复报一遍，会让"现场到底要不要等"
+    这个判断失去唯一的判据 —— 预热的意义就是把那个数字变成 0。
+    """
+    try:
+        spec = draft_spec_for(doc_id)
+        if spec is None:
+            return _unavailable(
+                f"未知草稿: {doc_id}" if doc_id else "语料目录里没有可跑的草稿规格。"
+            )
+        already_built = spec.doc_id in _DRAFT_STATES
+        started = time.monotonic()
+        state = _draft_state_for(spec)
+        elapsed = 0.0 if already_built else time.monotonic() - started
+    except Exception as exc:  # noqa: BLE001 - 预热失败要说出来，但不能把页面打崩
+        return _unavailable(f"{type(exc).__name__}: {exc}")
+
+    findings = list((state["report"] or {}).get("findings") or ())
+    return {
+        "status": STATUS_OK,
+        "doc_id": spec.doc_id,
+        "label": spec.title or spec.filename,
+        "document_id": state["document_id"],
+        "already_built": already_built,
+        #: 本次调用真的花掉的时间（未解析则为 0）。
+        "build_seconds": elapsed,
+        #: 这份材料**首次**解析的实测耗时，与 ``corrections()`` 同源。
+        "first_build_seconds": float(state.get("build_seconds") or 0.0),
+        "finding_count": len(findings),
+        "planted_count": len(spec.expected),
+        "reference_pages": DEMO_ANNUAL_PAGES if spec.doc_id == DEMO_DRAFT_ID else None,
+    }
+
+
+def prewarm_async(doc_id: Optional[str] = None) -> bool:
+    """在后台线程里预热。返回**本次调用**是否真的启动了线程。
+
+    已经在跑就返回 ``False``（不是错误，是"不用再来一次"）：现场按两次按钮、或者
+    应用启动时自动触发又碰到手动点击，都不该变成两次解析。
+    """
+    with _PREWARM_LOCK:
+        thread = _PREWARM.get("thread")
+        if isinstance(thread, threading.Thread) and thread.is_alive():
+            return False
+        target_doc_id = doc_id or ""
+        _PREWARM.update({
+            "doc_id": target_doc_id, "running": True, "done": False,
+            "seconds": 0.0, "elapsed": 0.0, "error": None,
+            "started": time.monotonic(),
+        })
+
+        def _run() -> None:
+            started = time.monotonic()
+            error: Optional[str] = None
+            resolved = _PREWARM["doc_id"]
+            try:
+                payload = prewarm(target_doc_id or None)
+                if payload.get("status") == STATUS_OK:
+                    resolved = payload["doc_id"]
+                else:
+                    error = str(payload.get("reason") or "预热未成功")
+            except BaseException as exc:  # noqa: BLE001 - 后台线程不许把异常抛给解释器
+                error = f"{type(exc).__name__}: {exc}"
+            with _PREWARM_LOCK:
+                _PREWARM["doc_id"] = resolved
+                _PREWARM["seconds"] = time.monotonic() - started
+                _PREWARM["elapsed"] = _PREWARM["seconds"]
+                _PREWARM["running"] = False
+                _PREWARM["done"] = error is None
+                _PREWARM["error"] = error
+
+        worker = threading.Thread(target=_run, name="fintrace-demo-prewarm", daemon=True)
+        _PREWARM["thread"] = worker
+        worker.start()
+        return True
+
+
+def prewarm_state() -> Dict[str, Any]:
+    """预热进度快照。页面只渲染这里说的状态，不替它推测。"""
+    with _PREWARM_LOCK:
+        running = bool(_PREWARM["running"])
+        elapsed = (
+            time.monotonic() - float(_PREWARM["started"])
+            if running and _PREWARM.get("started")
+            else float(_PREWARM["seconds"] or 0.0)
+        )
+        return {
+            "status": STATUS_OK,
+            "running": running,
+            "done": bool(_PREWARM["done"]),
+            "error": _PREWARM["error"],
+            "doc_id": str(_PREWARM["doc_id"] or ""),
+            "seconds": float(_PREWARM["seconds"] or 0.0),
+            "elapsed": elapsed,
+        }
+
+
 def corrections(doc_id: Optional[str] = None) -> Dict[str, Any]:
     """对一份含错研报草稿跑确定性核查，返回可直接渲染的纠错报告。
 
@@ -500,10 +646,7 @@ def corrections(doc_id: Optional[str] = None) -> Dict[str, Any]:
             return _unavailable(
                 f"未知草稿: {doc_id}" if doc_id else "语料目录里没有可跑的草稿规格。"
             )
-        state = _DRAFT_STATES.get(spec.doc_id)
-        if state is None:
-            state = _build_draft_state(spec)
-            _DRAFT_STATES[spec.doc_id] = state
+        state = _draft_state_for(spec)
         cached = state["report"]
     except Exception as exc:  # noqa: BLE001 - 页面永不因语料而崩
         return _unavailable(f"{type(exc).__name__}: {exc}")
@@ -1337,6 +1480,9 @@ __all__ = [
     "injections_catalog",
     "jump",
     "passport_view",
+    "prewarm",
+    "prewarm_async",
+    "prewarm_state",
     "record_demo_run",
     "render_page",
     "replay_view",

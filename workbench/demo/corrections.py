@@ -29,15 +29,16 @@ def render() -> None:
     doc_id = _shared.draft_picker(key="demo_corrections_draft")
     heavy = doc_id == demo_service.DEMO_DRAFT_ID and not demo_service.demo_case_built()
     if heavy:
-        # 真实材料要解析整份年报。让它「悄悄转圈两分钟」比慢本身更糟：
-        # 现场必须先在本页预热一次，这句话就是那个动作。
+        # 真实材料要解析整份年报。让它「悄悄转圈」比慢本身更糟：侧栏「演示预热」
+        # 就是那个动作 —— 页面这里只负责在**没预热就上台**时把代价如实说清楚。
         st.warning(
             f"本次进程里还没构建过这份真实材料：首次要解析 {demo_service.DEMO_ANNUAL_PAGES} 页年报，"
-            "实测约 1 分钟。**演示前请先在本页选一次预热**，现场就不用等。"
+            "本机实测约 40 秒（冷机首次最长约 85 秒），而剧本给步骤 6+7 的窗口只有 50 秒。"
+            "**上台前请在左侧「演示预热」点一次**，现场就不必等这一下。"
         )
         # 用可见的进度替代「静默等待」：现场看到有人在干活才不会去点重跑，
         # 而中途打断一次导入会把这个进程的模块状态弄坏（页面会一直重复报同一个错）。
-        with st.spinner("正在解析真实年报并跑确定性核查（首次约 1 分钟）…"):
+        with st.spinner("正在解析真实年报并跑确定性核查（本机实测约 40 秒）…"):
             payload = demo_service.corrections(doc_id)
     else:
         payload = demo_service.corrections(doc_id)

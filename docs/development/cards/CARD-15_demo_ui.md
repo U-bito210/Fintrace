@@ -120,12 +120,16 @@ jump(target, evidence_id, *, index) / render_page(target, page, highlights)
 
 ## 11. Unit Tests
 
-`tests/test_cn_demo_ui.py`（52 项，全离线）：
+`tests/test_cn_demo_ui.py`（**63 项**离线 + 2 项 `integration`，材料齐备的机器上必须显式
+`-m integration` 跑那两条 —— `-m "not integration"` 全绿 ≠ 全绿）：
 
 - **挂载面**：8 个页面按剧本顺序挂载、标签与卡片号一一对应、4b/7b/10b 各有页面、
   与既有 14 个页面无重名；页面清单从**运行中的工作台**侧栏 radio 读出，不手抄第二份
 - **服务层**：未知案例/草稿/run 一律返回 `unavailable` 且带原因，永不抛；11 个公开视图
   都返回带 `status` 的信封；信封不吞引擎 `status`（`revalidation_status == "partial"` 是活证）
+- **演示预热**：`prewarm` 幂等（复跑 `build_seconds == 0.0` 且 `first_build_seconds` 保留、
+  `document_id` 复用）、默认预热的那份与 `default_draft_key()` **同源**、后台线程建完的注册表
+  主线程仍可查（sqlite 跨线程复用）、`reset()` 把预热进度连缓存一起清、未知草稿返 `unavailable`
 - **零静默形态**：`temporal_view("profit_continued")` 挑不出替代对就报缺（不硬凑假血缘）；
   `ytd_vs_single` / `valuation` 召回为 `"N/A"` 且行保留；录制→回放→导出在临时目录跑通
 - **呈现语气**：`blocked/violated` 红、`partial/stale` 黄、`N/A/not_recorded` 中性灰
@@ -177,4 +181,5 @@ Latency（页面响应）粗粒度记录入执行备注即可，不设专项。
 | 2026-09-20 | **测试**：`tests/test_cn_demo_rehearsal.py` 9 项全绿。刻意**不**断言每步是 ready 还是 blocked —— 那会随材料到位而变化，且会逼人伪造材料去修绿。只防**漂移**：步骤表与剧本一一对应（含顺序）、状态不越界且每步都有输出、`--strict` 退出码 ≡ 存在 blocked、传错步骤名返回 2。全量离线 **23 failed / 1506 passed / 0 errors**，失败集合与 CARD-15 收尾时逐条一致（14/6/2/1）。 |
 | 2026-09-20 | **跨卡：tushare 快照真实重建**。用户填好 `.env` 的 `TUSHARE_TOKEN` 后，真实重建 9 个 `_tushare_v1` 快照（4 个标的 + 5 个白酒同业）→ 全量离线 **0 failed / 1531 passed / 0 skipped**。§15「全部测试离线通过」由 ☐ 转 ☑ —— 该条此前被 23 项快照缺失阻塞，与本卡代码无关。重建流程及三个坑（同业快照要一起建、bars 窗口不得越过研究时点、688836 上市日）见 `MEMORY.md`「快照重建」段。 |
 | 2026-09-26 | **唯一会卡项清零：§15「剧本可全程走完」由 ☐ 转 ☑**。E4 的行业错配分支（CARD-05 §16 当日第二条记录）落地后复测：**完整 13 步 可讲 3 / 可讲需声明 7 / 会卡 0 / 待人工 3**（会卡 1 → 0，`--strict` 退出码 0）；步骤 6+7 植入 8 处**逐条对齐 8/8**（`errors 7 → 8`、`claims_skipped_opinion 1 → 0`、检出 16 条、首次构建 39s/50s 窗口）。`tests/test_cn_demo_ui.py::test_real_material_draft_end_to_end` 随之更新：检出清单由 7 项补到 8 项、**漏检必须为空**（该断言是那个分支的守门人——回落即报警，不许改回 7 项了事），并**新增一条钉住 E4 按其设计没有 evidence ID、只能靠 `claim_page` 回跳**（`evidence_ids == []`）—— 本条同时守住 §10 规则 1「evidence 必须可解析」不被"补一个假 ID"绕过。⚠️ 上一条记录里的经验仍然成立：`-m "not integration"` 全绿 ≠ 全绿，材料在的机器必须显式跑 `-m integration`。**剩余缺口是 3 步「待人工走查」（步骤 5 / 8 / 11），脚本查不了不等于通过。** |
+| 2026-09-26 | **演示耗时：先量化，再预热（10/4–10/5 那一栏）**。① **量化**（六次独立测量，表在 `DEMO_FLOW.md` §2）：预热/首建 **37.4–41.5s**（系统文件缓存已热）、**冷机首建 ≈83–85s**、预热后 `corrections()` **0.00s**、同进程复跑 **1.18–1.22s**（省 84.20s 中的绝大部分）、证据 `jump` **0.12–0.15ms** 而 `render_page` **100–300ms**（首张 300ms，稳定后 ≈100–115ms，载荷 27–36KB）、`adversarial_view()` **0.49s** / `run_injection(1)` **0.23s**。② **推翻一个自己先前的结论（伪优化）**：曾读到"注册表落项目内目录 83–85s、落系统 temp 39s"，据此差点建议把注册表根固定到系统临时目录。四路对照实测 **系统 temp 40.04s vs 项目内 output/ 41.29s —— 无差异**（噪声内）；那 83s 是**冷机首建**，不是落点。**没有对照就不写进文档**（这正是当时不肯把 39/83 那两个数落笔的原因）。③ **实现预热**：`demo_service` 新增 `prewarm` / `prewarm_async` / `prewarm_state` —— 幂等、**如实计时**（复跑报 0.0 而非重报上一次的 37s，否则"现场要不要等"这个判据就废了）、`_DRAFT_BUILD_LOCK` 加锁复检防双建（预热最不该有的副作用是让首次等待翻倍）、`reset()` 先 `join` 在飞线程再清缓存（否则线程会把指向已删临时目录的状态写回 `_DRAFT_STATES`）。`workbench.py` 加侧栏「演示预热」+ `FINTRACE_DEMO_PREWARM=1` 启动即预热，**默认关闭** —— 冒烟与 UI 测试必须能在不解析 229 页年报的前提下跑完（`smoke_workbench.py` 顶部那段说明就是这个约束）。④ **为什么不做成命令行脚本**：预热的是**进程内存**（`_DRAFT_STATES`），另起进程解析一遍对正在服务观众的这个进程毫无帮助 —— 这是它必须长在应用进程里的原因。⑤ **文案修正**：纠错页原写"实测约 1 分钟"，实测 37–42s（冷机 85s），改为如实区间并指向侧栏预热；`DEMO_FLOW.md` §1 那句"**不再需要现场预热**"原先只**靠运气**成立（40s vs 50s 窗口只剩 10s 余量，冷机直接超窗），现改为"预热已把它从现场路径移除"，并把预热列进 §5 现场保障清单。⑥ **测试**：新增 8 条（含 1 条 integration），`-m "not integration"` **63 passed**；关键两条是"复跑 `build_seconds == 0.0` 且 `first_build_seconds` 保留"与"默认预热与 `default_draft_key()` **同源**"（否则会出现"预热了 A、台上演 B"，那 40 秒白付且没人会发现）。 |
 | 2026-09-26 | **真实材料彩排复测 + 抓到一个潜伏回归**。① 材料就位后完整彩排：**可讲 2 / 可讲需声明 7 / 会卡 1 / 待人工 3**（会卡由 2 降 1 —— 步骤 1+2 因 `data/demo/annual_report.pdf` + `report_draft.md` 就位而转 `[可讲]`）。步骤 6+7：植入 8 处**逐条对齐检出 7/8**；E3 改稿后**真的产生 `calculation_error`**；首次构建 **39s < 50s 窗口**，"现场必须预热"不再成立。② ⚠️ **潜伏回归**：`tests/test_cn_demo_ui.py::test_real_material_draft_end_to_end` 标了 `@pytest.mark.integration`，被默认套件 `-m "not integration"` **整条排除** —— 所以默认套件报"1568 passed 全绿"时它**实际是红的**：硬编码断言还停在"检出 3 处（E1/E2/E8）"，而 E3 改动后是 7 处。已按该测试**自己注释的要求**（"数字变了就必须重新核对"）先用 `scripts/rehearse_demo.py --step 6+7` 独立复核，再更新为 7 项，并**新增「未检出必须恰好是 E4」的断言**（该分支一旦落地会被顶红，逼人同步 DEMO_FLOW §1 + CARD-05 §16 + 本卡，而不是只改数字）。复跑 **1 passed**。**教训：`-m "not integration"` 全绿 ≠ 全绿；材料在的机器上必须显式跑 `-m integration`。** ③ 唯一会卡仍是 E4 `valuation_multiple_error`：CARD-05 §7.1 要求检「行业错配」，而 `_multiple_findings` 只实现了「可复算倍数」那一半 —— 已记入 CARD-05 §16，**§5 判据不下调**。（③ **当日即被上一条记录闭合**：该分支落地后 6+7 已达 8/8、会卡归零。） |
