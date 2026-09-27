@@ -50,6 +50,16 @@
       "variables": [],
       "prompt_hash": "4a11c31378e2137163add78922bb868318fdf8023e871194be87d34f6af05cbb"
     },
+    "cn_research_agent_followup@1": {
+      "variables": [],
+      "prompt_hash": "6e1ec0eee06eda8ecd6badcd7f32fe8abae5a3cb1be2d95388239fb179fcb860"
+    },
+    "cn_research_agent_history_turn@1": {
+      "variables": [
+        "answer"
+      ],
+      "prompt_hash": "086b3c2cdb33162231b0b0190dd53b63c70c89877fd5001b55bb900e492e4d08"
+    },
     "cn_research_agent_preflight@1": {
       "variables": [
         "resolved_symbol"

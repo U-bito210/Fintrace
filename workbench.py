@@ -861,17 +861,54 @@ section[data-testid="stSidebar"] [data-testid="stExpander"] .stButton > button[k
   color: #FFFFFF !important;
   box-shadow: 0 7px 18px rgba(12, 92, 201, .32);
 }}
-section[data-testid="stSidebar"] [data-baseweb="select"] > div {{
-  background: #162A47 !important;
-  border: 1px solid #2C476B !important;
-  border-radius: 10px !important;
+/* Sidebar select（研究快照）: every nesting level of the control is painted.
+   Newer Streamlit builds place the value node one level below `> div`; when
+   only that child matched, the control kept Streamlit's white fill while the
+   inherited `section[data-testid="stSidebar"] *` rule forced light text —
+   white-on-white. Background and ink are pinned together so it cannot recur. */
+section[data-testid="stSidebar"] [data-baseweb="select"],
+section[data-testid="stSidebar"] [data-baseweb="select"] > div,
+section[data-testid="stSidebar"] [data-baseweb="select"] div,
+section[data-testid="stSidebar"] [data-baseweb="select"] input,
+section[data-testid="stSidebar"] [data-baseweb="select"] span {{
+  background-color: #162A47 !important;
   color: #FFFFFF !important;
 }}
-section[data-testid="stSidebar"] [data-testid="stSelectbox"] [data-baseweb="select"] > div {{
-  background: #162A47 !important; border: 1px solid #2C476B !important;
+section[data-testid="stSidebar"] [data-baseweb="select"] > div {{
+  border: 1px solid #2C476B !important;
+  border-radius: 10px !important;
 }}
-section[data-testid="stSidebar"] [data-testid="stSelectbox"] [data-baseweb="select"] * {{ color: #FFFFFF !important; }}
-section[data-testid="stSidebar"] [data-baseweb="select"] span {{ color: #FFFFFF !important; }}
+section[data-testid="stSidebar"] [data-baseweb="select"] input::placeholder {{
+  color: #9FB6D2 !important; opacity: 1 !important;
+}}
+section[data-testid="stSidebar"] [data-baseweb="select"] svg {{
+  color: #9BC5FF !important; fill: #9BC5FF !important;
+}}
+/* The dropdown list is portalled outside the sidebar, so it needs its own rule.
+   The DOM differs across Streamlit versions (baseweb menu / popover / role-based
+   listbox), so every known container is painted rather than betting on one. */
+div[data-baseweb="popover"],
+div[data-baseweb="popover"] > div,
+ul[data-baseweb="menu"],
+ul[role="listbox"],
+li[data-baseweb="option"],
+li[role="option"] {{
+  background: #162A47 !important;
+  background-color: #162A47 !important;
+}}
+div[data-baseweb="popover"] *,
+ul[data-baseweb="menu"] *,
+ul[role="listbox"] *,
+li[data-baseweb="option"] *,
+li[role="option"] * {{
+  color: #FFFFFF !important;
+  opacity: 1 !important;
+}}
+li[data-baseweb="option"]:hover,
+li[role="option"]:hover,
+ul[data-baseweb="menu"] li:hover {{ background: #1E385B !important; }}
+li[role="option"][aria-selected="true"],
+li[data-baseweb="option"][aria-selected="true"] {{ background: #1E4B85 !important; }}
 section[data-testid="stSidebar"] .stButton > button {{
   border-color: #2C476B !important;
   background: #162A47 !important;
@@ -966,6 +1003,19 @@ div[data-testid="stVerticalBlockBorderWrapper"] > div,
   background: #FFFFFF !important; border-color: #D5E0EC !important; border-radius: 9px !important;
 }}
 .trace {{ border-left-color: #8FB1D5; background: rgba(255,255,255,.55); border-radius: 0 10px 10px 0; margin: .35rem 0; }}
+/* --- Declared last on purpose: sidebar select（研究快照）legibility. ---
+   baseweb sets `-webkit-text-fill-color` on some builds and that wins over a
+   plain `color`, so both are pinned; `background-image` is cleared in case a
+   gradient fill is what left the value text unreadable on the navy shell. */
+section[data-testid="stSidebar"] div[data-baseweb="select"],
+section[data-testid="stSidebar"] div[data-baseweb="select"] > div,
+section[data-testid="stSidebar"] div[data-baseweb="select"] * {{
+  background-color: #162A47 !important;
+  background-image: none !important;
+  color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+  opacity: 1 !important;
+}}
 </style>""",
         unsafe_allow_html=True,
     )
@@ -2538,6 +2588,79 @@ def agent_research() -> None:
             st.error(f"快照不存在：{exc}")
 
     agent_task_view()
+    agent_followup()
+
+
+def agent_followup() -> None:
+    """Continue the tracked conversation with another question.
+
+    Snapshot, model and cutoff are inherited from the parent turn instead of
+    being re-picked: a follow-up is the same conversation, and letting it switch
+    snapshots would silently break provenance. Changing the snapshot means
+    asking a new question.
+    """
+    task_id = st.session_state.get("agent_task_id")
+    if not task_id:
+        return
+    try:
+        current = agent_service.get_agent_task(task_id)
+        thread = agent_service.agent_conversation_thread(task_id)
+    except KeyError:
+        return
+    if current.get("status") not in agent_service.TERMINAL_AGENT_STATUSES:
+        return
+
+    st.markdown("#### 会话")
+    with st.expander(f"本轮会话共 {len(thread)} 轮", expanded=False):
+        for turn in thread:
+            marker = "✅ 已验证" if turn["validation_valid"] else "⛔ 未通过验证"
+            st.markdown(
+                f"**第 {turn['turn_index'] + 1} 轮** · `{turn['status']}` · {marker} · "
+                f"Evidence {turn['evidence_count']} · 工具调用 {turn['tool_calls']}"
+            )
+            st.caption(f"问：{turn['query']}")
+            if turn["answer"]:
+                st.caption(f"答：{turn['answer'][:300]}{'…' if len(turn['answer']) > 300 else ''}")
+
+    if len(thread) >= agent_service.MAX_FOLLOWUP_DEPTH:
+        st.info(f"一轮会话最多 {agent_service.MAX_FOLLOWUP_DEPTH} 轮追问（含首问）；已达上限，请修改上方表单发起新的研究。")
+        return
+    if current.get("status") != "succeeded":
+        st.caption("只有上一轮通过 Validator 才能继续追问：被阻断的结论没有可继承的证据。")
+        return
+
+    with st.form("agent_followup_form", border=True):
+        followup = st.text_area(
+            "追问",
+            placeholder="例如：那它的净利率环比变化是多少？",
+            help="追问会完整重跑一次 Agent。上一轮的结论只用于理解你指代的对象，数字必须由本轮工具重新取证。",
+            key="agent_followup_text",
+        )
+        st.caption(
+            f"将沿用第 1 轮的快照 `{current.get('snapshot_id')}`、"
+            f"模型 `{current.get('model_name')}` 与研究时点 `{current.get('research_as_of') or '快照默认'}`。"
+        )
+        send = st.form_submit_button("追问", icon=":material/forum:", width="content")
+    if send:
+        text = (followup or "").strip()
+        if len(text) < 3:
+            st.error("追问至少 3 个字符。")
+            return
+        try:
+            task = agent_service.start_agent_research(agent_service.AgentResearchRequest(
+                query=text, symbol=current["symbol"], snapshot_id=current["snapshot_id"],
+                research_as_of=current.get("research_as_of"),
+                model_name=current.get("model_name") or "",
+                temperature=float(current.get("temperature") or 0.0),
+                max_steps=int(current.get("max_steps") or 6),
+                parent_task_id=task_id,
+            ))
+            st.session_state["agent_task_id"] = task["id"]
+            st.rerun()
+        except agent_service.AgentResearchError as exc:
+            st.error(f"无法追问：{exc}")
+        except KeyError as exc:
+            st.error(f"任务不存在：{exc}")
 
 
 @st.fragment(run_every="10s")

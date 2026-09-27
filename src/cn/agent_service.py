@@ -36,6 +36,13 @@ class AgentResearchError(ValueError):
 TERMINAL_AGENT_STATUSES = {"succeeded", "blocked", "failed", "cancelled"}
 ACTIVE_AGENT_STATUSES = {"queued", "running"}
 
+#: How many turns one conversation may have, root included. A follow-up re-runs
+#: the agent from scratch — it replays earlier answers only as reference text —
+#: so every extra turn costs another full trajectory. The cap keeps a long
+#: session from growing without bound, and it is enforced at queue time so the
+#: UI can say so before the model is called.
+MAX_FOLLOWUP_DEPTH = 5
+
 
 @dataclass(frozen=True)
 class AgentResearchRequest:
@@ -47,6 +54,8 @@ class AgentResearchRequest:
     temperature: float = 0.0
     max_steps: int = 6
     required_metrics: tuple[str, ...] = ()
+    #: Task ID of the turn this one continues. ``None`` starts a new conversation.
+    parent_task_id: Optional[str] = None
 
 
 def _now() -> str:
@@ -125,6 +134,8 @@ def start_agent_research(request: AgentResearchRequest) -> dict[str, Any]:
     research_as_of = _validate_research_cutoff(request.research_as_of) if request.research_as_of else None
     metrics = tuple(str(m).strip() for m in request.required_metrics if str(m).strip())
 
+    parent_id, turn_index = _resolve_parent(request.parent_task_id, request.snapshot_id)
+
     task = workbench_service._new_task(symbol, "agent_research")
     task.update({
         "status": "queued", "message": "Agent 研究任务已排队。",
@@ -132,6 +143,7 @@ def start_agent_research(request: AgentResearchRequest) -> dict[str, Any]:
         "query": query, "model_name": request.model_name,
         "temperature": request.temperature, "max_steps": int(request.max_steps),
         "required_metrics": list(metrics),
+        "parent_task_id": parent_id, "turn_index": turn_index,
         "progress_percent": 0, "events": [],
     })
     workbench_service._record_event(task, "queued", status="queued",
@@ -139,6 +151,96 @@ def start_agent_research(request: AgentResearchRequest) -> dict[str, Any]:
     workbench_service._save_task(task)
     workbench_service.TASK_EXECUTOR.submit(_execute_agent_research_task, task["id"])
     return task
+
+
+def _parent_chain(task_id: str) -> list[dict[str, Any]]:
+    """Return the conversation root → … → ``task_id``, oldest first.
+
+    Follows ``parent_task_id``. Bounded by ``MAX_FOLLOWUP_DEPTH`` and cycle-safe:
+    a corrupt or hand-edited record can never make this loop forever.
+    """
+    chain: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    current_id = str(task_id or "").strip()
+    while current_id and current_id not in seen and len(chain) < MAX_FOLLOWUP_DEPTH + 1:
+        seen.add(current_id)
+        try:
+            task = workbench_service.get_task(current_id)
+        except KeyError:
+            break
+        chain.append(task)
+        current_id = str(task.get("parent_task_id") or "").strip()
+    chain.reverse()
+    return chain
+
+
+def _resolve_parent(parent_task_id: Optional[str], snapshot_id: str) -> tuple[Optional[str], int]:
+    """Validate a follow-up's parent. Returns ``(parent_id, turn_index)``.
+
+    A follow-up must continue the *same* snapshot. Mixing snapshots inside one
+    conversation would let a figure quoted from snapshot A be read as if it came
+    from snapshot B, which is exactly the provenance hole the evidence ledger
+    exists to keep shut.
+    """
+    parent_id = str(parent_task_id or "").strip() or None
+    if not parent_id:
+        return None, 0
+    try:
+        parent = workbench_service.get_task(parent_id)
+    except KeyError:
+        raise AgentResearchError(f"Unknown parent task: {parent_id}")
+    if parent.get("kind") != "agent_research":
+        raise AgentResearchError("追问只能接续 agent_research 任务。")
+    if parent.get("snapshot_id") != snapshot_id:
+        raise AgentResearchError(
+            "追问必须基于同一份快照；跨快照接续会让上一轮数字的来源可追溯性失效。"
+        )
+    depth = len(_parent_chain(parent_id))
+    if depth >= MAX_FOLLOWUP_DEPTH:
+        raise AgentResearchError(
+            f"一轮会话最多 {MAX_FOLLOWUP_DEPTH} 轮追问；已达上限，请发起新的研究。"
+        )
+    return parent_id, depth
+
+
+def agent_conversation_thread(task_id: str) -> list[dict[str, Any]]:
+    """Browser-safe view of every turn in this conversation, oldest first.
+
+    Each turn carries its own evidence count and validator outcome. Showing them
+    together is what makes a follow-up auditable: a reader can see that turn 2
+    re-derived its figures instead of inheriting turn 1's.
+    """
+    turns: list[dict[str, Any]] = []
+    for index, task in enumerate(_parent_chain(task_id)):
+        if task.get("kind") != "agent_research":
+            continue
+        research_state = task.get("research_state") or {}
+        turns.append({
+            "turn_index": index,
+            "task_id": task.get("id"),
+            "query": task.get("query") or "",
+            "answer": task.get("answer") or "",
+            "status": task.get("status"),
+            "evidence_count": (len(research_state.get("facts") or [])
+                                + len(research_state.get("calculations") or [])),
+            "tool_calls": len(research_state.get("tool_trace") or []),
+            "validation_valid": bool((task.get("validation") or {}).get("valid")),
+        })
+    return turns
+
+
+def _followup_history(task: dict[str, Any]) -> list[dict[str, Any]]:
+    """The earlier turns to replay to the model, or ``[]`` for a first question.
+
+    Only turns that *passed* the validator are replayed. A blocked answer is
+    unverified text; feeding it forward would hand the model a figure it could
+    then repeat as if this turn had sourced it.
+    """
+    parent_id = str(task.get("parent_task_id") or "").strip()
+    if not parent_id:
+        return []
+    return [turn for turn in agent_conversation_thread(parent_id)
+            if turn["status"] == "succeeded" and turn["answer"]]
 
 
 def get_agent_task(task_id: str) -> dict[str, Any]:
@@ -257,6 +359,7 @@ async def _run_agent_research(task_id: str) -> None:
     state = await agent.run(
         task["query"], research_as_of=research_as_of,
         event_handler=emit, cancellation_check=cancellation_requested,
+        history=_followup_history(task),
     )
 
     latency = time.perf_counter() - started

@@ -81,6 +81,22 @@
       "placeholders": [],
       "rendered_with": {}
     },
+    "cn_research_agent_followup@1": {
+      "sha256": "6e1ec0eee06eda8ecd6badcd7f32fe8abae5a3cb1be2d95388239fb179fcb860",
+      "length": 769,
+      "placeholders": [],
+      "rendered_with": {}
+    },
+    "cn_research_agent_history_turn@1": {
+      "sha256": "086b3c2cdb33162231b0b0190dd53b63c70c89877fd5001b55bb900e492e4d08",
+      "length": 213,
+      "placeholders": [
+        "answer"
+      ],
+      "rendered_with": {
+        "answer": "贵州茅台 2024 年归母净利润为 862.28 亿元。"
+      }
+    },
     "cn_research_agent_preflight@1": {
       "sha256": "fb31d7ff9ac26b25d168881128e6be9df755559e52051adbfba99864ad8b0855",
       "length": 184,

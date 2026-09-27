@@ -96,6 +96,10 @@ RUN_PROMPT_BUNDLES: Dict[str, Tuple[str, ...]] = {
         "cn_research_agent_base",
         "cn_research_agent_run_context",
         "cn_research_agent_preflight",
+        # Multi-turn follow-up note. In the bundle because a run *may* send it;
+        # ``record_usage`` still records only the prompts actually sent.
+        "cn_research_agent_followup",
+        "cn_research_agent_history_turn",
     ),
     "ablation": (
         "cn_ablation_agent_base",

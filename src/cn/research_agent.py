@@ -42,6 +42,11 @@ SYSTEM_PROMPT = render("cn_research_agent_base")
 #: records their covering hash, so a run states exactly which prompt bytes it used.
 RUN_PROMPTS = RUN_PROMPT_BUNDLES["research"]
 
+#: How many earlier turns a follow-up run replays to the model. Bounded so a long
+#: session cannot grow the prompt — and the bill — without limit. Older turns are
+#: dropped oldest-first; the run still records that it did so.
+MAX_FOLLOWUP_HISTORY = 3
+
 
 class ToolCallingProvider(Protocol):
     model_name: str
@@ -99,9 +104,17 @@ class CnResearchAgent:
         research_as_of: Optional[str] = None,
         event_handler: Optional[Callable[[Dict[str, Any]], None]] = None,
         cancellation_check: Optional[Callable[[], bool]] = None,
+        history: Sequence[Mapping[str, Any]] = (),
     ) -> ResearchState:
         """Run the loop. Returns the ``ResearchState`` and leaves ``answer``,
-        ``total_cost`` and ``llm_calls`` on the instance for callers to read."""
+        ``total_cost`` and ``llm_calls`` on the instance for callers to read.
+
+        ``history`` replays earlier turns of the same conversation, oldest first.
+        It is *reference context only*: it is never registered as evidence, so a
+        follow-up answer that merely repeats last turn's figures still fails the
+        Validator with ``no_evidence``. That is the point — a follow-up must
+        re-derive what it asserts.
+        """
         symbol = str(self.snapshot._symbol)
         cutoff = research_as_of or str(self.snapshot._payload["research_as_of"])
         state = ResearchState.create(
@@ -117,17 +130,26 @@ class CnResearchAgent:
         if cancellation_check and cancellation_check():
             return self._cancel(state, event_handler)
 
+        prior_turns = [dict(turn) for turn in (history or ())][-MAX_FOLLOWUP_HISTORY:]
+
         is_openai_style = getattr(self.provider, "api_style", "openai") == "openai"
         tool_defs = self.registry.openai_defs() if is_openai_style else self.registry.anthropic_defs()
         messages: List[Dict[str, Any]] = [
-            {"role": "system", "content": self._system_prompt(cutoff, resolved_symbol)},
-            {"role": "user", "content": query},
+            {"role": "system", "content": self._system_prompt(
+                cutoff, resolved_symbol, has_history=bool(prior_turns))},
         ]
+        # Earlier turns go in as plain text, never as tool results: replaying a
+        # tool payload would let the model treat a previous run's numbers as if
+        # it had just fetched them.
+        messages.extend(_history_messages(prior_turns))
+        messages.append({"role": "user", "content": query})
         # CARD-14: declare the prompt versions this trajectory used so the run can
         # be pointed back at exact prompt bytes. Auditing only — it never edits a
         # prompt, and it records the pre-flight note only when it was really sent.
         for prompt_name in RUN_PROMPTS:
             if prompt_name == "cn_research_agent_preflight" and not resolved_symbol:
+                continue
+            if prompt_name in ("cn_research_agent_followup", "cn_research_agent_history_turn") and not prior_turns:
                 continue
             record_usage(prompt_name, self.model_name, self.temperature)
 
@@ -241,19 +263,24 @@ class CnResearchAgent:
         return state
 
     @staticmethod
-    def _system_prompt(cutoff: str, resolved_symbol: Optional[str] = None) -> str:
+    def _system_prompt(cutoff: str, resolved_symbol: Optional[str] = None,
+                       *, has_history: bool = False) -> str:
         """Compose the system prompt from registered fragments (CARD-14).
 
-        The three pieces are separate prompts on purpose: the base never changes,
-        the run context binds the cutoff, and the pre-flight note appears only
-        when deterministic code already resolved the symbol. Concatenation is
-        assembly, not prompt content, so it stays in Python.
+        The pieces are separate prompts on purpose: the base never changes, the
+        run context binds the cutoff, the pre-flight note appears only when
+        deterministic code already resolved the symbol, and the follow-up note
+        appears only on a continuation turn. Concatenation is assembly, not
+        prompt content, so it stays in Python.
         """
         preflight = ""
         if resolved_symbol:
             preflight = render("cn_research_agent_preflight", resolved_symbol=resolved_symbol)
+        followup = ""
+        if has_history:
+            followup = render("cn_research_agent_followup")
         context = render("cn_research_agent_run_context", cutoff=cutoff)
-        return f"{SYSTEM_PROMPT}\n\n{context}{preflight}"
+        return f"{SYSTEM_PROMPT}\n\n{context}{preflight}{followup}"
 
     async def _resolve_symbol_preflight(
         self, query: str, state: ResearchState,
@@ -305,6 +332,30 @@ class CnResearchAgent:
         })
         self._emit(event_handler, "validation_blocked", status="blocked",
                    detail=", ".join(result.errors))
+
+
+def _history_messages(turns: Sequence[Mapping[str, Any]]) -> List[Dict[str, Any]]:
+    """Turn earlier conversation turns into replay messages.
+
+    Each turn becomes a ``user`` (the question as asked) / ``assistant`` (the
+    prior answer, wrapped in the registered unsourced-notice) pair so anaphora
+    such as "那它的净利率呢" still resolves. Nothing here is registered as
+    evidence — see :meth:`CnResearchAgent.run`.
+    """
+    messages: List[Dict[str, Any]] = []
+    for turn in turns:
+        question = str(turn.get("query") or "").strip()
+        answer = str(turn.get("answer") or "").strip()
+        if not question and not answer:
+            continue
+        if question:
+            messages.append({"role": "user", "content": question})
+        if answer:
+            messages.append({
+                "role": "assistant",
+                "content": render("cn_research_agent_history_turn", answer=answer),
+            })
+    return messages
 
 
 def _decode_result(result_json: str) -> Dict[str, Any]:
