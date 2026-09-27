@@ -108,6 +108,19 @@ python scripts/run_benchmark_v2.py --set synthetic   # 消费该文件，§7b �
 
 **时钟**：`MEASURED_AT` 是模块常量而非 `datetime.now()`，两次运行逐字节一致 —— 消融是输入的纯函数。
 
+### 7b-2. 另三条为什么还空着（**先定口径，不是缺运行器**）
+
+留白是结论，不是待办占位。三条各缺**不同的**东西，**照抄前两条的 recall 形状去填会得到假数字**：
+
+| 创新 | 缺什么 | 具体 |
+|---|---|---|
+| CARD-24 Fragility | **卡里根本没有这条 ablation** | 卡内全文无 ablation 章节；`ABLATION_COMPARISONS` 的 `no_fragility_engine → fragility_engine` 是**占位行**。卡 §7b 的原话是「Baseline = —（**非测准确率**），实验组 = 人工构造 Thesis graph」。一个"没有引擎"的基线报不出 `critical_dependency_correctness` —— 先要决定它是**正确性核对**（对人工构造的图逐项核最小割集）还是**对照实验**，再谈数字。 |
+| CARD-25 Temporal | **口径未定 + 与"无墙钟"冲突** | 机制其实齐了（`compare_full_vs_incremental` 三个数都在）。但卡 §16 要求**三个都报**：`nodes recomputed` / `latency` / **`same deterministic result`** —— 而 `ABLATION_COMPARISONS` 只登记了 `nodes_recomputed` 一个，**只填它会满足登记项却违反卡**。且 `latency` 是墙钟：本文件刚规定消融必须无时钟以保证逐字节可复现，这条**张力必须显式决定**（单次机器相关值另附注，还是不入冻结对照），不能悄悄塞一个数进去。`nodes_recomputed` 是**计数且越小越好**，与两条 recall 指标（比例、越大越好）形状不同，`_metric()` 那种 recall 形状的摘要器不能直接套。 |
+| CARD-26 FinFuzz | **两处定义缺口** | ① 基线臂「普通测试套件**按 error type** 的覆盖率」**没有现成口径**（手写测试不按 error type 组织）；② `per_error_type_recall` 取**哪个统计量**（最差算子 / 均值）未定。二者都属本卡的指标所有权，本卡不定义则 CARD-26 无法测量。（另注：报告里 FinFuzz 的 `P 1.0000 / R 0.9808 / F1 0.9903 / FPR 0.0000` 是**组件基线**，走的是 `COMPONENT_BASELINES` 通道，**不是** §7b 的对照——两者不要混淆。） |
+
+**共同结论：这三条要在"定义"上花功夫，不是在"运行器"上花功夫。** 硬塞一个 0 或一个自己造的基线，
+比留白更糟 —— §7b 的原话是"禁止编造数字"。
+
 ## 8. Edge Cases
 
 1. 真实材料无法下载（链接失效）→ 下载脚本多源（巨潮/交易所）+ sha256 校验失败报错
