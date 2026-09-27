@@ -225,11 +225,19 @@ Demo 步骤 4b（见 DEMO_FLOW.md）：上传真实年报 → 展示一个约束
       （不用子串匹配：`__init__` 的文档字符串本身就在**声明**「不导入 src.llms」，
       子串扫描无法区分「声称没有」与「有」）。`CorrectionTrail.is_complete()` 四字段齐备是
       `auto_corrected` 的唯一放行条件，校验器 `_check_correction_trails` 强制。
-- [ ] **ablation 至少"parser only vs parser+constraints"可运行出结果（不编数字）** ← 未完成，**交接 CARD-11 §7b**。
-      对比臂已在 `benchmarks/cn_agent_v2.json` 注册（`baseline: parser_only` → `treatment:
-      parser_plus_accounting_constraints`，指标 `financial_extraction_error_detection`），
-      但**指标定义属 CARD-11**，本卡不得另立一份（CARD-11 组件归并规则：同一指标两条定义即报错）。
-      本卡的检测能力已由语料闸门实测，见 §23「语料误报闸门」行；ablation **表**待 CARD-11 §7b 运行器就位。
+- [x] **ablation 至少"parser only vs parser+constraints"可运行出结果（不编数字）** ← **已于 2026-09-27 达成**。
+      运行器 `src/cn/ablation_v2.py`（`python -m src.cn.ablation_v2`）持 8 例语料（3 例干净对照 +
+      5 例注入缺陷），两臂跑**同一份语料**：`parser_only` 调真 `resolve_metric` 取 §7.1 词典的
+      `metric_unknown_*` 信号；`parser_plus_accounting_constraints` = **完整流水线**（抽取信号 ∪
+      `validate_multimodal_evidence` 六族约束）。实测 **0.4000 (2/5) → 1.0000 (5/5)**，干净对照误报 **0/3**。
+      **增益全部来自语义族**：`accounting_identity` 0/1→1/1、`table_structural` 0/1→1/1、
+      `cross_source` 0/1→1/1；而抽取族 2/2 两臂相同 —— **两层是互补的，不是包含关系**，
+      故实验组取并集而非只取约束层（只取约束层会得 3/5，在抽取族上反而低于基线，读起来像
+      "加了 ACME 反而更差"）。
+      **诚实边界**：语料只覆盖 F1/F2/F5 + 抽取层词表缺陷；**F3 period_relations / F4 cross_period /
+      F6 cross_modal 不在语料内**（离线夹具里还没有可信构造），`coverage_note()` 在每次运行里明写
+      "不冒充已覆盖"。**指标定义仍属 CARD-11**，本卡不另立一份（组件归并规则：同一指标两条定义即报错）。
+      对比臂早已在 `benchmarks/cn_agent_v2.json` 注册，本次只是补上**测量层**。
 - [x] **全部测试离线通过** ← 待 Tushare 快照重建（23 项缺失快照失败集逐条不变） → **已于 2026-09-20 达成**（tushare 快照真实重建，全量离线 **0 failed / 1531 passed**，原 23 项阻塞解除）
 
 ## 19. Priority
@@ -271,3 +279,4 @@ Demo 步骤 4b（见 DEMO_FLOW.md）：上传真实年报 → 展示一个约束
 | 2026-09-19 | **未闭合**：§18 末两项。① CARD-11 §7b 的 ablation **表**（对比臂已注册，指标定义属 CARD-11，本卡不重复定义）；② 「全部测试离线通过」待 Tushare 快照重建。§17 的 PDF 跳转 UI 归 CARD-15。 |
 | 2026-09-20 | **§17 PDF 跳转 UI 已落地（由 CARD-15 施工，本卡记账）**：新增「ACME 约束」页（`workbench/demo/acme.py`）。页面按本卡的**零静默全覆盖**口径呈现：六族逐族报告，同时把 **`families_not_checked`** 与 `constraints_not_available`（带 reason）放在显眼位置——「已检查 ⊕ 未检查 = 全集」是 §13 的硬规则，页面上同样不允许只报检查过的那部分。违规项可跳回原始 PDF 页。另注：服务层信封把引擎自己的 `status` 搬到 `acme_status` 后再写自己的 `status`（CARD-15 侧通用修复），否则"引擎说它没法判定"会被改写成"一切正常"。 |
 | 2026-09-20 | **跨卡：tushare 快照真实重建**。用户填好 `.env` 的 `TUSHARE_TOKEN` 后，真实重建 9 个 `_tushare_v1` 快照（4 个标的 + 5 个白酒同业）→ 全量离线 **0 failed / 1531 passed / 0 skipped**。§18「全部测试离线通过」由 ☐ 转 ☑ —— 该条此前被 23 项快照缺失阻塞，与本卡代码无关。重建流程及三个坑（同业快照要一起建、bars 窗口不得越过研究时点、688836 上市日）见 `MEMORY.md`「快照重建」段。 |
+| 2026-09-27 | **§18 ablation 由 ☐ 转 ☑ —— 测量层落地（CARD-11 §7b 施工，本卡记账）**。新增 `src/cn/ablation_v2.py`：8 例语料（3 干净对照 + 5 注入缺陷），两臂跑同一份语料。`parser_only` = 真 `resolve_metric` 的 `metric_unknown_*` 信号（2/5）；实验组 = **完整流水线**（抽取信号 ∪ 六族约束，5/5）。干净对照误报 **0/3**。**记录三条方法论**：① 实验组取**并集**——基线指代的是「拔掉 ACME 的那个系统」，不是竞争探测器，只跑约束层会得 3/5 且抽取族 0/2 低于基线，读起来像「加了 ACME 更差」；② 增益逐族可归因（语义三族 0→1，抽取族两臂持平），说明两层是**互补**而非包含；③ 语料只声明注入的缺陷族、**从不声明预期答案**，判据是引擎真实回传的 `residual`。语料未覆盖 F3/F4/F6，`coverage_note()` 每次运行明写「不冒充已覆盖」。 |

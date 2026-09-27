@@ -73,6 +73,41 @@ Benchmark 必须带 ablation 对照，每项创新要有"无创新 vs 有创新"
 
 ablation 结果进 `output/benchmark/cn_agent_v2/ablation/` 报告表，答辩材料直接可引用。**未运行前一律标 TARGET / TO BE MEASURED，禁止编造数字。**
 
+### 7b-1. 已实测的两条（2026-09-27）
+
+`src/cn/benchmark_v2.py::build_ablation_table` 只负责**声明与渲染**；全仓库此前**没有任何组件计算过这两个指标**，
+所以这张表一直是空的 —— 不是懒，是缺测量层。`src/cn/ablation_v2.py` 补上：
+
+```
+python -m src.cn.ablation_v2          # 写 output/benchmark/cn_agent_v2/ablation/{innovation_ablation.json,.md}
+python scripts/run_benchmark_v2.py --set synthetic   # 消费该文件，§7b 表由 TARGET 变 MEASURED
+```
+
+| 创新 | 指标 | Baseline | 实验组 | 增益 | 干净对照误报 |
+|---|---|---|---|---|---|
+| ACME（CARD-22） | `financial_extraction_error_detection` | `parser_only` **0.4000**（2/5） | `parser_plus_accounting_constraints` **1.0000**（5/5） | +0.6000 | **0/3** |
+| Claim Passport（CARD-23） | `unsupported_claim_detection` | `citation_only` **0.2500**（1/4） | `fpo_verifier` **1.0000**（4/4） | +0.7500 | **0/1** |
+
+另三条（CARD-24 Fragility / CARD-25 Temporal / CARD-26 FinFuzz）**仍为 `TARGET / TO BE MEASURED`** ——
+它们的对照臂在 `ABLATION_COMPARISONS` 里有定义，但离线没有可跑的语料，如实留白。
+
+四条方法纪律（写进 `ablation_v2.py` 模块 docstring 与 `tests/test_cn_ablation_v2.py`）：
+
+1. **语料只声明 ground truth（注入了哪个缺陷族），从不声明预期答案**；判据是引擎真实回传的 `residual` / `overall_status`。
+2. **两臂都不是稻草人**：`parser_only` 真调 §7.1 词典 matcher 的 `metric_unknown_*`；`citation_only` 直接用仓库
+   早已交付的 `structural_status`。**实验组是完整流水线**——基线指代的是"拔掉这项创新的那个系统"，
+   所以实验组保留基线的一切并**取并集**。反例：ACME 只跑约束层会得 3/5，且抽取族 0/2 **低于**基线 2/2，
+   读起来像"加了 ACME 反而更差"；两层实为**互补**（抽取族归 parser，语义族归 ACME）。
+3. **recall 与干净对照误报一起报**：只报 recall 的探测器可以靠"全判有缺陷"拿满分。两臂误报均为 0。
+4. **只统计 defect-oriented 信号**：normalizer 给健康事实挂的 provenance 注记（如
+   `scope_declared_consolidated_from_provider_contract`）不算缺陷，排除在 `extraction_signals()` 里显式写明。
+
+**覆盖边界（每次运行都印在报告里，`coverage_note()`）**：ACME 语料覆盖 F1/F2/F5 + 抽取层词表缺陷，
+**F3/F4/F6 不在语料内**；Passport 语料覆盖 orphan / 僵尸引用 / 已撤销 / 已被取代四类，
+**calculation reproducibility 与 stale claim 不在语料内**。不冒充已覆盖。
+
+**时钟**：`MEASURED_AT` 是模块常量而非 `datetime.now()`，两次运行逐字节一致 —— 消融是输入的纯函数。
+
 ## 8. Edge Cases
 
 1. 真实材料无法下载（链接失效）→ 下载脚本多源（巨潮/交易所）+ sha256 校验失败报错
@@ -131,3 +166,6 @@ synthetic 集全链离线跑通；real 集 integration 标记（需凭证与授�
 | 2026-09-19 | **未闭合**：Real / Holdout 材料采集（需网络 + 授权）；FinFuzz 对抗组（`adversarial_metrics` 已就绪，等 CARD-26 的变异语料）；§7b 全部五条 ablation 未运行（表结构已就绪，等 CARD-22/23/24/25/26 各自发布 treatment 结果）；`--set real --verify-labels` 的标注格式校验器未实现（规范已写，校验器属增强项）。 |
 | 2026-09-19 | **跨卡改动（由 CARD-26 §15 落地，本卡记账）**：CARD-26 的 FinFuzz 组件基线接通了本卡的 synthetic 聚合链。① **注册表加一行** `("card26_finfuzz", "finfuzz_baseline.json", None)` —— 组件名与文件名由 `src.cn.finfuzz.baseline` 的 `COMPONENT` / `BASELINE_FILENAME` 持有，注册表引用同一常量，改名不会静默把基线变成孤儿。② **`case_count` 语义收窄**：第三列原先必须填一个整数，现在允许 `None` = "由基线文件自报"；新增 `component_case_count()`，**载荷里的 `case_count` 优先于注册表兜底值**。原因：FinFuzz 的样本数随语料与 seed 变（现 128），在注册表里再写一个数就是**第二处真相**，会与紧挨着的基线文件漂移。card01(10) / card05(3) 的载荷里没有这个键，行为逐字不变。③ `tests/test_cn_benchmark_v2.py::test_report_over_the_committed_component_baselines` 的枚举加上 finfuzz —— 那条测试是"真聚合路径"的唯一覆盖，新组件不进去就等于没被聚合过。④ **本卡指标定义未动**：四项对抗指标仍由本卡 `adversarial_metrics()` 定义，CARD-26 只做搬运，符合本卡 §7 归并闸门（同一指标禁两定义）。实测 `--set synthetic` **已测 8 → 12 项**，`groups.adversarial` 四项 `source == card26_finfuzz`，tier `case_count = 141 = 10 + 3 + 128`。 |
 | 2026-09-20 | **跨卡：tushare 快照真实重建**。用户填好 `.env` 的 `TUSHARE_TOKEN` 后，真实重建 9 个 `_tushare_v1` 快照（4 个标的 + 5 个白酒同业）→ 全量离线 **0 failed / 1531 passed / 0 skipped**。§15「全部测试离线通过」由 ☐ 转 ☑ —— 该条此前被 23 项快照缺失阻塞，与本卡代码无关。重建流程及三个坑（同业快照要一起建、bars 窗口不得越过研究时点、688836 上市日）见 `MEMORY.md`「快照重建」段。 |
+| 2026-09-27 | **§7b 前两条消融实测（本卡最重要的未闭合项）**。此前 §7b 表恒为空：`build_ablation_table` 只消费调用方喂进的 `{treatment/baseline: summary}`，而**全仓库没有任何组件计算过** `financial_extraction_error_detection` / `unsupported_claim_detection` —— 缺的是测量层，不是渲染层。新增 `src/cn/ablation_v2.py`（8 例 ACME 语料 + 5 例 Passport 语料，两臂跑同一份语料），实测 **ACME 0.4000 → 1.0000（误报 0/3）**、**Passport 0.2500 → 1.0000（误报 0/1）**，写入 `output/benchmark/cn_agent_v2/ablation/`；`scripts/run_benchmark_v2.py` 新增 `--ablation-dir` 消费该文件，§7b 表由 `TARGET` 变 `MEASURED`（缺失时打 `[SKIP]` 并印出生成命令，**不静默回退**）。另三条仍如实留白。 |
+| 2026-09-27 | **本次改到一处「诚实边界」的判断**：ACME 实验组最初实现为"只跑约束层"，得 3/5；但基线 `parser_only` 指的是**拔掉 ACME 的那个系统**（不是竞争探测器），所以实验组必须是**并集**（抽取信号 ∪ 约束信号）。只跑约束层会在抽取族上 0/2 低于基线 2/2，把互补关系误报成"加了 ACME 反而更差"。改成并集后 5/5，增益逐族可归因（语义三族 0→1、抽取族两臂持平）。**这条改的是测量口径，不是数字** —— 两个口径都能算出数，只有一个是对的。 |
+| 2026-09-27 | **测试**：新增 `tests/test_cn_ablation_v2.py`（**20 项**）—— 断言两臂的真伪（基线的信号文本里带 `resolve_metric` **活返回值**，硬编码就对不上）、实验组必须是基线的严格超集、recall 记**精确计数**而非区间（词典若学会某个标签，语料会失去该缺陷、基线悄悄变小，此时必须红）、误报分母 > 0 且分子 == 0、五条对照只 MEASURED 两条其余为 `TARGET / TO BE MEASURED`、缺失/损坏的消融文件读作"未测"而非 0、两次运行逐字节一致。 |

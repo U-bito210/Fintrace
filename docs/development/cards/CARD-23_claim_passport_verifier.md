@@ -205,12 +205,15 @@ Demo 步骤 7b（DEMO_FLOW.md）：点击一条核心 Claim → 展示 Financial
       `test_merge_ignores_pass_and_skipped`（**pass/skipped 永不移动判决** —— 这是「跳过 ≠ 通过」
       能被信任的前提）、`test_a_raising_check_becomes_a_failure_not_a_pass`（检查自身抛异常记 fail，
       §11 禁止「验证器永远通过」）。
-- [ ] **ablation「citation only vs FPO verifier」可运行出真实数字** ← 未完成，**交接 CARD-11 §7b**。
-      对比臂已在 `benchmarks/cn_agent_v2.json::ablation_comparisons` 注册
-      （`baseline: citation_only` → `treatment: fpo_verifier`，指标 `unsupported_claim_detection`），
-      `src/cn/benchmark_v2.py` 只负责**声明与渲染**（`tests/test_cn_benchmark_v2.py` 覆盖渲染）。
-      但**指标定义与运行器属 CARD-11**，本卡不得另立一份（CARD-11 组件归并规则：同一指标两条定义即报错）。
-      本卡的检测能力已由语料闸门实测（见下条），ablation **表**待 CARD-11 §7b 运行器就位。
+- [x] **ablation「citation only vs FPO verifier」可运行出真实数字** ← **已于 2026-09-27 达成**。
+      运行器 `src/cn/ablation_v2.py`（`python -m src.cn.ablation_v2`）持 5 例语料（1 例健康对照 +
+      4 类"引用在、支撑不在"的支撑缺陷），两臂跑同一份语料：`citation_only` 直接用仓库已 shipped 的
+      `structural_status`（CARD-09 绑定规则，**不看账本**）；`fpo_verifier` 调真 `verify_claim`。
+      实测 **0.2500 (1/4) → 1.0000 (4/4)**，健康对照误报 **0/1**。**增益逐族可归因**：
+      孤儿 claim 两臂都抓到（1/1）；**僵尸引用 `E-GHOST` 0→1、已撤销证据 0→1、已被取代期间 0→1**
+      —— 恰是"引用了，但支撑不在"的三类，也恰是 `citation_only` 结构上看不见的三类。
+      **诚实边界**：`calculation reproducibility` 与 `stale claim detection` 两条指标**不在此语料内**，
+      不冒充已测（`corpus_note()` 每次运行明写）。指标定义仍属 CARD-11，本卡不另立一份。
 - [x] **语料闸门（本卡自己的实测，不是 ablation 的替代）**：
       `test_corpus_gate_clean_filings_verify_and_planted_defects_do_not` —— 两篇**干净**年报
       （`annual_06_equity_shares.pdf` / `annual_01_profit_continued.pdf`）走完 CARD-09 →
@@ -256,3 +259,5 @@ Demo 步骤 7b（DEMO_FLOW.md）：点击一条核心 Claim → 展示 Financial
 | 2026-09-19 | **环境坑（写下来省下一次踩）**：全量回归必须**前台**跑。safe-delete 的 bulk guard 按「每轮对话」**累计**被删文件数（阈值 50），本轮先跑过一次子集后预算已耗尽，此时后台跑全量会把每个 teardown 的 `SystemExit: 1` 放大成 **220 errors / 984 passed 的假象** —— 看起来像产品崩了，其实 `errors` 全是 shim 在 teardown 拒删，`failed` 反而是准的。判据永远是 **junit 的失败集合**，不是 stdout 的计数。 |
 | 2026-09-19 | **未闭合**：§18 的 ablation 表（对比臂已注册，指标定义与运行器属 CARD-11，本卡不重复定义）+「全部测试离线通过」（待 Tushare 快照重建）。§17 的「点击 Claim → 展示护照 → VERIFY CLAIM」交互归 CARD-15；§20 决赛增强的证明链图可视化同样归 CARD-15。 |
 | 2026-09-20 | **§17「点击 Claim → 展示护照 → VERIFY CLAIM」已落地（由 CARD-15 施工，本卡记账）**：新增「结论护照」页（`workbench/demo/passport.py`）。关键设计：**"看护照"与"点 VERIFY"是两个分开的服务调用**——`passport_view()` 取护照，`verify_view()` 只跑一次验证。否则按钮只会回放页面加载时算过的结果，而剧本要的是"点击 → 系统重新执行"。验证路径纯确定性（重查文档哈希、重算公式、检查依赖状态，模型不参与）。§20 的证明链图可视化**未做**（决赛范围）。 || 2026-09-20 | **跨卡：tushare 快照真实重建**。用户填好 `.env` 的 `TUSHARE_TOKEN` 后，真实重建 9 个 `_tushare_v1` 快照（4 个标的 + 5 个白酒同业）→ 全量离线 **0 failed / 1531 passed / 0 skipped**。§18「全部测试离线通过」由 ☐ 转 ☑ —— 该条此前被 23 项快照缺失阻塞，与本卡代码无关。重建流程及三个坑（同业快照要一起建、bars 窗口不得越过研究时点、688836 上市日）见 `MEMORY.md`「快照重建」段。 |
+| 2026-09-27 | **§18 ablation 由 ☐ 转 ☑ —— 测量层落地（CARD-11 §7b 施工，本卡记账）**。`src/cn/ablation_v2.py` 持 5 例语料，两臂跑同一份语料：`citation_only` 用仓库已 shipped 的 `structural_status`，`fpo_verifier` 用真 `verify_claim`。实测 **0.2500 (1/4) → 1.0000 (4/4)**，健康对照误报 **0/1**。`calculation reproducibility` / `stale claim detection` 不在此语料内，不冒充已测。 |
+| 2026-09-27 | **修一个真 bug（由本次消融暴露）**：`verify_source`（§7.1）此前从 `SourceProof.evidence_ids` 读"证据是否存在"，而该字段只承载**账本能解析到**的 id —— 于是"引用了不存在的 `E-GHOST`"被静默过滤成"什么都没引用"，报出的理由是**"claim 未绑定任何证据（孤儿 claim）"**。**判决两路都是 `BLOCKED`，所以只有理由错了**；但理由正是运维唯一能据以行动的东西：孤儿让人去重读 claim，僵尸引用让人去查账本，是两件不同的活。修法：新增 `_referenced_evidence_ids()` 从 claim **声明的引用**取全量（含悬空项，含 calculation 的 input 引用），`verify_source` **先**判 `missing`（"证据不存在：E-GHOST"）**再**判孤儿。`tests/test_cn_proof.py` 补两条**互补**回归（僵尸引用 → 理由须含"证据不存在"且**不得**含"未绑定任何证据"；无引用 → 反之），并把护照 bug 临时回退验证过新测试确实会红。**111 → 113 passed**。 |

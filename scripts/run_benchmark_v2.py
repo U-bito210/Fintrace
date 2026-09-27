@@ -25,11 +25,12 @@ import json
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, List, Mapping, Optional
+from typing import Dict, List, Mapping, Optional, Sequence
 
 PROJECT_ROOT = Path(__file__).parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.cn.ablation_v2 import load_ablation  # noqa: E402
 from src.cn.benchmark_v2 import (  # noqa: E402
     TIER_HOLDOUT,
     TIER_REAL,
@@ -98,6 +99,45 @@ def load_components(source_dir: Path) -> Dict[str, Dict[str, object]]:
     return components
 
 
+def load_ablation_runs(source_dir: Path) -> Dict[str, Dict[str, object]]:
+    """Read the §7b ablation artifact, or report why the table stays empty.
+
+    The ablation is *measured*, not re-derived here: ``src.cn.ablation_v2`` owns
+    that, and the report cites the file it produced. A silent fallback would let
+    the §7b table read ``TARGET / TO BE MEASURED`` while looking complete, so a
+    missing artifact prints the command that produces it.
+    """
+    runs = load_ablation(source_dir)
+    if not runs:
+        print(
+            f"[SKIP] §7b 消融结果缺失：{source_dir}（该表将记 TARGET / TO BE MEASURED）。"
+            "生成：python -m src.cn.ablation_v2 --out <该目录>",
+            file=sys.stderr,
+        )
+    return runs
+
+
+def ablation_progress(table: Sequence[Mapping[str, object]]) -> str:
+    """How much of §7b is actually measured — read off the rendered table.
+
+    Counted from the table rather than from the loaded runs, so the line cannot
+    disagree with what the report says.
+    """
+    measured = [row for row in table if row.get("status") == "MEASURED"]
+    rest = [row["innovation"] for row in table if row.get("status") != "MEASURED"]
+    line = f"{len(measured)}/{len(table)} 行已实测"
+    if rest:
+        line += f"（未测：{'、'.join(str(name) for name in rest)}）"
+    return line
+
+
+def report_kwargs(args) -> Dict[str, object]:
+    return {
+        "ablation_runs": load_ablation_runs(Path(args.ablation_dir)),
+        "extra_fingerprint": {"git_commit": git_commit(), "generated_by": "scripts/run_benchmark_v2.py"},
+    }
+
+
 def run_synthetic(args) -> int:
     source = Path(args.components_dir)
     components = load_components(source)
@@ -113,7 +153,7 @@ def run_synthetic(args) -> int:
     report = build_report(
         components=components,
         component_case_count=case_count,
-        extra_fingerprint={"git_commit": git_commit(), "generated_by": "scripts/run_benchmark_v2.py"},
+        **report_kwargs(args),
     )
     paths = write_report(args.out, report)
     tier = report["tiers"][0]
@@ -121,6 +161,7 @@ def run_synthetic(args) -> int:
         f"[OK] synthetic：已测 {tier['measured_metrics']} 项 / 未测 {tier['unmeasured_metrics']} 项"
         f"（未测原因 {UNMEASURED_OFFLINE}）"
     )
+    print(f"     §7b 消融：{ablation_progress(report['ablation'])}")
     print(f"     {paths['json']}")
     print(f"     {paths['markdown']}")
     return 0
@@ -138,7 +179,7 @@ def run_captured(args, tier: str) -> int:
     payload = json.loads(Path(args.rows).read_text(encoding="utf-8"))
     report = build_report(
         [tier_payload_from_dict(payload, tier=tier)],
-        extra_fingerprint={"git_commit": git_commit(), "generated_by": "scripts/run_benchmark_v2.py"},
+        **report_kwargs(args),
     )
     paths = write_report(args.out, report)
     tier_report = report["tiers"][0]
@@ -146,6 +187,7 @@ def run_captured(args, tier: str) -> int:
         f"[OK] {tier}：已测 {tier_report['measured_metrics']} 项 / "
         f"未测 {tier_report['unmeasured_metrics']} 项"
     )
+    print(f"     §7b 消融：{ablation_progress(report['ablation'])}")
     print(f"     {paths['json']}")
     print(f"     {paths['markdown']}")
     return 0
@@ -158,6 +200,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--out", default=str(DEFAULT_OUT))
     parser.add_argument("--components-dir", default=str(DEFAULT_OUT),
                         help="组件基线所在目录（synthetic 用）")
+    parser.add_argument("--ablation-dir", default=str(DEFAULT_OUT / "ablation"),
+                        help="§7b 消融结果目录；缺失时该表记 TARGET / TO BE MEASURED")
     parser.add_argument("--rows", default="", help="已捕获结果行 JSON（real/holdout 用）")
     args = parser.parse_args(argv)
 
