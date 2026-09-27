@@ -937,6 +937,53 @@ def test_missing_upstream_target_is_reported_not_assumed_ok():
     assert outcome.status != CHECK_PASS
 
 
+def test_dangling_evidence_reference_is_reported_as_missing_not_as_orphan():
+    """A claim citing ``E-GHOST`` cited *something* — it did not cite nothing.
+
+    The sibling of ``test_missing_upstream_target_is_reported_not_assumed_ok``,
+    one layer down: that one guards a dangling **dependency** target, this one a
+    dangling **evidence** reference. Both failures are ``BLOCKED``, so the verdict
+    alone cannot tell them apart — and §7.1's message is the only thing an
+    operator can act on. Reading the reference list off ``SourceProof.evidence_ids``
+    collapsed the two, because that field only carries ids the ledger *could*
+    resolve; a broken pointer arrived here as an absent citation.
+    """
+    graph = _happy_graph()
+    graph.add_claim(_claim("C-DANGLING", evidence_ids=("E-GHOST",)))
+    context = _happy_context(graph)
+
+    outcome = verify_source(
+        build_financial_proof_object("C-DANGLING", context), context
+    )
+
+    assert outcome.status == CHECK_FAIL
+    assert outcome.impact == STATUS_BLOCKED
+    assert "证据不存在" in outcome.message
+    assert "E-GHOST" in outcome.message
+    # The wrong reason must not come back: "cited nothing" sends the operator to
+    # re-read the claim, "cited a ghost" sends them to the ledger. Different work.
+    assert "未绑定任何证据" not in outcome.message
+    assert outcome.details["missing_evidence"] == ["E-GHOST"]
+
+
+def test_claim_with_no_references_at_all_is_still_reported_as_an_orphan():
+    """The complement — the orphan message must survive the change above.
+
+    Fixing a mislabelled failure by deleting the label is not a fix. This keeps
+    "no citation at all" distinguishable from "citation to a ghost".
+    """
+    graph = _happy_graph()
+    graph.add_claim(_claim("C-ORPHAN", evidence_ids=()))
+    context = _happy_context(graph)
+
+    outcome = verify_source(build_financial_proof_object("C-ORPHAN", context), context)
+
+    assert outcome.status == CHECK_FAIL
+    assert outcome.impact == STATUS_BLOCKED
+    assert "未绑定任何证据" in outcome.message
+    assert "证据不存在" not in outcome.message
+
+
 def test_assumptions_skip_when_the_claim_references_none():
     graph = _happy_graph()
     context = _happy_context(graph)

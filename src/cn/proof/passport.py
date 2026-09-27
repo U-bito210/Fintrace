@@ -207,28 +207,37 @@ def _claim_of(context: ProofContext, claim_id: str) -> Claim:
         raise ProofBuildError(str(exc)) from exc
 
 
+def _referenced_evidence_ids(claim: Claim, context: ProofContext,
+                             extra: Sequence[str] = ()) -> List[str]:
+    """Every evidence id the claim **refers to**, resolvable or not.
+
+    This exists next to :func:`_evidence_nodes` for one reason, and it is worth
+    stating because the two look redundant: a claim that cites ``E-GHOST`` has
+    not failed to cite anything — it has cited something that is not there.
+    Filtering the reference away before the check runs makes ``verify_source``
+    report "未绑定任何证据（孤儿 claim）" for a dangling pointer, i.e. a correct
+    verdict carrying a reason that sends the operator to the wrong place.
+    """
+    refs: List[str] = list(claim.evidence_ids) + list(extra)
+    if context.graph is not None:
+        for calculation_id in claim.calculation_ids:
+            node = context.graph.calculations.get(calculation_id)
+            if node is not None:
+                refs.extend(node.evidence_ids)
+    return refs
+
+
 def _evidence_nodes(claim: Claim, context: ProofContext,
                     extra: Sequence[str] = ()) -> List[EvidenceNode]:
     """Every evidence node the claim leans on, ledger-backed and calculation-backed."""
-    out: List[EvidenceNode] = []
+    out: Dict[str, EvidenceNode] = {}
     if context.graph is None:
-        return out
-    for evidence_id in (*claim.evidence_ids, *extra):
+        return []
+    for evidence_id in _referenced_evidence_ids(claim, context, extra):
         node = context.graph.evidence_index.get(evidence_id)
         if node is not None:
-            out.append(node)
-    for calculation_id in claim.calculation_ids:
-        node = context.graph.calculations.get(calculation_id)
-        if node is None:
-            continue
-        for evidence_id in node.evidence_ids:
-            found = context.graph.evidence_index.get(evidence_id)
-            if found is not None:
-                out.append(found)
-    seen: Dict[str, EvidenceNode] = {}
-    for node in out:
-        seen.setdefault(node.evidence_id, node)
-    return list(seen.values())
+            out.setdefault(evidence_id, node)
+    return list(out.values())
 
 
 def resolve_version_status(
@@ -514,19 +523,32 @@ def verify_source(fpo: FinancialProofObject, context: ProofContext) -> CheckOutc
     if graph is None:
         return skipped(CHECK_SOURCE, "未提供 ClaimGraph，无法核对证据是否存在")
 
-    evidence_ids = fpo.source_proof.evidence_ids
-    if not evidence_ids:
-        return failed(
-            CHECK_SOURCE,
-            "claim 未绑定任何证据（孤儿 claim），来源无法追溯（§12 edge 3）",
-        )
+    # Dangling references are read off what the claim *declares*, never off
+    # ``SourceProof.evidence_ids``. That field means "where the claim's number
+    # physically is", so it only carries evidence the ledger can resolve — and
+    # reading the reference list from there collapsed two different failures
+    # into one message: a broken pointer was reported as an absent citation.
+    # The verdict was right either way (both are BLOCKED); the reason was not,
+    # and §7.1's message is the only thing an operator can act on.
+    declared: Sequence[str] = ()
+    try:
+        declared = _referenced_evidence_ids(graph.claim(fpo.claim_id), context)
+    except GraphError:
+        declared = ()
 
-    missing = [eid for eid in evidence_ids if eid not in graph.evidence_index]
+    missing = [eid for eid in declared if eid not in graph.evidence_index]
     if missing:
         return failed(
             CHECK_SOURCE,
             f"证据不存在：{', '.join(sorted(missing))}",
             missing_evidence=sorted(missing),
+        )
+
+    evidence_ids = fpo.source_proof.evidence_ids
+    if not evidence_ids:
+        return failed(
+            CHECK_SOURCE,
+            "claim 未绑定任何证据（孤儿 claim），来源无法追溯（§12 edge 3）",
         )
 
     nodes = [graph.evidence_index[eid] for eid in evidence_ids]
