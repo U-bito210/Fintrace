@@ -861,54 +861,77 @@ section[data-testid="stSidebar"] [data-testid="stExpander"] .stButton > button[k
   color: #FFFFFF !important;
   box-shadow: 0 7px 18px rgba(12, 92, 201, .32);
 }}
-/* Sidebar select（研究快照）: every nesting level of the control is painted.
-   Newer Streamlit builds place the value node one level below `> div`; when
-   only that child matched, the control kept Streamlit's white fill while the
-   inherited `section[data-testid="stSidebar"] *` rule forced light text —
-   white-on-white. Background and ink are pinned together so it cannot recur. */
-section[data-testid="stSidebar"] [data-baseweb="select"],
-section[data-testid="stSidebar"] [data-baseweb="select"] > div,
-section[data-testid="stSidebar"] [data-baseweb="select"] div,
-section[data-testid="stSidebar"] [data-baseweb="select"] input,
-section[data-testid="stSidebar"] [data-baseweb="select"] span {{
+/* ── Sidebar select（研究快照）───────────────────────────────────────────
+   ⚠️ Streamlit 1.61 换了 widget 实现：baseweb 的 [data-baseweb="select"] /
+   [data-baseweb="popover"] 已经**全部消失**（实测 Selectbox.<hash>.js 里
+   "baseweb" 出现 0 次，"className:`stSelectbox`" 出现 1 次）。旧规则因此
+   整段成为死代码 —— 这正是同一处「白底白字」反复复发的根因：每修一轮都
+   在给一个不存在的 DOM 加样式。现在按 1.61 的真实类名重写。
+
+   实测到的结构（打包产物 Selectbox.Cnugupx0.js）：
+     · 控件根          div.stSelectbox  →  内含 div[data-testid="stSelectbox"]
+     · 值文本/输入框   同根下的 input + 一个显示 label 的节点
+     · 下拉浮层        [data-testid="stSelectboxVirtualDropdown"]，
+                      经 createPortal 挂到 **document.body**（不在侧栏 DOM 内），
+                      因此必须单独写规则，且不能依赖侧栏后代选择器。
+   背景与文字**成对**钉死（同一个选择器里同时给 background-color 与 color），
+   这样任何单边覆盖都不会再把它变回白底白字。 */
+section[data-testid="stSidebar"] .stSelectbox,
+section[data-testid="stSidebar"] .stSelectbox > div,
+section[data-testid="stSidebar"] .stSelectbox [data-testid="stSelectbox"],
+section[data-testid="stSidebar"] .stSelectbox input,
+section[data-testid="stSidebar"] .stSelectbox [data-testid="stSelectbox"] > div {{
   background-color: #162A47 !important;
+  background-image: none !important;
   color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+  opacity: 1 !important;
 }}
-section[data-testid="stSidebar"] [data-baseweb="select"] > div {{
+/* 只有「根 + 内层方框」这一层有边框；写成两条避免在 input 上再画一圈。 */
+section[data-testid="stSidebar"] .stSelectbox > div,
+section[data-testid="stSidebar"] .stSelectbox [data-testid="stSelectbox"] > div {{
   border: 1px solid #2C476B !important;
   border-radius: 10px !important;
 }}
-section[data-testid="stSidebar"] [data-baseweb="select"] input::placeholder {{
-  color: #9FB6D2 !important; opacity: 1 !important;
-}}
-section[data-testid="stSidebar"] [data-baseweb="select"] svg {{
+section[data-testid="stSidebar"] .stSelectbox svg {{
   color: #9BC5FF !important; fill: #9BC5FF !important;
 }}
-/* The dropdown list is portalled outside the sidebar, so it needs its own rule.
-   The DOM differs across Streamlit versions (baseweb menu / popover / role-based
-   listbox), so every known container is painted rather than betting on one. */
-div[data-baseweb="popover"],
-div[data-baseweb="popover"] > div,
-ul[data-baseweb="menu"],
-ul[role="listbox"],
-li[data-baseweb="option"],
-li[role="option"] {{
-  background: #162A47 !important;
+/* 选中值那一行：文字与它所在的整块底一起上色。`*` 会把光标、placeholder
+   一起刷白，对深色底是正确的，但**不要**再单独给 color 而不给底色。 */
+section[data-testid="stSidebar"] .stSelectbox [data-testid="stSelectbox"] * {{
   background-color: #162A47 !important;
-}}
-div[data-baseweb="popover"] *,
-ul[data-baseweb="menu"] *,
-ul[role="listbox"] *,
-li[data-baseweb="option"] *,
-li[role="option"] * {{
   color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+}}
+
+/* 下拉浮层：portal 到 body，故用 [data-testid] 直接命中，不写侧栏前缀。
+   命中不了就退回 role 语义（listbox/option），两条都留着以免版本漂移。 */
+[data-testid="stSelectboxVirtualDropdown"] {{
+  background-color: #162A47 !important;
+  background-image: none !important;
+  border: 1px solid #2C476B !important;
+  border-radius: 10px !important;
+  box-shadow: 0 18px 42px rgba(4, 12, 26, .45) !important;
+}}
+[data-testid="stSelectboxVirtualDropdown"] *,
+ul[role="listbox"] *,
+li[role="option"] * {{
+  background-color: #162A47 !important;
+  background-image: none !important;
+  color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
   opacity: 1 !important;
 }}
-li[data-baseweb="option"]:hover,
+ul[role="listbox"] {{
+  background-color: #162A47 !important;
+  border: 1px solid #2C476B !important;
+  border-radius: 10px !important;
+}}
 li[role="option"]:hover,
-ul[data-baseweb="menu"] li:hover {{ background: #1E385B !important; }}
-li[role="option"][aria-selected="true"],
-li[data-baseweb="option"][aria-selected="true"] {{ background: #1E4B85 !important; }}
+[data-testid="stSelectboxVirtualDropdown"] [data-item-hl]:hover {{
+  background-color: #1E385B !important;
+}}
+li[role="option"][aria-selected="true"] {{ background-color: #1E4B85 !important; }}
 section[data-testid="stSidebar"] .stButton > button {{
   border-color: #2C476B !important;
   background: #162A47 !important;
@@ -1004,12 +1027,26 @@ div[data-testid="stVerticalBlockBorderWrapper"] > div,
 }}
 .trace {{ border-left-color: #8FB1D5; background: rgba(255,255,255,.55); border-radius: 0 10px 10px 0; margin: .35rem 0; }}
 /* --- Declared last on purpose: sidebar select（研究快照）legibility. ---
-   baseweb sets `-webkit-text-fill-color` on some builds and that wins over a
-   plain `color`, so both are pinned; `background-image` is cleared in case a
-   gradient fill is what left the value text unreadable on the navy shell. */
-section[data-testid="stSidebar"] div[data-baseweb="select"],
-section[data-testid="stSidebar"] div[data-baseweb="select"] > div,
-section[data-testid="stSidebar"] div[data-baseweb="select"] * {{
+   Streamlit paints widget chrome through emotion, and some builds set
+   `-webkit-text-fill-color` — which wins over a plain `color`, so both are
+   pinned; `background-image` is cleared in case a gradient fill is what left
+   the value text unreadable on the navy shell.
+   ⚠️ 这里必须是 `.stSelectbox`（1.61 的真实类名）。旧版写成
+   `div[data-baseweb="select"]`，而 1.61 的 baseweb 已经不存在 —— 它是一条
+   **永远不会命中**的规则，看着像"最后一层保险"，实际上什么都没做。 */
+section[data-testid="stSidebar"] .stSelectbox,
+section[data-testid="stSidebar"] .stSelectbox > div,
+section[data-testid="stSidebar"] .stSelectbox [data-testid="stSelectbox"],
+section[data-testid="stSidebar"] .stSelectbox * {{
+  background-color: #162A47 !important;
+  background-image: none !important;
+  color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+  opacity: 1 !important;
+}}
+/* 浮层在 body 下，跨不进侧栏选择器，最后一层保险要单独再钉一次。 */
+[data-testid="stSelectboxVirtualDropdown"],
+[data-testid="stSelectboxVirtualDropdown"] * {{
   background-color: #162A47 !important;
   background-image: none !important;
   color: #FFFFFF !important;
