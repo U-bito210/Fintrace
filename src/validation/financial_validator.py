@@ -152,20 +152,45 @@ class FinancialValidator:
                 errors.append(f"future_fact:{record.evidence_id}")
 
     def _check_expired_data(self, records: List[EvidenceRecord], research_as_of: str, errors: List[str]) -> None:
-        # Only the most recent period of each metric must be fresh.  Earlier
-        # periods are legitimate historical comparatives and are inherently
-        # older than the research cutoff, so they must not block the report.
-        latest: Dict[str, tuple] = {}
+        # Freshness is a property of the *current* disclosure.  Earlier periods
+        # are legitimate historical comparatives and are inherently older than
+        # the research cutoff, so they must not block the report.
+        #
+        # Two consequences the original per-metric scan got wrong:
+        #
+        # 1. A metric the current disclosure does not report — EBITDA for a
+        #    bank, say — has no current value at all.  Its "latest" record then
+        #    degrades to some historical leftover, and judging that leftover as
+        #    stale fails every bank on metrics the bank structurally does not
+        #    report.  Such a metric is skipped instead.
+        # 2. Statements and market bars are disclosed on separate cycles, so
+        #    they must be compared within their own family.  Mixing them would
+        #    let one fresh price bar mark every statement as "current".
+        #
+        # Genuine staleness is still caught: when even the newest batch is old,
+        # its metrics *are* the current set and are checked.
+        families: Dict[bool, List[EvidenceRecord]] = {True: [], False: []}
         for record in records:
             metric = getattr(record, "metric", None)
-            if not metric:
+            if not metric or not getattr(record, "available_at", None):
                 continue
-            available = getattr(record, "available_at", None) or ""
-            if metric not in latest or available > latest[metric][0]:
-                latest[metric] = (available, record)
-        for _, record in latest.values():
-            if _is_expired(record.available_at, research_as_of, self._max_age):
-                errors.append(f"expired_data:{record.evidence_id}")
+            families[bool(getattr(record, "fiscal_period", None))].append(record)
+
+        for family in families.values():
+            if not family:
+                continue
+            newest = max(record.available_at for record in family)
+            current_metrics = {r.metric for r in family if r.available_at == newest}
+            latest: Dict[str, EvidenceRecord] = {}
+            for record in family:
+                known = latest.get(record.metric)
+                if known is None or record.available_at > known.available_at:
+                    latest[record.metric] = record
+            for metric, record in latest.items():
+                if metric not in current_metrics:
+                    continue  # not disclosed in the current batch — historical only
+                if _is_expired(record.available_at, research_as_of, self._max_age):
+                    errors.append(f"expired_data:{record.evidence_id}")
 
     @staticmethod
     def _check_unit_consistency(records: List[EvidenceRecord], errors: List[str], warnings: List[str]) -> None:

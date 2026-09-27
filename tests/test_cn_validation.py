@@ -156,6 +156,67 @@ def test_validation_expired_data_comparative_exempt():
     assert not any("expired_data" in e for e in result.errors)
 
 
+def _bank_ledger() -> EvidenceLedger:
+    """A bank as the snapshot really looks: current batch reports revenue and
+    net profit, while EBITDA / FCF are absent (null) and survive only as older
+    rows from periods that did carry them."""
+    ledger = EvidenceLedger(snapshot_id="bank_v1")
+    for metric, value in (("revenue", 70617000000.0), ("net_profit", 25696000000.0)):
+        ledger.add_fact(
+            evidence_id=f"fact_000001_SZ_{metric}_2026H1", symbol="000001.SZ", metric=metric,
+            value=value, currency="CNY", unit="CNY",
+            fiscal_period="2026H1", period_basis="2026H1_CUMULATIVE",
+            published_at="2026-08-15T00:00:00+08:00",
+            available_at="2026-08-15T00:00:00+08:00",
+            provider="test", field_path=f"statements.income.2026H1.{metric}",
+        )
+    for metric, value in (("ebit", 1.0), ("ebitda", 2.0), ("free_cash_flow", 3.0)):
+        ledger.add_fact(
+            evidence_id=f"fact_000001_SZ_{metric}_2022H1", symbol="000001.SZ", metric=metric,
+            value=value, currency="CNY", unit="CNY",
+            fiscal_period="2022H1", period_basis="2022H1_CUMULATIVE",
+            published_at="2022-08-15T00:00:00+08:00",
+            available_at="2022-08-15T00:00:00+08:00",
+            provider="test", field_path=f"statements.income.2022H1.{metric}",
+        )
+    return ledger
+
+
+def test_validation_metric_absent_from_current_batch_is_not_expired_data():
+    """Regression: a bank does not report EBITDA.  Its only EBITDA rows are
+    historical, so treating them as stale blocked every bank on metrics the
+    bank structurally does not report."""
+    validator = FinancialValidator(max_data_age_days=365)
+    result = validator.validate(_bank_ledger(), research_as_of="2026-09-23T23:00:00+08:00")
+    assert not any("expired_data" in e for e in result.errors), result.errors
+
+
+def test_validation_whole_ledger_staleness_still_blocks():
+    """The fix must not become a free pass: when even the newest batch is old,
+    it *is* the current set and must still block."""
+    ledger = _bank_ledger()
+    result = FinancialValidator(max_data_age_days=365).validate(
+        ledger, research_as_of="2027-10-01T00:00:00+08:00")
+    assert any("expired_data:fact_000001_SZ_revenue_2026H1" in e for e in result.errors)
+
+
+def test_validation_a_fresh_price_bar_does_not_excuse_stale_statements():
+    """Statements and bars are separate disclosure cycles.  A fresh bar must
+    not mark the stale statements as current."""
+    ledger = _bank_ledger()
+    ledger.add_fact(
+        evidence_id="fact_close_000001_20260923_RAW", symbol="000001.SZ", metric="close",
+        value=11.5, currency="CNY", unit="CNY/share",
+        fiscal_period=None, period_basis="RAW",
+        published_at="2027-09-23T15:00:00+08:00",
+        available_at="2027-09-23T15:00:00+08:00",
+        provider="test", field_path="bars.2027-09-23.close",
+    )
+    result = FinancialValidator(max_data_age_days=365).validate(
+        ledger, research_as_of="2027-09-24T00:00:00+08:00")
+    assert any("expired_data:fact_000001_SZ_revenue_2026H1" in e for e in result.errors)
+
+
 def test_validation_empty_ledger():
     ledger = EvidenceLedger(snapshot_id="empty")
     validator = FinancialValidator()
