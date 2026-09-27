@@ -137,7 +137,7 @@ FinTrace-CN/
 
 `src/` 共 **168 个 .py / 约 56,061 行**。分包如下（按"改动频率"而非字母序）：
 
-### 6.1 `src/cn/` — A 股领域主干（27 文件 / 14,086 行）
+### 6.1 `src/cn/` — A 股领域主干（29 文件 / 15,806 行）
 
 | 文件 | 一句话职责 |
 |---|---|
@@ -163,7 +163,9 @@ FinTrace-CN/
 | `memo.py` | **CARD-10** 买方投资备忘录（11 段 + 句级三态）。 |
 | `disclosure_lexicon.py` | 披露版本 / 会计口径的**声明式词表**（供 CARD-04 使用）。 |
 | `demo_data.py` | 生成**确定性的、license-safe** 的 illustrative 演示快照。 |
-| `demo_service.py` | **CARD-15 §10** Demo 页面的只读服务层（1348 行）。 |
+| `demo_service.py` | **CARD-15 §10** Demo 页面的只读服务层（1610 行）。 |
+| `run_artefacts.py` | **CARD-12 §4** run 目录里「各模块产物」的产出器（7 件：`report.md`/`report.json`/`claims.json`/`evidence.json`/`calculations.json`/`validation.json`/`financials.xlsx`）。由 `demo_service.record_demo_run()` 在 run 结束后落盘，`export_pack_view()` 只负责收集。**不是第二个序列化器**：载荷全部取自 `analysis.to_dict()` / 图谱 / 账本。 |
+| `ablation_v2.py` | **CARD-11 §7b** 消融测量层（"without vs with"的真实数字）。`build_ablation_table()` 只消费数字，本模块负责**算出来**；四条诚信纪律写在模块 docstring 里（语料只声明 ground truth、实验组是完整流水线、误报与 recall 同报、只统计 defect-oriented 信号）。 |
 | `document_service.py` | 文档只读服务（工作台"文档智能"页 + API）。 |
 | `ablation_agent.py` | 四变体消融用的可配置 Agent。 |
 | `errors.py` | Provider 层的类型化异常。 |
@@ -324,7 +326,7 @@ FinTrace-CN/
 
 ---
 
-## 9. `tests/` 逐个说明（57 个文件）
+## 9. `tests/` 逐个说明（62 个测试文件）
 
 三层组织：**单元 / 契约 / Golden**，全部离线。命名即归属：
 
@@ -341,9 +343,10 @@ FinTrace-CN/
 | `test_cn_valuation.py` | CARD-08 |
 | `test_cn_graph.py` | CARD-09 |
 | `test_cn_memo.py` | CARD-10 |
-| `test_cn_benchmark_v2.py` | CARD-11 |
-| `test_cn_evidence_pack.py` | CARD-12 |
+| `test_cn_benchmark_v2.py`、`test_cn_ablation_v2.py` | CARD-11 |
+| `test_cn_evidence_pack.py`、`test_cn_run_artefacts.py` | CARD-12 |
 | `test_cn_conflict.py` | CARD-13 |
+| `test_agents_prompts_registry.py`、`test_cn_prompt_migration.py` | CARD-14 |
 | `test_cn_demo_ui.py`、`test_cn_demo_cases.py`、`test_cn_demo_rehearsal.py` | CARD-15 |
 | `test_cn_acme.py` | CARD-22 |
 | `test_cn_proof.py`（2073 行，**全仓最大**） | CARD-23 |
@@ -352,7 +355,7 @@ FinTrace-CN/
 | `test_cn_finfuzz.py` | CARD-26 |
 
 ### 按基础能力
-`test_cn_symbols.py`、`test_cn_periods.py`、`test_cn_period_filter.py`、`test_cn_evidence.py`、`test_cn_validation.py`、`test_cn_peer_workflow.py`、`test_cn_industries.py`、`test_cn_universe_consistency.py`（**股票池 ↔ 同行映射一致性守卫**）、`test_cn_research.py`、`test_cn_research_agent.py`、`test_cn_offline_agent.py`、`test_cn_report.py`、`test_cn_report_cli.py`、`test_cn_tools.py`、`test_cn_snapshot_provider.py`、`test_cn_snapshot_builder.py`、`test_cn_workbench_service.py`。
+`test_cn_symbols.py`、`test_cn_periods.py`、`test_cn_period_filter.py`、`test_cn_evidence.py`、`test_cn_validation.py`、`test_cn_peer_workflow.py`、`test_cn_industries.py`、`test_cn_universe_consistency.py`（**股票池 ↔ 同行映射一致性守卫**）、`test_cn_peer_snapshot_selection.py`、`test_cn_research.py`、`test_cn_research_agent.py`、`test_cn_offline_agent.py`、`test_cn_report.py`、`test_cn_report_cli.py`、`test_cn_tools.py`、`test_cn_snapshot_provider.py`、`test_cn_snapshot_builder.py`、`test_cn_workbench_service.py`、`test_repo_hygiene.py`（**仓库守卫：`.gitignore` 目录模式必须带前导 `/`**）。
 
 ### Provider 与接口
 `test_cn_cache.py`、`test_cn_router.py`、`test_cn_tushare_provider.py`、`test_cn_tushare_budget.py`、`test_cn_tushare_integration.py`（**integration，需凭据**）、`test_workbench_api.py`、`test_agent_research_api.py`、`test_agent_research_service.py`、`test_daily_review_service.py`、`test_cn_daily_review.py`。

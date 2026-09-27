@@ -9,7 +9,9 @@ claims、evidence、calculations、events 全量打包，评委可离线复核�
 * **未记录到的阶段如实显示 ``not_recorded``**，不从时间线上省略 —— 一条只显示
   "成功步骤"的时间线看起来更漂亮，但它证明不了任何事。
 * **残包不伪装成完整包**。缺件清单（必需 / 完整性 / 可选）直接列在页面上，
-  这正是 CARD-12 的可信度所在。
+  这正是 CARD-12 的可信度所在。缺件还分两种，页面分开说：**口径性缺失**（run 自己
+  声明过、理由写在 `report.json` 的 `declared_absences` 里，例如文档级 run 没有估值表）
+  与**真缺口**（既不进包、也没声明）。把后者说成前者是粉饰，把前者说成后者是无谓认错。
 """
 
 from __future__ import annotations
@@ -126,6 +128,7 @@ def render() -> None:
         [
             ("包完整", "是" if pack.get("complete") else "**否**"),
             ("校验通过", "是" if pack.get("valid") else "**否**"),
+            ("run 范围", str(pack.get("run_scope") or "未知")),
             ("已就位", len(pack.get("present") or ())),
             ("缺必需件", len(pack.get("missing_required") or ())),
             ("缺完整性件", len(pack.get("missing_completeness") or ())),
@@ -141,6 +144,19 @@ def render() -> None:
             "证据包**不完整**。缺失清单如下 —— 残包不伪装成完整包，这是 CARD-12 的可信度所在。"
         )
         st.dataframe(missing_rows, width="stretch", hide_index=True)
+        # 「缺件」分两种，混为一谈就会把口径说成缺陷：run 自己声明过的（口径性缺失，
+        # 理由在 report.json 的 declared_absences 里）vs 谁也没解释的（真缺口）。
+        declared = dict(pack.get("declared_absences") or {})
+        for name, reason in sorted(declared.items()):
+            st.info(f"`{name}` 是**口径性缺失**，不是漏写：{reason}")
+        unexplained = [
+            name for name in (pack.get("missing_completeness") or ()) if name not in declared
+        ]
+        if unexplained:
+            st.caption(
+                f"未给出归因的缺件（真缺口）：{unexplained} —— "
+                "这些既不进包、也没在 run 产物里声明为结构缺失。"
+            )
     else:
         st.success("13 类产物齐备。")
     if pack.get("errors"):
@@ -165,8 +181,14 @@ def render() -> None:
         [
             "回放是**视图**：它按记录重排事件，不重新执行管线。"
             "同一输入同一配置的确定性重放由 CARD-07 的 `replay()` 负责。",
-            "本演示 run 只产生解析/归一化/计算/结论/校验五类产物，不含 report.md 与估值表 —— "
-            "所以证据包会显示为不完整。这如实反映了这个 run 实际做了什么。",
+            "run 目录里的产物由 run 自己写（`report.md` / `report.json` / `claims.json` / "
+            "`evidence.json` / `calculations.json` / `validation.json` / `financials.xlsx`），"
+            "本页只是把它们收集进包 —— 少一次「读成字符串再写回去」，就少一次让包与 run 目录"
+            "说不同话的机会。",
+            "本 run 是**文档级**的（输入是一份年报，没有 symbol），所以包里没有 `valuation.xlsx`："
+            "估值要 symbol 级行情，该 run 的账本里没有市价证据。这条缺席的理由由 run 自己写进 "
+            "`report.json` 的 `declared_absences` 并贴在上面 —— 是口径，不是导出器漏写，"
+            "也**不补一个空表**凑满 13 件。要让包完整，得换一条 symbol 级的 run（CARD-08）。",
             "「重放 UI 呈现完整性人工验收 + 截图入执行备注」需要人工走查，本页交付的是可走查的界面。",
             "上述 run 的 `prompt_hash` 是**空**的，而这不是缺件：这个 run 只做解析/归一化/"
             "计算/校验，一个字都没发给模型 —— 空值是对该 run 的真实陈述。prompt 真正被发送的"
