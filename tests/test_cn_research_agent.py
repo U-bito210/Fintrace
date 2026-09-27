@@ -142,19 +142,21 @@ async def test_research_agent_blocks_requested_metric_with_no_evidence():
 
 
 # ---------------------------------------------------------------------------
-# Wrong symbol: tool execution error must not produce a conclusion
+# Wrong model ticker: snapshot binding must keep the run on the selected company
 # ---------------------------------------------------------------------------
 @pytest.mark.asyncio
-async def test_research_agent_blocks_wrong_symbol_tool_error():
+async def test_research_agent_pins_wrong_model_ticker_to_the_snapshot():
     provider = _ScriptedProvider([
         _tool(calls=[_call("get_cn_prices", {"ticker": "BADCODE"})]),
-        _final("BADCODE has a definite conclusion."),
+        _final("已使用快照中的价格。"),
     ])
     agent = CnResearchAgent(snapshot_path=FIXTURE, model_name="gpt-4o-mini", provider=provider, max_steps=3)
-    state = await agent.run("Give a conclusion for BADCODE")
+    state = await agent.run("分析这家公司")
 
-    assert state.validation_result["valid"] is False
-    assert any(e.startswith("tool_error:get_cn_prices") for e in state.validation_result["errors"])
+    price_call = next(item for item in state.tool_trace if item.tool_name == "get_cn_prices")
+    assert price_call.arguments["ticker"] == "600519.SH"
+    assert price_call.result_status == "ok"
+    assert state.validation_result["valid"] is True
 
 
 # ---------------------------------------------------------------------------

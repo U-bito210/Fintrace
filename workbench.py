@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import importlib
+import re
 from pathlib import Path
 from datetime import date, datetime, timedelta
 
@@ -233,7 +234,7 @@ DEMO_CASES = {
 }
 
 
-@st.cache_data(ttl=300, max_entries=32)
+@st.cache_data(ttl=300, max_entries=32, show_spinner=False)
 def load_research(snapshot_id: str) -> tuple[dict, dict]:
     """Load only versioned local data; the UI remains a presentation layer."""
     snapshot = service.load_snapshot(snapshot_id)
@@ -241,47 +242,57 @@ def load_research(snapshot_id: str) -> tuple[dict, dict]:
     return snapshot, summary
 
 
-@st.cache_data(ttl=300, max_entries=64)
+@st.cache_data(ttl=10, max_entries=1, show_spinner=False)
+def cached_research_catalog() -> list[dict]:
+    """Avoid reopening every snapshot file on ordinary UI interactions.
+
+    The explicit refresh control clears this cache, so newly acquired local
+    snapshots remain immediately discoverable when the user asks for them.
+    """
+    return service.list_research()
+
+
+@st.cache_data(ttl=300, max_entries=64, show_spinner=False)
 def cached_research_market(snapshot_id: str, adjustment: str = "RAW") -> dict:
     return service.research_market(snapshot_id, adjustment)
 
 
-@st.cache_data(ttl=300, max_entries=64)
+@st.cache_data(ttl=300, max_entries=64, show_spinner=False)
 def cached_research_financials(snapshot_id: str) -> dict:
     return service.research_financials(snapshot_id)
 
 
-@st.cache_data(ttl=300, max_entries=128)
+@st.cache_data(ttl=300, max_entries=128, show_spinner=False)
 def cached_research_financial_trends(snapshot_id: str, period_basis: str) -> dict:
     return service.research_financial_trends(snapshot_id, period_basis)
 
 
-@st.cache_data(ttl=300, max_entries=64)
+@st.cache_data(ttl=300, max_entries=64, show_spinner=False)
 def cached_research_evidence(snapshot_id: str) -> dict:
     return service.research_evidence(snapshot_id)
 
 
-@st.cache_data(ttl=300, max_entries=64)
+@st.cache_data(ttl=300, max_entries=64, show_spinner=False)
 def cached_research_validation(snapshot_id: str) -> dict:
     return service.research_validation(snapshot_id)
 
 
-@st.cache_data(ttl=300, max_entries=64)
+@st.cache_data(ttl=300, max_entries=64, show_spinner=False)
 def cached_research_readiness(snapshot_id: str) -> dict:
     return service.research_readiness(snapshot_id)
 
 
-@st.cache_data(ttl=300, max_entries=64)
+@st.cache_data(ttl=300, max_entries=64, show_spinner=False)
 def cached_research_valuation(snapshot_id: str) -> dict:
     return service.research_valuation(snapshot_id)
 
 
-@st.cache_data(ttl=300, max_entries=64)
+@st.cache_data(ttl=300, max_entries=64, show_spinner=False)
 def cached_research_overview_insights(snapshot_id: str) -> dict:
     return service.research_overview_insights(snapshot_id)
 
 
-@st.cache_data(ttl=300, max_entries=64)
+@st.cache_data(ttl=300, max_entries=64, show_spinner=False)
 def cached_research_display_guardrails(snapshot_id: str) -> dict:
     return service.research_display_guardrails(snapshot_id)
 
@@ -2558,14 +2569,17 @@ def tasks() -> None:
 
 
 def agent_research() -> None:
-    """Real LLM tool-calling agent research: submit, poll, and review the trace,
-    Evidence, Validator result and cost — all from the shared CnResearchAgent."""
+    """A chat-first, auditable interface to the shared CnResearchAgent.
+
+    A conversation is pinned to one versioned snapshot.  That is deliberately
+    stricter than a generic chatbot: changing the snapshot halfway through a
+    thread would make an earlier answer's evidence ambiguous.
+    """
     st.markdown("### AI Agent 研究")
     st.caption(
-        "自然语言问题 → 后台真实执行共享 CnResearchAgent → 展示工具轨迹、Evidence 与 Validator 结果。"
-        "快照是版本化历史数据，不是实时行情。未配置所选模型的 API Key 时，系统会明确报错而不会自动降级为 mock。"
+        "直接输入问题即可开始对话。每一轮都会重新调用工具并通过 Validator；快照是版本化历史数据，不是实时行情。"
     )
-    catalog = service.list_research()
+    catalog = cached_research_catalog()
     if not catalog:
         st.info("尚无可用快照。")
         return
@@ -2574,173 +2588,246 @@ def agent_research() -> None:
         (label for label in labels if label == st.session_state.get("snapshot_picker")),
         list(labels)[0],
     )
-    selected_label = st.session_state.get("agent_snapshot_choice", default_label)
-    selected_item = labels.get(selected_label, labels[default_label])
-    default_cutoff = (selected_item.get("research_as_of") or selected_item.get("as_of") or "")[:19]
-
-    with st.form("agent_research_form", border=True):
-        query = st.text_area(
-            "研究问题",
-            placeholder="例如：分析 601012.SH 最新财报的收入、净利润和总资产变化，并引用证据。",
-            help="问题中的日期不会被自动解析为 cutoff；若需要指定研究截止时点，请填写右侧 Research cutoff。",
-        )
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            st.selectbox("研究快照", list(labels), index=list(labels).index(default_label), key="agent_snapshot_choice")
-        with c2:
-            st.text_input("证券代码", value=selected_item["symbol"], disabled=True, key="agent_symbol_display")
-        with c3:
-            cutoff = st.text_input(
-                "Research cutoff",
-                value=default_cutoff,
-                placeholder="例如 2025-04-30T23:00:00",
-                help="留空则使用所选快照自带的研究时点。若问题要求分析某个历史时点，请在此填写该日期。",
-            )
-        c4, c5, c6 = st.columns(3)
-        with c4:
-            model_name = st.text_input("模型", value="deepseek-v4-flash")
-        with c5:
-            max_steps = st.number_input("Max steps", min_value=1, max_value=10, value=6, step=1)
-        with c6:
-            temperature = st.number_input("Temperature", min_value=0.0, max_value=1.0, value=0.0, step=0.1)
-        st.caption(
-            "提示：问题里写的日期只给模型阅读，**不会**自动变成系统 cutoff；如需指定时点，请在 Research cutoff 中填写。"
-            "快照通常只含最近约 30 个交易日的价格 K 线，若问‘2025-04-30 的市盈率’而快照里没有该日价格，会触发 tool_error。"
-        )
-        run = st.form_submit_button("运行真实 Agent", icon=":material/play_arrow:", type="primary", width="content")
-    if run:
-        item = labels[st.session_state["agent_snapshot_choice"]]
-        try:
-            request = agent_service.AgentResearchRequest(
-                query=query.strip(), symbol=item["symbol"], snapshot_id=item["id"],
-                research_as_of=(cutoff.strip() or None), model_name=model_name.strip(),
-                temperature=float(temperature), max_steps=int(max_steps),
-            )
-            task = agent_service.start_agent_research(request)
-            st.session_state["agent_task_id"] = task["id"]
-            st.rerun()
-        except agent_service.AgentResearchError as exc:
-            st.error(f"无法启动 Agent：{exc}")
-        except KeyError as exc:
-            st.error(f"快照不存在：{exc}")
-
-    agent_task_view()
-    agent_followup()
-
-
-def agent_followup() -> None:
-    """Continue the tracked conversation with another question.
-
-    Snapshot, model and cutoff are inherited from the parent turn instead of
-    being re-picked: a follow-up is the same conversation, and letting it switch
-    snapshots would silently break provenance. Changing the snapshot means
-    asking a new question.
-    """
     task_id = st.session_state.get("agent_task_id")
+    active = False
+    if task_id:
+        try:
+            active = agent_service.get_agent_task(task_id).get("status") in agent_service.ACTIVE_AGENT_STATUSES
+        except KeyError:
+            st.session_state.pop("agent_task_id", None)
+            task_id = None
+
+    controls, description = st.columns([1, 4])
+    with controls:
+        if st.button("新建对话", icon=":material/add_comment:", disabled=active, key="agent_new_conversation"):
+            st.session_state.pop("agent_task_id", None)
+            st.rerun()
+    with description:
+        if task_id:
+            st.caption("本会话已锁定研究快照与模型；新建对话后才能更换它们。")
+        else:
+            st.caption("开始前可在下方设置研究快照、模型和研究截止时点。")
+
+    settings_disabled = bool(task_id)
+    with st.expander("研究设置", expanded=not bool(task_id)):
+        selected_label = st.selectbox(
+            "研究快照", list(labels), index=list(labels).index(default_label),
+            key="agent_snapshot_choice", disabled=settings_disabled,
+            on_change=_sync_agent_snapshot_settings, args=(labels,),
+        )
+        selected_item = labels[selected_label]
+        default_cutoff = (selected_item.get("research_as_of") or selected_item.get("as_of") or "")[:19]
+        if "agent_cutoff" not in st.session_state:
+            st.session_state["agent_cutoff"] = default_cutoff
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            st.text_input("证券代码", value=selected_item["symbol"], disabled=True)
+        with c2:
+            cutoff = st.text_input(
+                "研究截止时点", key="agent_cutoff", disabled=settings_disabled,
+                help="本轮只使用在此时点前已可获得的数据。切换研究快照时会自动同步。",
+            )
+        with c3:
+            model_name = st.text_input("模型", value="deepseek-v4-flash", key="agent_model", disabled=settings_disabled)
+        with c4:
+            max_steps = st.number_input("最大工具轮次", min_value=1, max_value=10, value=6, step=1,
+                                        key="agent_max_steps", disabled=settings_disabled,
+                                        help="单轮研究最多可进行多少次模型决策和工具调用。")
+        temperature = st.number_input("回答随机性", min_value=0.0, max_value=1.0, value=0.0, step=0.1,
+                                      key="agent_temperature", disabled=settings_disabled,
+                                      help="0 表示更稳定、可复现的输出；数值越高，回答措辞越多样。")
+        st.caption("问题中的日期不会自动改写 cutoff。历史价格覆盖不足时，工具会明确返回数据缺口。")
+
+    _render_agent_conversation(task_id)
+    agent_task_view()
+
+    chat_disabled = active
+    if task_id and not active:
+        try:
+            current = agent_service.get_agent_task(task_id)
+            thread = agent_service.agent_conversation_thread(task_id)
+            if current.get("status") != "succeeded":
+                chat_disabled = True
+                st.caption("上一轮未通过 Validator；请点击“新建对话”后继续研究。")
+            elif len(thread) >= agent_service.MAX_FOLLOWUP_DEPTH:
+                chat_disabled = True
+                st.caption(f"本会话已达 {agent_service.MAX_FOLLOWUP_DEPTH} 轮上限；请点击“新建对话”继续。")
+        except KeyError:
+            chat_disabled = True
+
+    prompt = st.chat_input(
+        "例如：分析最新财报的收入、净利润和总资产变化，并引用证据。",
+        disabled=chat_disabled,
+        key="agent_chat_input",
+    )
+    if prompt:
+        _submit_agent_chat_turn(
+            prompt, labels[selected_label], cutoff, model_name, temperature, max_steps, task_id,
+        )
+
+
+def _sync_agent_snapshot_settings(labels: dict[str, dict]) -> None:
+    """Synchronise dependent settings when the user chooses another snapshot."""
+    selected = labels.get(st.session_state.get("agent_snapshot_choice"))
+    if not selected:
+        return
+    st.session_state["agent_cutoff"] = (
+        selected.get("research_as_of") or selected.get("as_of") or ""
+    )[:19]
+
+
+def _render_agent_conversation(task_id: str | None) -> None:
+    """Render the persisted, evidence-aware conversation as chat messages."""
     if not task_id:
+        st.info("输入你的第一个研究问题开始对话。")
+        intro_reply = st.session_state.get("agent_intro_reply")
+        if intro_reply:
+            with st.chat_message("assistant"):
+                st.markdown(intro_reply)
         return
     try:
-        current = agent_service.get_agent_task(task_id)
         thread = agent_service.agent_conversation_thread(task_id)
     except KeyError:
         return
-    if current.get("status") not in agent_service.TERMINAL_AGENT_STATUSES:
-        return
+    for turn in thread:
+        with st.chat_message("user"):
+            st.write(turn["query"])
+        with st.chat_message("assistant"):
+            if turn["status"] in agent_service.ACTIVE_AGENT_STATUSES:
+                st.status("正在检索证据并运行确定性校验…", state="running")
+            elif turn["status"] == "succeeded":
+                st.markdown(turn["answer"] or "本轮未返回可展示的结论。")
+                st.caption(f"已验证 · 证据 {turn['evidence_count']} 条 · 工具调用 {turn['tool_calls']} 次")
+            elif turn["status"] == "blocked":
+                st.error("本轮结论未通过 Validator，已阻断，不能作为研究结论。")
+            else:
+                st.warning(f"本轮未完成：{turn['status']}。")
 
-    st.markdown("#### 会话")
-    with st.expander(f"本轮会话共 {len(thread)} 轮", expanded=False):
-        for turn in thread:
-            marker = "✅ 已验证" if turn["validation_valid"] else "⛔ 未通过验证"
-            st.markdown(
-                f"**第 {turn['turn_index'] + 1} 轮** · `{turn['status']}` · {marker} · "
-                f"Evidence {turn['evidence_count']} · 工具调用 {turn['tool_calls']}"
+
+def _submit_agent_chat_turn(
+    prompt: str, item: dict, cutoff: str, model_name: str, temperature: float,
+    max_steps: int, parent_task_id: str | None,
+) -> None:
+    """Queue a first question or a validated follow-up from the chat composer."""
+    text = (prompt or "").strip()
+    if _is_agent_small_talk(text):
+        st.session_state["agent_intro_reply"] = (
+            "我是 A 股研究助手，可以基于选定的历史快照完成：\n\n"
+            "- 财务表现分析：收入、净利润、利润率及其变化。\n"
+            "- 行情与估值分析：RAW 价格、PE、PB 和同行比较。\n"
+            "- 数据可信度检查：研究截止时点、证据 ID、缺失项和校验结果。\n\n"
+            "请选择研究快照后，可以直接问：\n\n"
+            "- `分析这家公司的收入、净利润和利润率变化，并引用证据。`\n"
+            "- `比较它的 PE、PB 与同行，并说明数据限制。`\n"
+            "- `这份快照的截止时间和数据覆盖情况如何？`\n\n"
+            "我会从所选快照中的工具结果取证；没有证据的结论会明确阻断。"
+        )
+        st.rerun()
+        return
+    if len(text) < 3:
+        st.error("请输入至少 3 个字符的问题。")
+        return
+    try:
+        if parent_task_id:
+            parent = agent_service.get_agent_task(parent_task_id)
+            if parent.get("status") != "succeeded":
+                st.error("上一轮未通过 Validator；请新建对话后再提问。")
+                return
+            request = agent_service.AgentResearchRequest(
+                query=text, symbol=parent["symbol"], snapshot_id=parent["snapshot_id"],
+                research_as_of=parent.get("research_as_of"), model_name=parent.get("model_name") or "",
+                temperature=float(parent.get("temperature") or 0.0),
+                max_steps=int(parent.get("max_steps") or 6), parent_task_id=parent_task_id,
             )
-            st.caption(f"问：{turn['query']}")
-            if turn["answer"]:
-                st.caption(f"答：{turn['answer'][:300]}{'…' if len(turn['answer']) > 300 else ''}")
-
-    if len(thread) >= agent_service.MAX_FOLLOWUP_DEPTH:
-        st.info(f"一轮会话最多 {agent_service.MAX_FOLLOWUP_DEPTH} 轮追问（含首问）；已达上限，请修改上方表单发起新的研究。")
-        return
-    if current.get("status") != "succeeded":
-        st.caption("只有上一轮通过 Validator 才能继续追问：被阻断的结论没有可继承的证据。")
-        return
-
-    with st.form("agent_followup_form", border=True):
-        followup = st.text_area(
-            "追问",
-            placeholder="例如：那它的净利率环比变化是多少？",
-            help="追问会完整重跑一次 Agent。上一轮的结论只用于理解你指代的对象，数字必须由本轮工具重新取证。",
-            key="agent_followup_text",
-        )
-        st.caption(
-            f"将沿用第 1 轮的快照 `{current.get('snapshot_id')}`、"
-            f"模型 `{current.get('model_name')}` 与研究时点 `{current.get('research_as_of') or '快照默认'}`。"
-        )
-        send = st.form_submit_button("追问", icon=":material/forum:", width="content")
-    if send:
-        text = (followup or "").strip()
-        if len(text) < 3:
-            st.error("追问至少 3 个字符。")
-            return
-        try:
-            task = agent_service.start_agent_research(agent_service.AgentResearchRequest(
-                query=text, symbol=current["symbol"], snapshot_id=current["snapshot_id"],
-                research_as_of=current.get("research_as_of"),
-                model_name=current.get("model_name") or "",
-                temperature=float(current.get("temperature") or 0.0),
-                max_steps=int(current.get("max_steps") or 6),
-                parent_task_id=task_id,
-            ))
-            st.session_state["agent_task_id"] = task["id"]
-            st.rerun()
-        except agent_service.AgentResearchError as exc:
-            st.error(f"无法追问：{exc}")
-        except KeyError as exc:
-            st.error(f"任务不存在：{exc}")
+        else:
+            request = agent_service.AgentResearchRequest(
+                query=text, symbol=item["symbol"], snapshot_id=item["id"],
+                research_as_of=(cutoff.strip() or None), model_name=model_name.strip(),
+                temperature=float(temperature), max_steps=int(max_steps),
+            )
+        task = agent_service.start_agent_research(request)
+        st.session_state.pop("agent_intro_reply", None)
+        st.session_state["agent_task_id"] = task["id"]
+        st.rerun()
+    except agent_service.AgentResearchError as exc:
+        st.error(f"无法启动 Agent：{exc}")
+    except KeyError as exc:
+        st.error(f"快照或任务不存在：{exc}")
 
 
-@st.fragment(run_every="10s")
+def _is_agent_small_talk(text: str) -> bool:
+    """Keep greetings out of the evidence-gated research execution path."""
+    normalized = re.sub(r"[\s，,。.!！?？]", "", text).lower()
+    return normalized in {
+        "hi", "hello", "hey", "你好", "你好啊", "你好呀", "嗨", "哈喽", "在吗", "你是谁",
+        "帮助", "help", "功能", "有什么功能", "你有什么功能", "你能做什么", "你可以做什么",
+        "你有哪些功能", "怎么使用", "如何使用", "使用方法", "使用帮助",
+    }
+
+
 def agent_task_view() -> None:
-    """Poll one tracked agent task and render its result tabs once terminal."""
+    """Render an audit once, or delegate active-task polling to a fragment."""
     task_id = st.session_state.get("agent_task_id")
     if not task_id:
-        st.caption("提交问题后，这里会实时展示 Agent 的执行状态、工具轨迹与验证结果。")
         return
     try:
         public = agent_service.get_agent_task(task_id)
-        stream = agent_service.agent_task_events(task_id)
     except KeyError:
         st.info("该任务记录已不存在。")
         return
 
     status = public.get("status", "unknown")
+    if status in agent_service.ACTIVE_AGENT_STATUSES:
+        _agent_task_poll(task_id)
+        return
+
+    st.markdown(f"#### 任务 `{task_id}`")
+    st.caption(f"状态：**{status}** · 当前步骤：{public.get('current_step') or '—'} · 更新于 {public.get('updated_at') or '—'}")
+    st.progress(100, text=public.get("message") or status)
+    if not st.checkbox("显示本轮审计记录", key=f"show_agent_audit_{task_id}"):
+        return
+
+    audit_view = st.radio(
+        "审计内容", ["工具轨迹", "证据", "校验结果", "成本与运行信息"],
+        horizontal=True, key=f"agent_audit_view_{task_id}",
+    )
+    if audit_view == "工具轨迹":
+        _agent_trace(public, agent_service.agent_task_events(task_id))
+    elif audit_view == "证据":
+        _agent_evidence(public)
+    elif audit_view == "校验结果":
+        _agent_validator(public)
+    else:
+        _agent_cost(public)
+
+
+@st.fragment(run_every="3s")
+def _agent_task_poll(task_id: str) -> None:
+    """Refresh only the small progress panel while a task is active.
+
+    Keeping this fragment narrow avoids repeatedly serialising conversation
+    history, trace tables and evidence blocks into the browser during a run.
+    """
+    try:
+        public = agent_service.get_agent_task(task_id)
+    except KeyError:
+        st.info("该任务记录已不存在。")
+        return
+    status = public.get("status", "unknown")
+    if status not in agent_service.ACTIVE_AGENT_STATUSES:
+        st.rerun(scope="app")
+        return
     st.markdown(f"#### 任务 `{task_id}`")
     st.caption(f"状态：**{status}** · 当前步骤：{public.get('current_step') or '—'} · 更新于 {public.get('updated_at') or '—'}")
     progress = service.get_task_progress(task_id).get("progress_percent")
     st.progress(int(progress or 0), text=public.get("message") or status)
-
-    if status in {"queued", "running"}:
-        if st.button("取消任务", icon=":material/cancel:", key=f"cancel_agent_{task_id}"):
-            with st.spinner("正在请求协作式停止…"):
-                try:
-                    st.info(service.cancel_task(task_id)["message"])
-                except ValueError as exc:
-                    st.error(f"无法取消：{exc}")
-            st.rerun()
-        return
-
-    tabs = st.tabs(["Final Answer", "Agent Trace", "Evidence", "Validator", "Cost & Metadata"])
-    with tabs[0]:
-        _agent_final_answer(public, status)
-    with tabs[1]:
-        _agent_trace(public, stream)
-    with tabs[2]:
-        _agent_evidence(public)
-    with tabs[3]:
-        _agent_validator(public)
-    with tabs[4]:
-        _agent_cost(public)
+    if st.button("取消任务", icon=":material/cancel:", key=f"cancel_agent_{task_id}"):
+        with st.spinner("正在请求协作式停止…"):
+            try:
+                st.info(service.cancel_task(task_id)["message"])
+            except ValueError as exc:
+                st.error(f"无法取消：{exc}")
+        st.rerun(scope="app")
 
 
 def _agent_final_answer(public: dict, status: str) -> None:
@@ -2776,12 +2863,12 @@ def _agent_trace(public: dict, stream: dict) -> None:
             if len(args_text) > 200:
                 args_text = args_text[:200] + "…"
             rows.append({
-                "Step": index,
-                "Tool": trace.get("tool_name"),
-                "Arguments": args_text,
-                "Status": trace.get("result_status"),
-                "Evidence": ", ".join(trace.get("evidence_ids", []) or []),
-                "Duration (s)": _seconds_between(trace.get("started_at"), trace.get("ended_at")),
+                "步骤": index,
+                "工具": trace.get("tool_name"),
+                "参数": args_text,
+                "结果状态": trace.get("result_status"),
+                "证据 ID": ", ".join(trace.get("evidence_ids", []) or []),
+                "耗时（秒）": _seconds_between(trace.get("started_at"), trace.get("ended_at")),
             })
         st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
     with st.expander("事件流（已脱敏）"):
@@ -2800,30 +2887,30 @@ def _agent_evidence(public: dict) -> None:
     research_state = public.get("research_state") or {}
     facts = research_state.get("facts", []) or []
     calculations = research_state.get("calculations", []) or []
-    st.caption(f"已注册 Evidence：{len(facts)} 个事实 · {len(calculations)} 个计算")
+    st.caption(f"已登记证据：{len(facts)} 个事实 · {len(calculations)} 个计算")
     if facts:
-        st.markdown("**Facts**")
+        st.markdown("**事实证据**")
         st.code("\n".join(facts), language=None)
     if calculations:
-        st.markdown("**Calculations**")
+        st.markdown("**计算证据**")
         st.code("\n".join(calculations), language=None)
     if not facts and not calculations:
-        st.caption("没有可展示的 Evidence。")
+        st.caption("没有可展示的证据。")
 
 
 def _agent_validator(public: dict) -> None:
     validation = public.get("validation") or {}
     valid = bool(validation.get("valid"))
     if public.get("status") == "blocked" or not valid:
-        st.error("BLOCKED")
+        st.error("已阻断")
         errors = validation.get("errors") or []
         if errors:
             st.markdown("阻断原因：\n" + "\n".join(f"- `{error}`" for error in errors))
         else:
             st.write("Validator 未通过；无详细错误。")
     else:
-        st.success("PASSED")
-        st.write("结论已通过确定性 Validator（无需 LLM 复判金融数字）。")
+        st.success("已通过")
+        st.write("结论已通过确定性校验器（无需 LLM 复判金融数字）。")
 
 
 def _agent_cost(public: dict) -> None:
@@ -2847,8 +2934,8 @@ def _agent_cost(public: dict) -> None:
     metadata = [
         ("任务 ID", public.get("id")), ("状态", public.get("status")),
         ("模型", public.get("model_name")), ("温度", public.get("temperature")),
-        ("Max steps", public.get("max_steps")), ("快照", public.get("snapshot_id")),
-        ("Research cutoff", public.get("research_as_of")),
+        ("最大工具轮次", public.get("max_steps")), ("快照", public.get("snapshot_id")),
+        ("研究截止时点", public.get("research_as_of")),
         ("创建时间", public.get("created_at")), ("更新时间", public.get("updated_at")),
     ]
     st.table(pd.DataFrame([{"项": key, "值": value} for key, value in metadata]).astype({"值": str}))
@@ -3195,7 +3282,7 @@ def main() -> None:
         return
     demo_prewarm_autostart()
     catalog = sorted(
-        service.list_research(),
+        cached_research_catalog(),
         key=lambda item: (str(item.get("research_as_of", "")), str(item.get("id", ""))),
         reverse=True,
     )
@@ -3207,6 +3294,7 @@ def main() -> None:
         choices = {snapshot_choice_label(item): item["id"] for item in catalog}
         if st.button("刷新本地快照", key="refresh_snapshot_catalog", width="stretch", icon=":material/refresh:"):
             service.load_snapshot.cache_clear()
+            cached_research_catalog.clear()
             load_research.clear()
             st.cache_data.clear()
             st.session_state.pop("snapshot_picker", None)

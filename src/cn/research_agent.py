@@ -47,6 +47,15 @@ RUN_PROMPTS = RUN_PROMPT_BUNDLES["research"]
 #: dropped oldest-first; the run still records that it did so.
 MAX_FOLLOWUP_HISTORY = 3
 
+# A workbench run is bound to exactly one local snapshot.  These tools read
+# that snapshot, so their ticker and cutoff are application inputs, not model
+# choices.  Letting the model guess them can silently point a correct question
+# at another company, as happened when a selected 000063.SZ snapshot was sent
+# to the 600519.SH financials call.
+_SNAPSHOT_TICKER_TOOLS = frozenset({
+    "get_cn_prices", "get_cn_financials", "generate_cn_research_report",
+})
+
 
 class ToolCallingProvider(Protocol):
     model_name: str
@@ -60,7 +69,7 @@ class ToolCallingProvider(Protocol):
 # credential-free trail that describes the run without leaking prompts or paths.
 AGENT_EVENTS = (
     "agent_started", "llm_call_started", "llm_call_completed",
-    "tool_call_started", "tool_call_completed", "evidence_registered",
+    "tool_arguments_pinned", "tool_call_started", "tool_call_completed", "evidence_registered",
     "validation_started", "validation_passed", "validation_blocked",
     "task_completed", "task_cancelled", "task_failed",
 )
@@ -172,6 +181,19 @@ class CnResearchAgent:
             anthropic_results: List[Dict[str, Any]] = []
             for call in response.tool_calls:
                 started_at = datetime.now(timezone.utc).isoformat()
+                arguments = dict(call.arguments or {})
+                if not call.parse_error and call.name in _SNAPSHOT_TICKER_TOOLS:
+                    requested_ticker = arguments.get("ticker")
+                    arguments["ticker"] = symbol
+                    if call.name != "get_cn_prices":
+                        arguments["research_as_of"] = cutoff
+                    if requested_ticker and str(requested_ticker).upper() != symbol.upper():
+                        self._emit(
+                            event_handler, "tool_arguments_pinned",
+                            detail=f"{call.name} ticker pinned to snapshot symbol {symbol}",
+                            meta={"tool_name": call.name, "requested_ticker": str(requested_ticker),
+                                  "snapshot_ticker": symbol},
+                        )
                 self._emit(event_handler, "tool_call_started",
                            meta={"tool_name": call.name, "step": step + 1})
                 if call.parse_error:
@@ -179,12 +201,12 @@ class CnResearchAgent:
                         {"status": "error", "error": call.parse_error}, ensure_ascii=False,
                     )
                 else:
-                    result_json = await self.registry.execute(call.name, call.arguments)
+                    result_json = await self.registry.execute(call.name, arguments)
                 payload = _decode_result(result_json)
                 evidence_ids = _evidence_ids(payload)
                 state.register_evidence(evidence_ids)
                 state.record_tool(
-                    tool_name=call.name, arguments=call.arguments, started_at=started_at,
+                    tool_name=call.name, arguments=arguments, started_at=started_at,
                     result_status=str(payload.get("status", "error")), provider="snapshot",
                     evidence_ids=evidence_ids,
                 )
@@ -286,10 +308,17 @@ class CnResearchAgent:
         self, query: str, state: ResearchState,
         *, event_handler=None, cancellation_check=None,
     ) -> Optional[str]:
-        """Record deterministic canonical-code parsing when the query names this snapshot."""
+        """Resolve the ticker from the selected snapshot, never model inference.
+
+        The workbench has already selected one snapshot before Agent execution.
+        A natural-language prompt such as "分析这家公司" therefore refers to
+        that snapshot's symbol even when it does not repeat the code.
+        """
         symbol = str(self.snapshot._symbol)
         if not re.search(rf"(?<![A-Z0-9]){re.escape(symbol)}(?![A-Z0-9])", query.upper()):
-            return None
+            # The UI has already selected the snapshot.  Do not manufacture a
+            # tool invocation merely to restate that deterministic selection.
+            return symbol
         if cancellation_check and cancellation_check():
             return None
         started_at = datetime.now(timezone.utc).isoformat()

@@ -12,7 +12,12 @@ font = "sans serif"
 
 [server]
 headless = true
-runOnSave = true
+# The workbench imports a substantial, interdependent research package.
+# Saving several source files in quick succession can make Streamlit rerun
+# midway through Python's import transaction, leaving transient modules in
+# sys.modules and producing misleading circular-import tracebacks. Restart the
+# workbench after code changes instead of reloading a half-written module tree.
+runOnSave = false
 
 [browser]
 gatherUsageStats = false
