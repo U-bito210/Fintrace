@@ -1259,21 +1259,56 @@ def record_demo_run(key: str = DEFAULT_FILING_KEY) -> Dict[str, Any]:
         recorder.emit("validation", "validated", {"claim_count": len(state.graph.claims)},
                       {"warnings": len(warnings)}, "warning" if warnings else "ok")
         recorder.finish("ok")
-        return {"status": STATUS_OK, "run_id": run_id, "case": _case_brief(state)}
+        # CARD-12 §4：run 目录 = manifest + events + **各模块产物**。前两件由 recorder
+        # 写，第三件一直没人写，于是 pack 永远只能装 4/13 件，而 claims.json 还是手写的
+        # 占位符（断言"本 run 未产生 claim 级产物"—— 与它旁边那条 run 直接矛盾）。
+        # 在这里补上：读的是刚跑完的同一份 state，不重新解析、不重新计算。
+        from .run_artefacts import write_run_artefacts
+
+        artefacts = write_run_artefacts(recorder.store_dir / run_id, state=state, run_id=run_id)
+        return {
+            "status": STATUS_OK,
+            "run_id": run_id,
+            "case": _case_brief(state),
+            "artefacts": sorted(artefacts),
+        }
     except Exception as exc:  # noqa: BLE001
         return _unavailable(f"{type(exc).__name__}: {exc}")
+
+
+def _latest_run(store_dir: Path) -> str:
+    """最近一次 run：按 ``manifest.json`` 的 mtime 排，**不是**按 run_id 字典序。
+
+    原先默认取 ``sorted(available)[-1]``。run_id 是随机 hex，字典序跟时间没关系，
+    所以「默认展示最新一次」在有一条以上 run 时实际是「取 id 排最后的那次」。产物
+    补齐之后这个偏差会直接显形：回放/导出会挑中一个从没写过产物的旧 run，然后如实
+    报「缺 8 件」—— 缺的是那次旧 run 的产物，不是导出器的问题。
+    """
+    from .runs.recorder import list_runs
+
+    runs = list(list_runs(store_dir))
+    if not runs:
+        return ""
+
+    def _stamp(run_id: str) -> float:
+        try:
+            return (store_dir / run_id / "manifest.json").stat().st_mtime
+        except OSError:
+            return -1.0
+
+    return max(runs, key=lambda run_id: (_stamp(run_id), run_id))
 
 
 def replay_view(run_id: str = "") -> Dict[str, Any]:
     """十一阶段时间线。未记录到的阶段如实标 ``not_recorded``，不省略。"""
     from .evidence_pack import replay_timeline
-    from .runs.recorder import load_events, list_runs
+    from .runs.recorder import list_runs, load_events
 
     try:
         available = list(list_runs(RUN_STORE_DIR))
         if not available:
             return _unavailable("尚无 run 记录。先在「审计回放」页点一次『录制一次真实 run』。")
-        target = run_id or sorted(available)[-1]
+        target = run_id or _latest_run(RUN_STORE_DIR)
         if target not in available:
             return _unavailable(f"未知 run_id: {target}")
         events = load_events(RUN_STORE_DIR, target)
@@ -1287,39 +1322,69 @@ def replay_view(run_id: str = "") -> Dict[str, Any]:
     return timeline
 
 
+def _collect_run_artefacts(run_dir: Path) -> Dict[str, Any]:
+    """run 目录里所有落在 pack 清单上的产物，按 pack 文件名收集。
+
+    收集到的是 ``Path`` 而不是内容：导出器对 ``Path`` 是**按文件复制**，少一次
+    「读成字符串再写回去」就少一次让 pack 与 run 目录说不同话的机会。
+
+    ``manifest.json`` / ``events.jsonl`` 也一并列出，虽然导出器会跳过它们 ——
+    让它用 run 目录自己那两份，总好过这里再复制一份可能过期的。
+    """
+    from .evidence_pack import PACK_FILE_NAMES
+
+    collected: Dict[str, Any] = {}
+    for name in PACK_FILE_NAMES:
+        candidate = run_dir / name
+        if candidate.exists():
+            collected[name] = candidate
+    return collected
+
+
+def _pack_declarations(pack_dir: Path) -> Dict[str, Any]:
+    """从包内的 ``report.json`` 取回「哪些件结构上不产出」。
+
+    包校验只会说「缺 valuation.xlsx」；口径性缺失与真缺口在校验层长得一模一样。
+    归因写在 run 产物里，读回来贴在信封上，免得每个读残包的人各推一遍。
+
+    读不到就返回 ``None`` / ``{}``，而不是省掉这两个键：调用方要能区分
+    「没有口径性缺失」和「这个字段根本不存在」。
+    """
+    declarations: Dict[str, Any] = {"run_scope": None, "declared_absences": {}}
+    path = Path(pack_dir) / "report.json"
+    if not path.is_file():
+        return declarations
+    try:
+        report = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return declarations
+    if not isinstance(report, dict):
+        return declarations
+    declarations["run_scope"] = report.get("scope")
+    declarations["declared_absences"] = dict(report.get("declared_absences") or {})
+    return declarations
+
+
 def export_pack_view(run_id: str = "") -> Dict[str, Any]:
-    """导出证据包并报告**缺哪些件** —— 残包不伪装成完整包。"""
+    """导出证据包并报告**缺哪些件** —— 残包不伪装成完整包。
+
+    包的内容**全部取自 run 目录**，这里不另写一份。文档级 run 里没有
+    ``valuation.xlsx``（那是 CARD-08 对 symbol 级 run 的产出），于是它就该被判
+    「完整性缺件」—— 如实报缺，而不是在导出时补一个占位文件凑满 13 件。
+    """
     from .evidence_pack import export_evidence_pack, validate_pack, zip_path_for
-    from .runs.recorder import list_runs, load_events, load_manifest
+    from .runs.recorder import list_runs
 
     try:
         available = list(list_runs(RUN_STORE_DIR))
         if not available:
             return _unavailable("尚无 run 记录，没有可打包的内容。")
-        target = run_id or sorted(available)[-1]
+        target = run_id or _latest_run(RUN_STORE_DIR)
         PACK_DIR.mkdir(parents=True, exist_ok=True)
-        events = load_events(RUN_STORE_DIR, target)
-        manifest = load_manifest(RUN_STORE_DIR, target)
-        manifest_path = RUN_STORE_DIR / target / "manifest.json"
-        events_path = RUN_STORE_DIR / target / "events.jsonl"
         pack_dir = export_evidence_pack(
             target,
             store_dir=RUN_STORE_DIR,
-            artefacts={
-                "manifest.json": manifest_path.read_text(encoding="utf-8"),
-                "events.jsonl": events_path.read_text(encoding="utf-8"),
-                "report.md": (
-                    f"# FinTrace-CN 演示 run {target}\n\n"
-                    f"- 输入文档数：{len(manifest.input_document_sha256)}\n"
-                    f"- 解析器：{manifest.parser_name}@{manifest.parser_version}\n"
-                    f"- 执行模式：{manifest.execution_mode}\n"
-                    f"- git commit：{manifest.git_commit}\n"
-                    f"- 事件数：{len(events)}\n"
-                ),
-                "claims.json": json.dumps(
-                    {"run_id": target, "note": "本演示 run 未产生 claim 级产物"}, ensure_ascii=False, indent=2
-                ),
-            },
+            artefacts=_collect_run_artefacts(RUN_STORE_DIR / target),
             out_dir=PACK_DIR / target,
             make_zip=True,
         )
@@ -1330,6 +1395,7 @@ def export_pack_view(run_id: str = "") -> Dict[str, Any]:
 
     payload = validation.to_dict()
     payload["run_id"] = target
+    payload.update(_pack_declarations(pack_dir))
     payload["pack_dir"] = str(pack_dir)
     payload["zip_path"] = str(zip_path) if zip_path and Path(zip_path).exists() else ""
     payload["zip_bytes"] = Path(zip_path).read_bytes() if zip_path and Path(zip_path).exists() else b""

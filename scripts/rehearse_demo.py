@@ -608,21 +608,41 @@ def check_replay_export() -> Result:
     if _ok(pack):
         lines.append(
             f"    证据包：valid={pack.get('valid')} complete={pack.get('complete')} "
-            f"pack_status={pack.get('pack_status')}"
+            f"pack_status={pack.get('pack_status')} ｜ run 范围={pack.get('run_scope')}"
         )
         zip_bytes = pack.get("zip_bytes") or b""
         lines.append(f"    zip 已生成：{len(zip_bytes)} 字节 → {pack.get('zip_path')}")
         missing_required = list(pack.get("missing_required") or ())
         missing_complete = list(pack.get("missing_completeness") or ())
+        declared = dict(pack.get("declared_absences") or {})
         if missing_required:
             state = BLOCKED
             lines.append(f"    ✗ 缺必需件 {missing_required} —— 包不成立")
+
+        # 「缺件」分两种，混为一谈就会把口径说成缺陷：
+        #   ① 结构上产不出（run 里声明了原因）—— 口径，如实声明即可；
+        #   ② 本该有却没写（既不在包里、也没声明）—— 真缺口，话术不成立。
+        from src.cn.evidence_pack import CATEGORY_COMPLETENESS, PACK_FILES
+
+        total_completeness = sum(1 for _n, cat, _d in PACK_FILES if cat == CATEGORY_COMPLETENESS)
+        unexplained = [name for name in missing_complete if name not in declared]
+        for name, reason in sorted(declared.items()):
+            lines.append(f"    · 结构上不产出：{name} —— {reason}")
         if missing_complete:
             state = DEGRADED if state == READY else state
-            lines.append(f"    ⚠ 完整性缺件 {len(missing_complete)} 项：{missing_complete}")
             lines.append(
-                "      → 收尾话术『报告、claims、evidence、calculations、events 全量打包』"
-                "目前**不成立**，必须改口或补齐"
+                f"    ⚠ 完整性缺件 {len(missing_complete)}/{total_completeness} 项：{missing_complete}"
+            )
+        if unexplained:
+            lines.append(
+                f"      → {unexplained} 是**真缺口**（包里没有、run 里也没声明为结构缺失）："
+                "『报告、claims、evidence、calculations、events 全量打包』不成立，必须补齐"
+            )
+        elif missing_complete:
+            lines.append(
+                f"      → 其余 {total_completeness - len(missing_complete)}/{total_completeness} "
+                "类完整性件齐全；缺的那些已在 run 产物里声明为口径性缺失，"
+                "现场话术按『文档级 run 不含估值表』说，不要念成『证据包不全』"
             )
         if pack.get("warnings"):
             lines.append(f"    ⚠ 包告警：{pack['warnings']}")

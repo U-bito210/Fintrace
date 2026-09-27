@@ -184,8 +184,9 @@
 
 ### 收尾（4:15–5:00）｜Audit Replay + Export 页
 
-- 话术："整个 run 的 manifest 记录了模型、prompt hash、parser 版本、git commit、snapshot——同一输入同一配置可重放。最后导出 Evidence Pack：报告、claims、evidence、calculations、events 全量打包，评委可离线复核。"
+- 话术："整个 run 的 manifest 记录了模型、prompt hash、parser 版本、git commit、snapshot——同一输入同一配置可重放。最后导出 Evidence Pack：报告、claims、evidence、calculations、events 全量打包，评委可离线复核。这是文档级 run，所以包里没有估值表——估值要 symbol 级行情，这条 run 的输入是一份年报；包自己的 `PACK_STATUS.json` 会把'缺 valuation.xlsx'和为什么缺一并写出来，而不是补一个空表凑满 13 件。"
 - 现场操作：Audit Replay 选当前 run_id 展示时间线 → 点击 Export Evidence Pack 导出 zip → **停在 ③「Prompt 注册表」**（CARD-14）。
+- 兜底问法（若评委追问"证据包是不是只有 4 个文件"）：现在是**必装件 + 完整性件共 10 类里进了 9 类**，zip 内 16 KB 量级，只有估值表按口径不在；改口径要换一条 **symbol 级** run（CARD-08），不是导出器补件。
 - ③ 这一节回答"prompt 凭什么叫可复现"：11 段提示词各带 `name@version` 与 `sha256`，5 条流程各自的**组合哈希**就是写进 manifest 的那个值；`lock 同步 = 是` 表示没有任何已发布的提示词被就地改过（同版本只增不改）。**没有 run 时这一节照样渲染** —— 注册表能不能审计，和 run 目录里有没有东西无关。若 manifest 那一格显示"未调用 LLM prompt"，那是真话不是缺件：这个演示 run 只做解析/归一化/计算/校验，一个字都没发给模型。
 
 ---
