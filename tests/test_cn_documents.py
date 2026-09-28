@@ -12,6 +12,7 @@ import os
 import socket
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -46,6 +47,7 @@ from src.cn.documents.models import (
     FACT_STATUS_OK,
 )
 from src.cn.documents.parsers.table import _year_for_cell, _year_header_anchors
+from src.cn.documents.parsers.ocr import OCRFallback
 from src.cn.normalization import normalize_financials
 from src.cn.documents.evidence_bridge import register_document_facts
 from src.agents.tools.cn_tools import IngestCnDocumentTool
@@ -216,6 +218,24 @@ def test_scan_page_degrades_not_errors(registry):
     assert [e.status for e in res.events] == [FACT_STATUS_FAILED]
     assert any("扫描页" in w for w in res.warnings)
     assert any("不可作为事实来源" in n for n in doc.notes)
+
+
+def test_tesseract_ocr_backend_returns_the_verbatim_page_text(monkeypatch):
+    """A configured OCR backend must be called; the old adapter always failed."""
+    fake_tesseract = SimpleNamespace(
+        image_to_string=lambda image, **kwargs: "  营业收入 1,234  \n\n净利润 56 ",
+    )
+    monkeypatch.setitem(__import__("sys").modules, "pytesseract", fake_tesseract)
+    parser = OCRFallback()
+    parser.backend = "tesseract"
+
+    page = SimpleNamespace(
+        to_image=lambda resolution: SimpleNamespace(
+            original=SimpleNamespace(convert=lambda mode: "page-image")
+        )
+    )
+
+    assert parser.ocr_page(page) == "营业收入 1,234\n净利润 56"
 
 
 def test_one_failed_page_of_two_stays_partial(registry):

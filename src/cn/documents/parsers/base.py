@@ -78,9 +78,9 @@ def resolve_textless_page(page_index: int, page, parser_name: str):
     return (
         ParsePageEvent(
             page=page_index, parser=parser_name, status=FACT_STATUS_FAILED,
-            note="OCR 未返回文本",
+                note="扫描页 OCR 未返回文本",
         ),
-        f"第 {page_index} 页 OCR 未返回文本。",
+            f"第 {page_index} 页为扫描页，但 OCR 未返回文本。",
         "",
     )
 

@@ -24,7 +24,7 @@ from typing import Any, Optional
 from uuid import uuid4
 
 from src.cn import workbench_service
-from src.cn.research_agent import CnResearchAgent
+from src.cn.research_agent import CnResearchAgent, infer_required_metrics, infer_required_tools
 from src.cn.symbols import normalize_cn_symbol
 from src.llms.model_registry import cost_currency, get_model_info
 
@@ -132,7 +132,11 @@ def start_agent_research(request: AgentResearchRequest) -> dict[str, Any]:
         )
 
     research_as_of = _validate_research_cutoff(request.research_as_of) if request.research_as_of else None
-    metrics = tuple(str(m).strip() for m in request.required_metrics if str(m).strip())
+    metrics = tuple(dict.fromkeys(
+        [*(str(m).strip() for m in request.required_metrics if str(m).strip()),
+         *infer_required_metrics(query)]
+    ))
+    required_tools = infer_required_tools(query)
 
     parent_id, turn_index = _resolve_parent(request.parent_task_id, request.snapshot_id)
 
@@ -143,6 +147,7 @@ def start_agent_research(request: AgentResearchRequest) -> dict[str, Any]:
         "query": query, "model_name": request.model_name,
         "temperature": request.temperature, "max_steps": int(request.max_steps),
         "required_metrics": list(metrics),
+        "required_tools": list(required_tools),
         "parent_task_id": parent_id, "turn_index": turn_index,
         "progress_percent": 0, "events": [],
     })
@@ -318,10 +323,28 @@ def _execute_agent_research_task(task_id: str) -> None:
             task["error_type"] = type(exc).__name__
             task["error"] = f"{type(exc).__name__}: {exc}"
             task["progress_percent"] = 100
-            _append_event(task, "task_failed", status="error",
-                          detail="Agent 执行异常终止；原始异常不会在 API 中回显。")
+            message, event_detail = _agent_failure_feedback(exc)
+            _append_event(task, "task_failed", status="error", detail=event_detail)
             workbench_service._transition(task, "failed", step="task_failed",
-                                          message="Agent 执行异常终止；可在解决后重试。")
+                                          message=message)
+
+
+def _agent_failure_feedback(exc: Exception) -> tuple[str, str]:
+    """Return a safe, actionable status for known provider failures.
+
+    The stored error remains available to the local task audit, but the UI must
+    not make a user infer an account-credit problem from a generic exception.
+    """
+    detail = str(exc).casefold()
+    if "insufficient balance" in detail or "error code: 402" in detail:
+        return (
+            "模型账户余额不足，未执行研究工具；充值后可重试。",
+            "模型账户余额不足（402）；任务在工具调用前停止，未产生研究结论。",
+        )
+    return (
+        "Agent 执行异常终止；可在解决后重试。",
+        "Agent 执行异常终止；原始异常不会在 API 中回显。",
+    )
 
 
 async def _run_agent_research(task_id: str) -> None:
@@ -335,6 +358,7 @@ async def _run_agent_research(task_id: str) -> None:
         temperature=float(task.get("temperature", 0.0)),
         max_steps=int(task.get("max_steps", 6)),
         required_metrics=task.get("required_metrics", []) or [],
+        required_tools=task.get("required_tools", []) or [],
     )
 
     started = time.perf_counter()

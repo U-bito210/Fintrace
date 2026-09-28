@@ -56,6 +56,45 @@ _SNAPSHOT_TICKER_TOOLS = frozenset({
     "get_cn_prices", "get_cn_financials", "generate_cn_research_report",
 })
 
+# A composite research question is not complete merely because one of its
+# numbers has evidence. These terms describe *requested research surfaces*,
+# not facts, so the mapping only requires the relevant snapshot tools to run.
+_FINANCIAL_TERMS = ("财务", "收入", "营收", "净利润", "利润率", "资产", "现金流")
+_MARKET_TERMS = ("行情", "股价", "价格", "市值", "波动", "走势")
+_VALUATION_TERMS = ("估值", "市盈", "市净", "pe", "pb", "ps", "倍数")
+
+
+def infer_required_tools(query: str) -> tuple[str, ...]:
+    """Return deterministic coverage requirements for a composite request.
+
+    The model retains control of the ReAct sequence. This only says which
+    snapshot-backed surfaces must appear before a conclusion can pass the
+    deterministic gate. A plain price or financial question remains minimal.
+    """
+    text = str(query or "").lower()
+    required: list[str] = []
+    if any(term in text for term in _FINANCIAL_TERMS):
+        required.append("get_cn_financials")
+    valuation_requested = any(term in text for term in _VALUATION_TERMS)
+    # A valuation conclusion depends on a RAW market price even when the user
+    # does not explicitly say “股价”; require the price tool as its own audited
+    # data surface rather than treating the report builder as a hidden proxy.
+    if any(term in text for term in _MARKET_TERMS) or valuation_requested:
+        required.append("get_cn_prices")
+    if valuation_requested:
+        required.append("generate_cn_research_report")
+    return tuple(required)
+
+
+def infer_required_metrics(query: str) -> tuple[str, ...]:
+    """Return evidence metrics that are non-negotiable for a requested surface."""
+    text = str(query or "").lower()
+    # Market capitalisation and PE/PB/PS calculations require total shares.
+    # Without it, an apparent valuation is not an admissible conclusion.
+    if any(term in text for term in _VALUATION_TERMS):
+        return ("total_shares",)
+    return ()
+
 
 class ToolCallingProvider(Protocol):
     model_name: str
@@ -82,6 +121,7 @@ class CnResearchAgent:
                  temperature: float = 0.0, max_steps: int = 6,
                  provider: ToolCallingProvider | None = None,
                  required_metrics: Sequence[str] = (),
+                 required_tools: Sequence[str] = (),
                  requires_evidence: Optional[bool] = None,
                  requested_valuation_method: Optional[str] = None) -> None:
         self.snapshot_path = Path(snapshot_path)
@@ -94,6 +134,7 @@ class CnResearchAgent:
             required_metrics=tuple(str(metric).lower() for metric in required_metrics),
             requires_evidence=gate_requires_evidence,
             requested_valuation_method=requested_valuation_method,
+            required_tools=tuple(str(tool) for tool in required_tools),
         )
         if provider is None:
             # The application imports its LLM package from ``src``. Keep that
@@ -131,6 +172,12 @@ class CnResearchAgent:
         )
         self._emit(event_handler, "agent_started",
                    detail=f"model={self.model_name} cutoff={cutoff}")
+        if self.gate_requirements.required_tools:
+            self._emit(
+                event_handler, "research_plan",
+                detail="required tools=" + ", ".join(self.gate_requirements.required_tools),
+                meta={"required_tools": list(self.gate_requirements.required_tools)},
+            )
 
         # Symbol parsing is a deterministic boundary, not an LLM judgement.
         resolved_symbol = await self._resolve_symbol_preflight(
@@ -145,7 +192,8 @@ class CnResearchAgent:
         tool_defs = self.registry.openai_defs() if is_openai_style else self.registry.anthropic_defs()
         messages: List[Dict[str, Any]] = [
             {"role": "system", "content": self._system_prompt(
-                cutoff, resolved_symbol, has_history=bool(prior_turns))},
+                cutoff, resolved_symbol, has_history=bool(prior_turns),
+                required_tools=self.gate_requirements.required_tools)},
         ]
         # Earlier turns go in as plain text, never as tool results: replaying a
         # tool payload would let the model treat a previous run's numbers as if
@@ -286,7 +334,8 @@ class CnResearchAgent:
 
     @staticmethod
     def _system_prompt(cutoff: str, resolved_symbol: Optional[str] = None,
-                       *, has_history: bool = False) -> str:
+                       *, has_history: bool = False,
+                       required_tools: Sequence[str] = ()) -> str:
         """Compose the system prompt from registered fragments (CARD-14).
 
         The pieces are separate prompts on purpose: the base never changes, the
@@ -302,7 +351,15 @@ class CnResearchAgent:
         if has_history:
             followup = render("cn_research_agent_followup")
         context = render("cn_research_agent_run_context", cutoff=cutoff)
-        return f"{SYSTEM_PROMPT}\n\n{context}{preflight}{followup}"
+        coverage = ""
+        if required_tools:
+            coverage = (
+                "\n\nEXECUTION COVERAGE: This composite request requires successful calls to "
+                + ", ".join(f"`{tool}`" for tool in required_tools)
+                + ". Decide the order yourself, but do not provide a final conclusion before every "
+                "required surface has a tool result. If one fails, explain the gap and let validation block it."
+            )
+        return f"{SYSTEM_PROMPT}\n\n{context}{preflight}{followup}{coverage}"
 
     async def _resolve_symbol_preflight(
         self, query: str, state: ResearchState,

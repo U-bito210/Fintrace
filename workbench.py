@@ -9,6 +9,7 @@ import json
 import os
 import importlib
 import re
+from html import escape
 from pathlib import Path
 from datetime import date, datetime, timedelta
 
@@ -22,6 +23,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from src.cn import agent_service
+from src.cn import account_service
 from src.cn import document_service
 from src.cn import workbench_service as service
 from src.cn.demo_data import BLOCKED_DEMO_SNAPSHOT_ID, DEMO_SNAPSHOT_ID
@@ -56,6 +58,8 @@ REQUIRED_SERVICE_FUNCTIONS = (
     "research_overview_insights", "research_valuation", "list_evaluations", "evaluation_detail",
     "list_daily_reviews", "daily_review_summary", "daily_review_detail",
     "start_daily_review", "acquire_live_daily_review",
+    "refresh_snapshot", "snapshot_freshness", "find_local_baseline_snapshot",
+    "peer_sync_preview", "refresh_peer_group",
 )
 REQUIRED_AGENT_FUNCTIONS = ("start_agent_research", "get_agent_task", "agent_task_events")
 REQUIRED_DOCUMENT_FUNCTIONS = (
@@ -76,6 +80,77 @@ def service_contract_ready() -> bool:
     return True
 
 
+def current_account() -> dict | None:
+    """Return the browser session's authenticated local account, if any."""
+    user_id = st.session_state.get("account_user_id")
+    username = st.session_state.get("account_username")
+    if not user_id or not username:
+        return None
+    return {"id": int(user_id), "username": str(username)}
+
+
+def _set_authenticated_account(account: dict) -> None:
+    """Switch account contexts without carrying another user's open task."""
+    st.session_state["account_user_id"] = int(account["id"])
+    st.session_state["account_username"] = str(account["username"])
+    st.session_state.pop("agent_task_id", None)
+    st.session_state.pop("agent_intro_reply", None)
+
+
+def logout_account() -> None:
+    """End the local browser session; persisted research remains untouched."""
+    st.session_state.pop("account_user_id", None)
+    st.session_state.pop("account_username", None)
+    st.session_state.pop("agent_task_id", None)
+    st.session_state.pop("agent_intro_reply", None)
+    st.session_state["account_notice"] = "已退出登录。"
+
+
+def account_topbar() -> None:
+    """Render compact account access immediately left of Streamlit toolbar actions."""
+    account = current_account()
+    with st.container(key="account_topbar"):
+        label = f"{account['username']}" if account else "登录"
+        with st.popover(label, use_container_width=True):
+            notice = st.session_state.pop("account_notice", None)
+            if notice:
+                st.info(notice)
+            if account:
+                st.caption("当前登录账号")
+                st.markdown(f"**{escape(account['username'])}**")
+                st.button("退出登录", key="account_logout", on_click=logout_account, width="stretch")
+            else:
+                login_tab, register_tab = st.tabs(["登录", "注册"])
+                with login_tab:
+                    with st.form("account_login_form"):
+                        username = st.text_input("用户名", key="account_login_username")
+                        password = st.text_input("密码", type="password", key="account_login_password")
+                        submitted = st.form_submit_button("登录", width="stretch")
+                    if submitted:
+                        try:
+                            _set_authenticated_account(account_service.authenticate_user(username, password))
+                        except account_service.AccountError as exc:
+                            st.error(str(exc))
+                        else:
+                            st.rerun()
+                with register_tab:
+                    with st.form("account_register_form"):
+                        username = st.text_input("用户名", key="account_register_username", help="3–32 位字母、数字、下划线或连字符")
+                        password = st.text_input("设置密码", type="password", key="account_register_password")
+                        confirmation = st.text_input("确认密码", type="password", key="account_register_confirmation")
+                        submitted = st.form_submit_button("注册并登录", width="stretch")
+                    if submitted:
+                        if password != confirmation:
+                            st.error("两次输入的密码不一致。")
+                        else:
+                            try:
+                                _set_authenticated_account(account_service.register_user(username, password))
+                            except account_service.AccountError as exc:
+                                st.error(str(exc))
+                            else:
+                                st.rerun()
+
+
 ROOT = Path(__file__).resolve().parent
 
 NAVIGATION = [
@@ -90,12 +165,25 @@ NAVIGATION = [
 # compatibility contract for tests and deep links; this grouped view is the
 # presentation layer users interact with.
 NAV_GROUPS = [
-    ("开始", ("案例演示", "AI Agent 研究")),
-    ("研究分析", ("研究总览", "市场与行情", "财务表现", "财务分析", "同行估值")),
-    ("证据与交付", ("证据与校验", "文档智能", "研究报告", "Agent 执行轨迹")),
-    ("任务与评测", ("研究任务", "每日复盘", "评测与消融")),
-    ("实验室", tuple(page.label for page in _DEMO_PAGES)),
+    ("研究工作台", ("研究总览", "市场与行情", "财务表现", "财务分析", "同行估值")),
+    ("AI 研究", ("AI Agent 研究", "Agent 执行轨迹")),
+    ("证据与报告", ("证据与校验", "文档智能", "研究报告")),
+    ("任务中心", ("研究任务", "每日复盘", "评测与消融")),
+    ("演示与设置", ("案例演示", *[page.label for page in _DEMO_PAGES])),
 ]
+
+# The sidebar tells the user where they are.  This local route tells them the
+# next meaningful research action, even when it lives in another module.
+RESEARCH_NEXT_STEPS = {
+    "研究总览": (("查看市场与行情", "市场与行情"), ("查看财务表现", "财务表现")),
+    "市场与行情": (("查看 RAW 价格证据", "证据与校验"), ("进入同行估值", "同行估值")),
+    "财务表现": (("查看财务证据", "证据与校验"), ("让 Agent 解读", "AI Agent 研究")),
+    "财务分析": (("查看财务证据", "证据与校验"), ("返回财务表现", "财务表现")),
+    "同行估值": (("查看估值证据", "证据与校验"), ("查看研究报告", "研究报告")),
+    "证据与校验": (("查看 AI 分析过程", "Agent 执行轨迹"), ("查看研究报告", "研究报告")),
+    "Agent 执行轨迹": (("查看数据依据", "证据与校验"), ("打开研究报告", "研究报告")),
+    "研究报告": (("查看数据依据", "证据与校验"), ("查看 AI 分析过程", "Agent 执行轨迹")),
+}
 
 
 def _select_page(page: str) -> None:
@@ -110,10 +198,9 @@ def sidebar_navigation() -> str:
         current = NAVIGATION[0]
         st.session_state["workbench_page"] = current
     # Keep this widget as a stable compatibility surface for AppTest and
-    # external deep links.  It is visually hidden by the CSS in ``style``.
-    # The session state is the single source of truth: callbacks set the page
-    # before rerun, so passing ``index`` as a second default causes Streamlit's
-    # default-value/session-state warning.
+    # external deep links.  The session state is the single source of truth:
+    # callbacks set the page before rerun, so passing ``index`` as a second
+    # default causes Streamlit's default-value/session-state warning.
     st.radio("工作台", NAVIGATION, label_visibility="collapsed", key="workbench_page")
 
     for group_name, pages in NAV_GROUPS:
@@ -122,7 +209,7 @@ def sidebar_navigation() -> str:
             continue
         is_active_group = current in visible_pages
         # Keep core research open; tuck long demo/diagnostic lists away.
-        expanded = is_active_group or group_name in {"开始", "研究分析", "证据与交付"}
+        expanded = is_active_group or group_name == "研究工作台"
         with st.expander(group_name, expanded=expanded):
             for page in visible_pages:
                 st.button(
@@ -133,7 +220,28 @@ def sidebar_navigation() -> str:
                     on_click=_select_page,
                     args=(page,),
                 )
-    return current
+    # Button callbacks update ``workbench_page`` before Streamlit reruns this
+    # script.  Read it again here: returning the value captured before the
+    # callback would render the previous page for one complete rerun.
+    return st.session_state["workbench_page"]
+
+
+def research_next_steps(page: str) -> None:
+    """Render contextual cross-module actions for the current research step."""
+    actions = RESEARCH_NEXT_STEPS.get(page)
+    if not actions:
+        return
+    st.markdown('<div class="research-route-label">研究路径 · 下一步</div>', unsafe_allow_html=True)
+    columns = st.columns(len(actions) + 1)
+    for index, (label, destination) in enumerate(actions):
+        columns[index].button(
+            label,
+            key=f"research_route_{page}_{destination}",
+            width="stretch",
+            on_click=_select_page,
+            args=(destination,),
+        )
+    columns[-1].caption("跨模块入口仅跳转到同一份版本化快照。")
 
 
 #: 自动预热开关。默认**关闭**：冒烟脚本与 UI 测试要能在「不解析 229 页年报」的
@@ -346,51 +454,250 @@ def snapshot_choice_label(item: dict[str, str]) -> str:
     return f"{item['name']} · {item['symbol']} · 研究截至 {as_of} · {provider} · {version}"
 
 
-def demo_cases(catalog: list[dict[str, str]]) -> None:
-    """Give an interviewer a short, truthful walkthrough before the full workbench."""
-    available = {item["id"] for item in catalog}
-    labels_by_id = {item["id"]: snapshot_choice_label(item) for item in catalog}
+def snapshot_picker_label(label: str) -> str:
+    """Keep snapshot choices compact without hiding their version identity."""
+    parts = label.split(" · ")
+    if len(parts) >= 5:
+        # The date and version are the two pieces a user needs to distinguish
+        # successive online refreshes.  The full provider identifier remains
+        # in state and in the detail surfaces, not in this compact selector.
+        research_date = parts[2].removeprefix("研究截至 ")
+        return " · ".join((parts[0], parts[1], research_date, parts[-1]))
+    return " · ".join(parts[:2]) if len(parts) >= 2 else label
+
+
+def online_refresh_symbols(catalog: list[dict[str, str]]) -> dict[str, str]:
+    """One selector row per canonical symbol for the online refresh control."""
+    options: dict[str, str] = {}
+    for item in sorted(catalog, key=lambda entry: str(entry.get("symbol", ""))):
+        options.setdefault(f"{item['name']} · {item['symbol']}", item["symbol"])
+    return options
+
+
+def describe_refresh_outcome(outcome: dict) -> tuple[str, str]:
+    """Turn one refresh outcome into ``(severity, text)`` for the sidebar.
+
+    A failure always names the specific reason *and* the snapshot still in use,
+    so the reader can never mistake a failed refresh for an updated one.
+    """
+    status = str(outcome.get("refresh_status", "failed"))
+    if status == "succeeded":
+        return "success", "\n\n".join([
+            f"已创建新快照 {outcome.get('snapshot_id')}",
+            f"研究截至 {outcome.get('research_as_of') or '—'} · Provider {outcome.get('provider') or '—'}"
+            f" · 收盘价截至 {outcome.get('latest_trade_date') or '—'}",
+            f"版本 v{outcome.get('version')} · 新增 {outcome.get('new_bar_count', 0)} 个交易日",
+        ])
+    lines = [str(outcome.get("message") or "刷新未完成。")]
+    current = outcome.get("current_snapshot") or {}
+    if current.get("snapshot_id"):
+        lines.append(
+            f"当前仍在使用的快照：{current['snapshot_id']}"
+            f"（研究截至 {current.get('research_as_of') or '—'}"
+            f"，收盘价截至 {current.get('latest_trade_date') or '—'}）"
+        )
+    if status == "no_new_data":
+        return "info", "\n\n".join(lines)
+    lines.append("未写入任何快照；旧快照、旧报告与旧证据保持不变。")
+    if outcome.get("retryable"):
+        lines.append("该失败属于上游限频/网络类，可直接重试。")
+    return ("warning" if status == "no_data" else "error"), "\n\n".join(lines)
+
+
+def scoped_refresh_notice(notice: object, *, current_symbol: str) -> tuple[str, str]:
+    """Explain which symbol an online refresh result belongs to.
+
+    The sidebar can refresh a symbol different from the research version that
+    is currently open.  Never present that result as if it described the open
+    snapshot.
+    """
+    # A page reload can retain a notice created by the previous UI shape.
+    # Preserve it as an explicitly unscoped legacy result instead of crashing
+    # or pretending it belongs to the currently selected stock.
+    if not isinstance(notice, dict):
+        severity, text = notice if isinstance(notice, tuple) and len(notice) == 2 else ("info", "联网更新已结束。")
+        return str(severity), f"联网更新结果（未记录标的；当前研究标的：{current_symbol}）\n\n{text}"
+    symbol = str(notice.get("symbol") or "未知标的")
+    severity = str(notice.get("severity") or "info")
+    text = str(notice.get("text") or "联网更新已结束。")
+    if symbol == current_symbol:
+        prefix = f"联网更新对象：{symbol}（当前研究标的）"
+    else:
+        prefix = f"联网更新对象：{symbol}；当前研究标的：{current_symbol}。两者为不同数据版本。"
+    return severity, f"{prefix}\n\n{text}"
+
+
+def switch_to_local_baseline(snapshot_id: str) -> None:
+    """Callback for the offline baseline switcher in the sidebar.
+
+    Streamlit only permits changing a widget's session-state value before that
+    widget is instantiated on the rerun.  Button callbacks run in exactly that
+    phase, unlike an assignment immediately after ``st.selectbox``.
+    """
+    local_baseline = service.find_local_baseline_snapshot(snapshot_id)
+    service.load_snapshot.cache_clear()
+    cached_research_catalog.clear()
+    load_research.clear()
+    st.cache_data.clear()
+    if local_baseline is not None:
+        st.session_state["snapshot_picker"] = snapshot_choice_label(local_baseline)
+        st.session_state["local_baseline_notice"] = (
+            "已切回本地基准版本；本次操作未联网，也没有覆盖任何数据版本。"
+        )
+    else:
+        st.session_state["local_baseline_notice"] = (
+            "当前标的没有可切回的同源本地基准版本；已重新载入现有版本，未发起联网请求。"
+        )
+
+
+def HeroSection() -> None:
+    """Lead the landing page with product value, not workbench mechanics."""
     st.markdown(
-        """<div class="landing-hero">
-            <div class="hero-kicker"><span class="hero-dot"></span> THE RESEARCH LOOP</div>
-            <div class="landing-title">30 秒看懂 FinTrace-CN</div>
-            <div class="landing-copy">从版本化快照开始，把每一个结论拆成可追溯的证据、确定性的校验和可交付的研究报告。</div>
-        </div>
-        <div class="flow-rail">
-            <div><b>01</b><span>快照</span></div><i></i><div><b>02</b><span>证据</span></div><i></i>
-            <div><b>03</b><span>Validator</span></div><i></i><div><b>04</b><span>报告 / 阻断</span></div>
-        </div>""",
+        """<section class="home-hero">
+          <div class="home-nav"><div class="home-wordmark"><span>◈</span> FinTrace-CN</div><div class="home-nav-note">可信 AI 金融研究</div></div>
+          <div class="home-hero-grid">
+            <div>
+              <div class="home-eyebrow"><i></i> A-SHARE RESEARCH AGENT</div>
+              <h1>可信金融研究 Agent</h1>
+              <p>让 AI 生成的每一个金融结论，都拥有可追溯的数据来源和验证过程。</p>
+              <div class="value-pills"><span>数据可追溯</span><span>计算可验证</span><span>研究可复现</span></div>
+            </div>
+            <div class="home-orbit" aria-hidden="true">
+              <div class="orbit-core">可信<br>结论</div><div class="orbit-node n1">数据来源</div>
+              <div class="orbit-node n2">验证过程</div><div class="orbit-node n3">研究记录</div>
+            </div>
+          </div>
+        </section>""",
         unsafe_allow_html=True,
     )
-    st.caption("所有内容来自本地版本化快照；页面不抓取实时行情，也不在前端计算或补全数据。")
-    case_columns = st.columns(2, gap="large")
-    for (name, case), column, index in zip(DEMO_CASES.items(), case_columns, ("01", "02")):
+    st.button(
+        "开始研究",
+        key="home_start_research",
+        type="primary",
+        icon=":material/arrow_forward:",
+        on_click=_select_page,
+        args=("AI Agent 研究",),
+    )
+    st.caption("仅展示固定版本的 A 股研究快照；不构成投资建议。")
+
+
+def ProblemSection() -> None:
+    """Make the trust problem immediately legible to a first-time visitor."""
+    st.markdown(
+        """<section class="home-section problem-section">
+          <div class="section-kicker">WHY FINTRACE</div>
+          <h2>为什么需要 FinTrace？</h2>
+          <p class="section-lead">传统 AI 可以生成答案，却未必能说明答案为什么可信。</p>
+          <div class="problem-grid">
+            <article><b>✕</b><h3>数据来源不可追踪</h3><p>结论无法回到原始数据与研究时点。</p></article>
+            <article><b>✕</b><h3>财务计算无法复核</h3><p>关键口径、单位和推导过程容易被忽略。</p></article>
+            <article><b>✕</b><h3>AI 可能产生错误结论</h3><p>缺少关键输入时，回答仍可能看似完整。</p></article>
+          </div>
+        </section>""",
+        unsafe_allow_html=True,
+    )
+
+
+def WorkflowSection() -> None:
+    """Show the solution as one clear research flow before technical labels."""
+    st.markdown(
+        """<section class="home-section workflow-section">
+          <div class="section-kicker">THE FINTRACE METHOD</div>
+          <h2>把 AI 研究放进可验证的流程</h2>
+          <p class="section-lead">每一步留下记录；必要的信息不足时，系统会停止结论，而不是补一个答案。</p>
+          <div class="workflow-rail">
+            <div><em>01</em><strong>数据快照</strong><span>固定研究时点</span></div><i></i>
+            <div><em>02</em><strong>证据链</strong><span>绑定来源与依据</span></div><i></i>
+            <div><em>03</em><strong>自动验证</strong><span>核验输入与计算</span></div><i></i>
+            <div><em>04</em><strong>研究报告</strong><span>交付或自动阻断</span></div>
+          </div>
+        </section>""",
+        unsafe_allow_html=True,
+    )
+
+
+def FeatureCards() -> None:
+    """Introduce the durable technical primitives only after their value."""
+    st.markdown(
+        """<section class="home-section feature-section">
+          <div class="section-kicker">CORE CAPABILITIES</div>
+          <h2>让可信不是一句承诺</h2>
+          <div class="feature-grid">
+            <article><div class="feature-number">01</div><h3>Versioned Snapshot</h3><b>版本化数据快照</b><p>固定研究环境，保证不同时间运行结果一致。</p></article>
+            <article><div class="feature-number">02</div><h3>Evidence Ledger</h3><b>证据链系统</b><p>每个研究结论绑定数据来源、计算过程和引用依据。</p></article>
+            <article><div class="feature-number">03</div><h3>Validator</h3><b>智能验证机制</b><p>发现关键数据缺失时自动阻断错误结论。</p></article>
+          </div>
+        </section>""",
+        unsafe_allow_html=True,
+    )
+
+
+def CaseStudy(catalog: list[dict[str, str]], *, featured: bool = False) -> None:
+    """Show a passing and a blocked path without leading with internal IDs."""
+    available = {item["id"] for item in catalog}
+    labels_by_id = {item["id"]: snapshot_choice_label(item) for item in catalog}
+    section_class = "featured-case" if featured else ""
+    st.markdown(
+        f'''<section class="home-section case-section {section_class}"><div class="section-kicker">RESEARCH IN PRACTICE</div>
+        <h2>研究结果，应该经得起追问</h2><p class="section-lead">同一套规则既支持交付，也能在风险出现时及时止步。</p></section>''',
+        unsafe_allow_html=True,
+    )
+    columns = st.columns(2, gap="large")
+    for (name, case), column in zip(DEMO_CASES.items(), columns):
         with column:
-            with st.container(border=True):
-                st.markdown(f'<div class="case-index">CASE {index}</div>', unsafe_allow_html=True)
-                st.subheader(name)
-                st.write(case["summary"])
-                st.caption(f"Snapshot ID: {case['snapshot_id']}")
-                if case["snapshot_id"] not in available:
-                    st.warning("演示快照生成失败，请运行 python scripts/bootstrap_demo.py 后重试。")
+            exists = case["snapshot_id"] in available
+            allowed = False
+            if exists:
+                validation = cached_research_validation(case["snapshot_id"])
+                allowed = bool(validation["conclusion_allowed"])
+            passing = exists and allowed
+            status = "✓ 验证通过" if passing else "⚠ 自动阻断"
+            status_class = "case-pass" if passing else "case-block"
+            title = "贵州茅台估值研究" if case["expected_allowed"] else "数据不足案例"
+            checklist = (
+                "<li>数据完整</li><li>证据完整</li><li>报告生成</li>"
+                if passing else "<li>缺少关键估值输入</li><li>系统拒绝生成错误结论</li>"
+            )
+            st.markdown(
+                f'''<article class="case-card {status_class}"><div class="case-top"><span>案例研究</span><b>{status}</b></div>
+                <h3>{title}</h3><p>{case["summary"]}</p><ul>{checklist}</ul></article>''',
+                unsafe_allow_html=True,
+            )
+            with st.expander("查看详情", expanded=False):
+                if not exists:
+                    st.warning("演示快照尚未就绪，无法展示研究详情。")
                 else:
-                    validation = cached_research_validation(case["snapshot_id"])
-                    allowed = bool(validation["conclusion_allowed"])
-                    status_label = "允许输出" if allowed else "已阻断"
-                    st.badge(
-                        status_label,
-                        icon=":material/check_circle:" if allowed else ":material/block:",
-                        color="green" if allowed else "red",
-                    )
+                    st.caption("技术详情：本案例由版本化 Snapshot、Evidence Ledger 与 Validator 驱动。")
                     if allowed != bool(case["expected_allowed"]):
                         st.error("演示快照的实际门禁结果与预期不一致，请先运行测试或重新生成快照。")
                     st.button(
-                        "打开并查看证据链" if allowed else "查看阻断原因",
+                        "进入研究报告" if allowed else "查看阻断原因",
                         key=f"demo_{case['snapshot_id']}",
                         on_click=open_demo_case,
                         args=(labels_by_id[case["snapshot_id"]], case["next_page"]),
                     )
-    st.info("成功案例用于说明可复现研究如何交付；阻断案例用于说明系统宁可不给结论，也不以缺失数据凑出答案。", icon=":material/shield:")
+
+
+def ArchitectureSection() -> None:
+    """Keep the developer architecture discoverable, but deliberately last."""
+    st.markdown(
+        """<section class="architecture-section"><div class="section-kicker">FOR DEVELOPERS</div>
+          <h2>技术架构</h2><p>面向研发团队的可组合研究基础设施。</p>
+          <div class="architecture-flow"><span>LLM Agent</span><i>↓</i><span>Research Tools</span><i>↓</i>
+          <span>Evidence Ledger</span><i>↓</i><span>Validator</span><i>↓</i><span>Report Generator</span></div>
+        </section>""",
+        unsafe_allow_html=True,
+    )
+
+
+def demo_cases(catalog: list[dict[str, str]]) -> None:
+    """Render the product landing page while preserving existing demo routes."""
+    HeroSection()
+    CaseStudy(catalog, featured=True)
+    ProblemSection()
+    WorkflowSection()
+    FeatureCards()
+    ArchitectureSection()
 
 
 # Apple-inspired design tokens.  All colors come from the design system
@@ -957,7 +1264,8 @@ section[data-testid="stSidebar"] .stButton > button[kind="primary"] {{
 section[data-testid="stSidebar"] hr {{ border-color: rgba(148, 177, 215, .16) !important; }}
 
 .hero-shell {{
-  padding: .25rem 0 .2rem;
+  /* Keep the research identity clear of the host application's top toolbar. */
+  padding: 1.05rem 0 .2rem;
 }}
 .hero-kicker {{
   display: flex; align-items: center; gap: .45rem;
@@ -1064,29 +1372,502 @@ section[data-testid="stSidebar"] .stSelectbox * {{
   -webkit-text-fill-color: #FFFFFF !important;
   opacity: 1 !important;
 }}
+/* Wise-inspired research workspace: quiet white canvas, soft neutral cards,
+   deep green typography, and one high-visibility lime action colour. */
+:root {{
+  --wise-ink: #163300;
+  --wise-lime: #9FE870;
+  --wise-lime-hover: #8DD95C;
+  --wise-surface: #F4F6F1;
+  --wise-line: #E3E8DF;
+}}
+.stApp {{
+  background: #FFFFFF !important;
+  background-image: none !important;
+}}
+.block-container {{ max-width: 1560px; padding: 2rem 3.4rem 4.5rem; }}
+section[data-testid="stSidebar"] {{
+  background: #FFFFFF !important;
+  border-right: 1px solid var(--wise-line) !important;
+  min-width: 282px;
+  max-width: 306px;
+}}
+section[data-testid="stSidebar"] * {{ color: #244116 !important; }}
+section[data-testid="stSidebar"] .brand {{ color: var(--wise-ink) !important; }}
+section[data-testid="stSidebar"] .brand-sub,
+section[data-testid="stSidebar"] .stCaption,
+section[data-testid="stSidebar"] [data-testid="stExpander"] summary,
+section[data-testid="stSidebar"] [data-testid="stExpander"] summary span {{ color: #71816A !important; }}
+section[data-testid="stSidebar"] [data-testid="stExpander"] {{ border-top-color: var(--wise-line) !important; }}
+section[data-testid="stSidebar"] [data-testid="stExpander"] .stButton > button {{
+  color: #526049 !important;
+  border-radius: 999px !important;
+  min-height: 2.35rem;
+  padding: .48rem .86rem !important;
+}}
+section[data-testid="stSidebar"] [data-testid="stExpander"] .stButton > button:hover {{
+  background: #EEF3E9 !important;
+  border-color: transparent !important;
+  color: var(--wise-ink) !important;
+}}
+section[data-testid="stSidebar"] [data-testid="stExpander"] .stButton > button[kind="primary"] {{
+  background: #EAF1E5 !important;
+  color: var(--wise-ink) !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}}
+section[data-testid="stSidebar"] .stSelectbox,
+section[data-testid="stSidebar"] .stSelectbox > div,
+section[data-testid="stSidebar"] .stSelectbox [data-testid="stSelectbox"],
+section[data-testid="stSidebar"] .stSelectbox * {{
+  background-color: #F3F6F0 !important;
+  color: var(--wise-ink) !important;
+  -webkit-text-fill-color: var(--wise-ink) !important;
+}}
+section[data-testid="stSidebar"] .stSelectbox > div {{ border-color: var(--wise-line) !important; }}
+[data-testid="stSelectboxVirtualDropdown"],
+[data-testid="stSelectboxVirtualDropdown"] * {{
+  background-color: #FFFFFF !important;
+  color: var(--wise-ink) !important;
+  -webkit-text-fill-color: var(--wise-ink) !important;
+}}
+h1, h2, h3, [data-testid="stMetricValue"] {{ color: var(--wise-ink) !important; }}
+.hero-kicker {{ color: #547444; }}
+.hero-dot {{ background: var(--wise-lime); box-shadow: 0 0 0 4px rgba(159,232,112,.22); }}
+.hero-title {{ color: var(--wise-ink); font-size: 2.15rem; }}
+.hero-subtitle, .subline {{ color: #72806B; }}
+.statusbar {{ background: #FFFFFF; border-color: var(--wise-line); box-shadow: none; border-radius: 16px; }}
+.snapshot {{ background: #EEF5E9; color: #386420; }}
+.neutral {{ background: #F5F7F3; color: #66735F; border-color: var(--wise-line); }}
+.verified {{ background: #E2F7D5; color: #285A14; }}
+[data-testid="stMetric"],
+div[data-testid="stVerticalBlockBorderWrapper"] > div,
+.stContainer[data-testid="stContainer"]:has(> div[data-testid="stVerticalBlock"]),
+.stContainer[border="True"] {{
+  background: var(--wise-surface) !important;
+  border-color: var(--wise-line) !important;
+  box-shadow: none !important;
+  border-radius: 18px !important;
+}}
+[data-testid="stMetric"] {{ min-height: 124px; padding: 1.1rem 1.2rem; }}
+[data-testid="stMetricLabel"] {{ color: #74806D; font-size: .72rem; letter-spacing: .025em; text-transform: none; }}
+[data-testid="stMetricValue"] {{ font-size: 1.72rem; font-weight: 760; }}
+.stDataFrame, [data-testid="stDataFrame"], .stPlotlyChart {{
+  border-color: var(--wise-line) !important;
+  box-shadow: none !important;
+  border-radius: 16px !important;
+  background: #FFFFFF !important;
+}}
+.research-route-label {{
+  margin: 1.1rem 0 .45rem;
+  color: #66735F;
+  font-size: .72rem;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}}
+.stButton > button, .stDownloadButton > button, .stFormSubmitButton > button {{
+  border-radius: 999px !important;
+  border-color: #DCE5D6 !important;
+  background: #FFFFFF !important;
+  color: var(--wise-ink) !important;
+  box-shadow: none !important;
+}}
+.stButton > button[kind="primary"], .stFormSubmitButton > button[kind="primary"],
+.stDownloadButton > button {{
+  background: var(--wise-lime) !important;
+  border-color: var(--wise-lime) !important;
+  color: var(--wise-ink) !important;
+}}
+.stButton > button[kind="primary"] *, .stFormSubmitButton > button[kind="primary"] *,
+.stDownloadButton > button * {{ color: var(--wise-ink) !important; }}
+.stButton > button:hover, .stDownloadButton > button:hover, .stFormSubmitButton > button:hover {{
+  background: var(--wise-lime-hover) !important;
+  border-color: var(--wise-lime-hover) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}}
+.stTextInput input, .stDateInput input, .stTextArea textarea, .stNumberInput input,
+[data-baseweb="input"] input {{ background: #FFFFFF !important; border-color: #DCE5D6 !important; }}
+.stTextInput input:focus, .stDateInput input:focus, .stTextArea textarea:focus {{
+  border-color: #6FAA42 !important; box-shadow: 0 0 0 3px rgba(159,232,112,.28) !important;
+}}
+/* Sidebar snapshot controls need a readable neutral field, independently of
+   older utility-button rules above. */
+section[data-testid="stSidebar"] .st-key-refresh_snapshot_catalog button {{
+  background: #EEF3E9 !important;
+  border-color: #DCE5D6 !important;
+  color: var(--wise-ink) !important;
+}}
+section[data-testid="stSidebar"] .st-key-refresh_snapshot_catalog button * {{
+  color: var(--wise-ink) !important;
+}}
+/* The refresh control has a generated wrapper in some Streamlit builds, so
+   retain this scoped fallback.  Navigation buttons below have stronger rules. */
+section[data-testid="stSidebar"] .stButton > button {{
+  background: #EEF3E9 !important;
+  border-color: #DCE5D6 !important;
+  color: var(--wise-ink) !important;
+}}
+section[data-testid="stSidebar"] .stButton > button * {{
+  color: var(--wise-ink) !important;
+}}
+section[data-testid="stSidebar"] .stButton > button:hover {{
+  background: #DDEDD5 !important;
+  border-color: #C9DDBD !important;
+  color: var(--wise-ink) !important;
+}}
+section[data-testid="stSidebar"] .stButton > button:hover * {{
+  color: var(--wise-ink) !important;
+}}
+section[data-testid="stSidebar"] [data-testid="stExpander"] .stButton > button {{
+  background: transparent !important;
+  border-color: transparent !important;
+}}
+section[data-testid="stSidebar"] [data-testid="stExpander"] .stButton > button:hover {{
+  background: #EEF3E9 !important;
+}}
+section[data-testid="stSidebar"] [data-testid="stExpander"] .stButton > button[kind="primary"] {{
+  background: #EAF1E5 !important;
+}}
+section[data-testid="stSidebar"] [data-testid="stSelectbox"] > div,
+section[data-testid="stSidebar"] [data-testid="stSelectbox"] > div > div {{
+  background: #FFFFFF !important;
+  border-color: #C9D8C0 !important;
+  color: var(--wise-ink) !important;
+}}
+section[data-testid="stSidebar"] [data-testid="stSelectbox"] input {{
+  background: #FFFFFF !important;
+  color: var(--wise-ink) !important;
+  -webkit-text-fill-color: var(--wise-ink) !important;
+  font-size: .88rem !important;
+  font-weight: 650 !important;
+}}
+section[data-testid="stSidebar"] [data-testid="stSelectbox"] svg {{
+  fill: #5F7B50 !important;
+}}
+/* Sidebar control refinement: this is intentionally limited to the launch
+   controls shown above navigation.  It restores one visual rhythm between
+   labels, selects, checkboxes and actions without changing the app palette. */
+section[data-testid="stSidebar"] .brand-block {{
+  padding: .55rem .25rem 1.15rem;
+  border-bottom: 1px solid var(--wise-line);
+  margin-bottom: 1rem;
+}}
+section[data-testid="stSidebar"] .brand {{
+  margin: .1rem 0 .9rem !important;
+  font-size: 1.08rem !important;
+  letter-spacing: .025em !important;
+}}
+section[data-testid="stSidebar"] .brand-sub {{
+  margin: 0 !important;
+  color: #71816A !important;
+  font-size: .6rem !important;
+  letter-spacing: .12em !important;
+}}
+section[data-testid="stSidebar"] .st-key-refresh_snapshot_catalog button {{
+  min-height: 2.65rem !important;
+  border-radius: 10px !important;
+  background: #EEF3E9 !important;
+  border-color: #D7E4CF !important;
+  font-size: .88rem !important;
+}}
+section[data-testid="stSidebar"] .st-key-refresh_snapshot_catalog button:hover {{
+  background: #E4EFDC !important;
+  border-color: #C8DABC !important;
+}}
+section[data-testid="stSidebar"] [data-testid="stPopover"] > button {{
+  min-height: 2.65rem !important;
+  border-radius: 10px !important;
+  background: #FFFFFF !important;
+  border-color: #D7E4CF !important;
+  color: var(--wise-ink) !important;
+  font-size: .82rem !important;
+}}
+section[data-testid="stSidebar"] [data-testid="stPopover"] > button:hover {{
+  background: #EEF3E9 !important;
+  border-color: #C8DABC !important;
+}}
+section[data-testid="stSidebar"] [data-testid="stExpander"]:has(.st-key-refresh_snapshot_catalog) {{
+  margin: .9rem 0 1rem !important;
+  border: 1px solid #DCE5D6 !important;
+  border-radius: 14px !important;
+  background: #FAFCF8 !important;
+  overflow: hidden;
+}}
+section[data-testid="stSidebar"] [data-testid="stExpander"]:has(.st-key-refresh_snapshot_catalog) summary {{
+  padding: .82rem 1rem !important;
+  background: #F2F6EF !important;
+  font-size: .92rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0 !important;
+  text-transform: none !important;
+}}
+section[data-testid="stSidebar"] [data-testid="stExpander"]:has(.st-key-refresh_snapshot_catalog) [data-testid="stVerticalBlock"] {{
+  gap: .5rem !important;
+  padding: .95rem 1rem 1rem;
+}}
+section[data-testid="stSidebar"] .snapshot-section-title {{
+  margin: .05rem 0 0;
+  color: var(--wise-ink) !important;
+  font-size: .8rem;
+  font-weight: 750;
+}}
+section[data-testid="stSidebar"] .snapshot-section-copy {{
+  margin: .05rem 0 .25rem;
+  color: #71816A !important;
+  font-size: .72rem;
+  line-height: 1.45;
+}}
+section[data-testid="stSidebar"] .snapshot-online-heading {{
+  margin-top: .7rem;
+  padding-top: .8rem;
+  border-top: 1px solid var(--wise-line);
+}}
+section[data-testid="stSidebar"] .snapshot-picker-heading {{
+  margin-top: .7rem;
+  padding-top: .8rem;
+  border-top: 1px solid var(--wise-line);
+}}
+section[data-testid="stSidebar"] .snapshot-field-label {{
+  margin: .35rem 0 -.15rem;
+  color: #526049 !important;
+  font-size: .73rem;
+  font-weight: 700;
+}}
+section[data-testid="stSidebar"] .st-key-online_refresh_symbol [data-testid="stSelectbox"] > div,
+section[data-testid="stSidebar"] .st-key-snapshot_picker [data-testid="stSelectbox"] > div {{
+  min-height: 2.7rem !important;
+  border: 1px solid #C9DDBD !important;
+  border-radius: 11px !important;
+  background: #FFFFFF !important;
+  box-shadow: none !important;
+}}
+section[data-testid="stSidebar"] .st-key-online_refresh_symbol [data-testid="stSelectbox"] > div *,
+section[data-testid="stSidebar"] .st-key-snapshot_picker [data-testid="stSelectbox"] > div * {{
+  background: #FFFFFF !important;
+  color: var(--wise-ink) !important;
+  -webkit-text-fill-color: var(--wise-ink) !important;
+}}
+section[data-testid="stSidebar"] .st-key-online_refresh_symbol [data-testid="stSelectbox"] input,
+section[data-testid="stSidebar"] .st-key-snapshot_picker [data-testid="stSelectbox"] input {{
+  font-size: .88rem !important;
+  font-weight: 700 !important;
+}}
+section[data-testid="stSidebar"] .st-key-online_refresh_bars_only {{
+  margin: -.1rem 0 .15rem;
+}}
+section[data-testid="stSidebar"] .st-key-online_refresh_bars_only label {{
+  align-items: flex-start !important;
+  color: #526049 !important;
+  font-size: .82rem !important;
+  line-height: 1.45 !important;
+}}
+section[data-testid="stSidebar"] .st-key-online_refresh_bars_only [data-testid="stCheckbox"] {{
+  margin-top: .1rem;
+}}
+section[data-testid="stSidebar"] .st-key-refresh_snapshot_online button {{
+  min-height: 2.65rem !important;
+  border-radius: 10px !important;
+  background: var(--wise-lime) !important;
+  border-color: var(--wise-lime) !important;
+  color: var(--wise-ink) !important;
+  font-size: .87rem !important;
+}}
+section[data-testid="stSidebar"] .st-key-refresh_snapshot_online button *,
+section[data-testid="stSidebar"] .st-key-refresh_snapshot_online button:hover * {{
+  color: var(--wise-ink) !important;
+}}
+section[data-testid="stSidebar"] .st-key-refresh_snapshot_online button:hover {{
+  background: var(--wise-lime-hover) !important;
+  border-color: var(--wise-lime-hover) !important;
+}}
+section[data-testid="stSidebar"] .st-key-snapshot_picker {{
+  margin-top: .15rem;
+  padding-top: 0;
+  border-top: 0;
+}}
+section[data-testid="stSidebar"] .st-key-open_selected_snapshot button {{
+  min-height: 2.45rem !important;
+  margin: .1rem 0 0;
+  border-radius: 10px !important;
+  background: #FFFFFF !important;
+  border-color: #C9DDBD !important;
+  color: var(--wise-ink) !important;
+  font-size: .82rem !important;
+}}
+section[data-testid="stSidebar"] .st-key-open_selected_snapshot button:hover {{
+  background: #EEF3E9 !important;
+  border-color: #BBD3AC !important;
+}}
+section[data-testid="stSidebar"] .st-key-open_selected_snapshot button *,
+section[data-testid="stSidebar"] .st-key-open_selected_snapshot button:hover * {{
+  color: var(--wise-ink) !important;
+}}
+/* Product landing page — intentionally scoped so research workbench screens
+   keep their established visual system.  This layer changes hierarchy only:
+   it deliberately reuses the existing white / deep-green / lime palette. */
+.home-hero {{
+  border: 1px solid var(--wise-line); border-radius: 22px; padding: 1.6rem 2rem 2rem;
+  color: var(--wise-ink); background: #FFFFFF;
+}}
+.home-nav, .home-hero-grid {{ position: relative; z-index: 1; }}
+.home-nav {{ display: flex; justify-content: space-between; align-items: center; padding-bottom: 2rem; border-bottom: 1px solid var(--wise-line); }}
+.home-wordmark {{ font-size: 1.05rem; font-weight: 780; letter-spacing: -.015em; }}
+.home-wordmark span {{ color: #6FAA42; margin-right: .25rem; }}
+.home-nav-note {{ color: #71816A; font-size: .78rem; }}
+.home-hero-grid {{ min-height: 0; display: block; padding-top: 2.25rem; }}
+.home-eyebrow, .section-kicker {{ color: #547444; font-size: .68rem; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }}
+.home-eyebrow {{ display: flex; align-items: center; gap: .5rem; }}
+.home-eyebrow i {{ width: .5rem; height: .5rem; border-radius: 50%; background: var(--wise-lime); box-shadow: 0 0 0 4px rgba(159,232,112,.22); }}
+.home-hero h1 {{ margin: .7rem 0 0 !important; color: var(--wise-ink) !important; font-size: clamp(2.35rem, 5vw, 3.85rem) !important; line-height: 1.08 !important; letter-spacing: -.06em !important; }}
+.home-hero p {{ max-width: 650px; margin: 1rem 0 0; color: #71816A; font-size: 1.02rem; line-height: 1.75; }}
+.value-pills {{ display: flex; flex-wrap: wrap; gap: .55rem; margin-top: 1.35rem; }}
+.value-pills span {{ border: 1px solid #DCE5D6; border-radius: 999px; padding: .42rem .76rem; background: #F4F6F1; color: #526049; font-size: .8rem; font-weight: 650; }}
+/* The diagram was decorative rather than actionable; the only first-screen
+   action should be the CTA below the message. */
+.home-orbit {{ display: none; }}
+[class*="st-key-home_start_research"] button {{ margin-top: 1.05rem; min-width: 156px; background: var(--wise-lime) !important; border-color: var(--wise-lime) !important; color: var(--wise-ink) !important; }}
+[class*="st-key-home_start_research"] button * {{ color: var(--wise-ink) !important; }}
+.home-section {{ margin-top: 5.5rem; }}
+.section-kicker {{ color: #547444; }}
+.home-section h2, .architecture-section h2 {{ margin: .42rem 0 0 !important; color: var(--wise-ink) !important; font-size: clamp(1.85rem, 3vw, 2.6rem) !important; letter-spacing: -.045em !important; }}
+.section-lead {{ max-width: 650px; margin: .7rem 0 0; color: #71816A; font-size: 1rem; line-height: 1.7; }}
+.problem-grid, .feature-grid {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; margin-top: 1.7rem; }}
+.problem-grid article {{ min-height: 174px; padding: 1.25rem; border: 1px solid var(--wise-line); border-radius: 16px; background: #FFF; }}
+.problem-grid article b {{ display: grid; place-items: center; width: 1.7rem; height: 1.7rem; border-radius: 50%; background: #FFF0F0; color: #C95D67; font-size: .9rem; }}
+.problem-grid h3, .feature-grid h3, .case-card h3 {{ margin: 1rem 0 .35rem !important; color: var(--wise-ink) !important; font-size: 1.03rem !important; }}
+.problem-grid p, .feature-grid p, .case-card p {{ margin: 0; color: #71816A; font-size: .88rem; line-height: 1.65; }}
+.workflow-section {{ padding: 2.1rem; border: 1px solid var(--wise-line); border-radius: 20px; background: var(--wise-surface); }}
+.workflow-rail {{ display: flex; align-items: stretch; gap: .65rem; margin-top: 1.75rem; }}
+.workflow-rail div {{ flex: 1; min-width: 0; }}
+.workflow-rail em {{ display: block; color: #547444; font-size: .7rem; font-style: normal; font-weight: 800; letter-spacing: .08em; }}
+.workflow-rail strong {{ display: block; margin-top: .4rem; color: var(--wise-ink); font-size: .97rem; }}
+.workflow-rail span {{ display: block; margin-top: .3rem; color: #71816A; font-size: .76rem; }}
+.workflow-rail > i {{ width: 40px; align-self: 27px; height: 1px; background: #C9DDBD; }}
+.feature-grid article {{ min-height: 226px; padding: 1.35rem; border: 1px solid var(--wise-line); border-radius: 17px; background: #FFFFFF; box-shadow: none; }}
+.feature-grid article:nth-child(2) {{ background: var(--wise-surface); border-color: var(--wise-line); }}
+.feature-grid article:nth-child(2) h3 {{ color: var(--wise-ink) !important; }}
+.feature-grid article:nth-child(2) b {{ color: #547444 !important; }}
+.feature-grid article:nth-child(2) p {{ color: #71816A; }}
+.feature-number {{ color: #547444; font-size: .7rem; font-weight: 800; letter-spacing: .1em; }}
+.feature-grid b {{ color: #547444; font-size: .78rem; font-weight: 650; }}
+.case-section {{ margin-bottom: 1.6rem; }}
+.featured-case {{ margin-top: 2.6rem; }}
+.case-card {{ min-height: 245px; padding: 1.45rem; border: 1px solid var(--wise-line); border-radius: 18px 18px 0 0; background: #FFF; }}
+.case-card.case-pass {{ border-top: 3px solid #43A980; }} .case-card.case-block {{ border-top: 3px solid #D68471; }}
+.case-top {{ display: flex; justify-content: space-between; gap: 1rem; color: #71816A; font-size: .73rem; font-weight: 700; }}
+.case-top b {{ border-radius: 999px; padding: .32rem .55rem; font-size: .71rem; }}
+.case-pass .case-top b {{ background: #E7F6EE; color: #207653; }} .case-block .case-top b {{ background: #FDF0EC; color: #B55F4D; }}
+.case-card ul {{ display: flex; flex-wrap: wrap; gap: .5rem; padding: 0; margin: 1.1rem 0 0; list-style: none; }}
+.case-card li {{ border-radius: 6px; padding: .36rem .48rem; background: #F4F6F1; color: #526049; font-size: .73rem; }}
+.case-card + div[data-testid="stExpander"] {{ margin-top: 0 !important; border: 1px solid var(--wise-line); border-top: 0; border-radius: 0 0 18px 18px; background: #FFF; }}
+.case-card + div[data-testid="stExpander"] summary {{ color: #547444; font-size: .82rem; font-weight: 650; }}
+.architecture-section {{ margin-top: 5.5rem; padding: 2.25rem; border: 1px solid var(--wise-line); border-radius: 22px; background: var(--wise-surface); }}
+.architecture-section .section-kicker {{ color: #547444; }} .architecture-section h2 {{ color: var(--wise-ink) !important; }} .architecture-section p {{ margin: .55rem 0 0; color: #71816A; }}
+.architecture-flow {{ display: flex; flex-wrap: wrap; align-items: center; gap: .65rem; margin-top: 1.5rem; }}
+.architecture-flow span {{ border: 1px solid #DCE5D6; border-radius: 9px; padding: .65rem .8rem; background: #FFFFFF; color: var(--wise-ink); font: 600 .78rem ui-monospace, SFMono-Regular, Menlo, monospace; }}
+.architecture-flow i {{ color: #6FAA42; font-style: normal; }}
+.agent-context {{ margin: .1rem 0 1rem; padding: 1rem 1.1rem; border: 1px solid var(--wise-line); border-radius: 14px; background: #FBFCF9; }}
+.agent-context-head {{ display: flex; align-items: center; justify-content: space-between; gap: .8rem; margin-bottom: .8rem; color: var(--wise-ink); font-size: .86rem; font-weight: 750; }}
+.agent-context-head span {{ border-radius: 999px; padding: .24rem .5rem; background: #EAF4E3; color: #547444; font-size: .68rem; font-weight: 700; }}
+.agent-context-grid {{ display: grid; grid-template-columns: minmax(180px, 1.5fr) minmax(130px, 1fr) minmax(145px, 1fr); gap: 1rem; }}
+.agent-context-item {{ min-width: 0; }}
+.agent-context-item span {{ display: block; color: #71816A; font-size: .7rem; font-weight: 700; letter-spacing: .04em; }}
+.agent-context-item strong {{ display: block; overflow: hidden; margin-top: .25rem; color: var(--wise-ink); font-size: .95rem; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }}
+.agent-context-item em {{ color: #547444; font-style: normal; font-weight: 650; }}
+.st-key-account_topbar {{ position: fixed !important; top: .7rem; right: 17.8rem; z-index: 2147483647 !important; width: 4.8rem; }}
+.st-key-account_topbar [data-testid="stPopover"] > button {{ min-height: 2.25rem; width: 100%; border: 1px solid #D7E4CF !important; border-radius: 10px !important; background: #FFFFFF !important; color: var(--wise-ink) !important; box-shadow: 0 3px 12px rgba(20, 42, 30, .08); font-size: .82rem; font-weight: 700; }}
+.st-key-account_topbar [data-testid="stPopover"] > button:hover {{ background: #F2F6EF !important; border-color: #BFD6B3 !important; }}
+@media (max-width: 700px) {{ .agent-context-grid {{ grid-template-columns: 1fr; gap: .65rem; }} .agent-context-head {{ align-items: flex-start; flex-direction: column; }} }}
+@media (max-width: 900px) {{
+  .block-container {{ padding: 1.15rem 1rem 3rem; }}
+  .home-hero {{ padding: 1.25rem; }} .home-hero-grid {{ grid-template-columns: 1fr; min-height: 0; }} .home-orbit {{ display: none; }}
+  .home-nav {{ padding-bottom: 2rem; }} .problem-grid, .feature-grid {{ grid-template-columns: 1fr; }} .workflow-rail {{ flex-direction: column; gap: .85rem; }} .workflow-rail > i {{ width: 1px; height: 20px; margin-left: .5rem; }}
+  .home-section {{ margin-top: 3.5rem; }} .workflow-section, .architecture-section {{ padding: 1.35rem; }}
+}}
 </style>""",
         unsafe_allow_html=True,
     )
 
 
+def research_quality_copy(validation: dict, readiness: dict) -> tuple[str, str, str, str]:
+    """Translate stored validation states into user-facing research guidance.
+
+    This is presentation only: it never changes the validator result or
+    promotes a blocked conclusion.  Raw statuses remain available in the
+    advanced details for professional review.
+    """
+    checks = {str(check.get("code")): check for check in validation.get("checks", [])}
+    if validation.get("status") == "blocked" or readiness.get("status") == "blocked":
+        reason = "关键数据或计算依据不足，系统已限制相关结论。"
+        if checks.get("key_metrics", {}).get("status") == "blocked":
+            reason = "关键估值输入不完整，系统不会把缺失信息补成结论。"
+        elif checks.get("ledger", {}).get("status") == "blocked":
+            reason = "部分数据依据或计算依赖未通过检查，相关结论已被限制。"
+        return "数据不足", "red", reason, "不建议将本报告作为完整研究依据。"
+    if validation.get("status") == "warning" or readiness.get("status") == "limited":
+        if checks.get("snapshot_freshness", {}).get("status") == "warning":
+            reason = "当前数据版本较旧，部分指标可能无法反映最新情况。"
+        elif checks.get("annual_financial_coverage", {}).get("status") == "warning":
+            reason = "部分已披露财务数据覆盖不足，报告的适用范围有限。"
+        elif checks.get("peer_coverage", {}).get("status") == "warning":
+            reason = "同行数据覆盖有限，相关比较结论需要谨慎参考。"
+        else:
+            reason = "部分研究条件需要关注，系统已对受影响的结论进行限制。"
+        return "数据需要关注", "orange", reason, "可阅读已验证内容，但不宜据此形成强结论。"
+    return "数据充分", "green", "数据依据、关键输入和当前研究范围均已完成检查。", "可作为当前数据版本下的研究参考，不构成投资建议。"
+
+
+def validation_check_copy(check: dict) -> str:
+    """Explain a validator result without surfacing implementation tokens."""
+    code = str(check.get("code", ""))
+    status = str(check.get("status", "unknown"))
+    messages = {
+        "ledger": "数据依据与计算关系已完成一致性核对。",
+        "snapshot_freshness": "当前数据版本较旧，部分指标可能无法反映最新情况。",
+        "annual_financial_coverage": "部分已披露财务数据覆盖不足，报告的适用范围有限。",
+        "key_metrics": "关键估值输入不足，相关结论已被系统限制。",
+        "peer_coverage": "同行数据覆盖有限，相关比较结论需要谨慎参考。",
+    }
+    if status == "pass":
+        return messages.get(code, "该项数据检查已完成。")
+    return messages.get(code, "该项数据检查需要关注，请查看处理建议。")
+
+
 def header(snapshot: dict, metadata: dict) -> None:
     profile = snapshot["data"]["profile"]
+    source_metadata = snapshot.get("source_metadata") or {}
+    raw_dates = [
+        str(bar["trade_date"])
+        for bar in snapshot.get("data", {}).get("bars", [])
+        if bar.get("adjustment") == "RAW"
+        and bar.get("trade_date")
+        and str(bar["trade_date"]) <= str(snapshot.get("research_as_of", ""))[:10]
+    ]
+    origin_label = "联网更新版本" if source_metadata.get("refresh") else "本地基准版本"
+    latest_raw_close_date = max(raw_dates) if raw_dates else "未覆盖"
     validation = cached_research_validation(snapshot["snapshot_id"])
-    validation_class = {"pass": "verified", "warning": "warning", "blocked": "blocked"}[validation["status"]]
-    validation_label = {"pass": "校验通过", "warning": "校验警告", "blocked": "校验阻断"}[validation["status"]]
+    readiness = cached_research_readiness(snapshot["snapshot_id"])
+    quality_label, quality_color, _, _ = research_quality_copy(validation, readiness)
+    quality_class = {"green": "verified", "orange": "warning", "red": "blocked"}[quality_color]
     left, right = st.columns([7, 2], vertical_alignment="center")
     with left:
         st.markdown(
             f'''<div class="hero-shell">
-                <div class="hero-kicker"><span class="hero-dot"></span> FINTRACE / CN · VERSIONED RESEARCH</div>
+                <div class="hero-kicker"><span class="hero-dot"></span> FINTRACE / CN · AI 金融研究</div>
                 <div class="hero-title">{profile['name']} <span>·</span> {snapshot['symbol']}</div>
                 <div class="hero-subtitle">{profile["industry_name"]} <span class="hero-sep">/</span> {profile["currency"]} <span class="hero-sep">/</span> 研究截至 {_display_datetime(snapshot["research_as_of"])}</div>
             </div>''',
             unsafe_allow_html=True,
         )
     with right:
-        st.download_button("导出研究元数据", json.dumps(metadata, ensure_ascii=False, indent=2), f"{snapshot['symbol']}-research-metadata.json", "application/json", width="stretch")
-    st.markdown(f'''<div class="statusbar"><span class="badge snapshot">▣ 版本化快照</span><span class="badge {validation_class}">● {validation_label}</span><span class="badge neutral">Provider · {snapshot["provider"]}</span><span class="badge neutral">Snapshot · {snapshot["snapshot_id"]}</span><span class="badge neutral">口径 · RAW / CNY</span></div>''', unsafe_allow_html=True)
+        st.download_button("导出研究信息", json.dumps(metadata, ensure_ascii=False, indent=2), f"{snapshot['symbol']}-research-metadata.json", "application/json", width="stretch")
+    st.markdown(
+        f'''<div class="statusbar"><span class="badge {quality_class}">● 研究质量：{quality_label}</span>
+        <span class="badge neutral">{origin_label} · 收盘数据截至 {latest_raw_close_date}</span></div>''',
+        unsafe_allow_html=True,
+    )
 
 
 def security_status(snapshot_id: str) -> None:
@@ -1117,24 +1898,77 @@ def overview(snapshot: dict, metadata: dict) -> None:
     fy = _annual_income(statements).tail(5)
     validation = cached_research_validation(snapshot["snapshot_id"])
     validation_class = {"pass": "verified", "warning": "warning", "blocked": "blocked"}[validation["status"]]
-    st.markdown("### 研究总览")
     security_status(snapshot["snapshot_id"])
+    # Freshness remains determined from the snapshot's own RAW close date; the
+    # presentation below deliberately explains it without exposing raw tokens.
+    freshness = service.snapshot_freshness(snapshot["snapshot_id"])
     readiness = cached_research_readiness(snapshot["snapshot_id"])
     peer = cached_research_valuation(snapshot["snapshot_id"])
-    evidence_count = len(cached_research_evidence(snapshot["snapshot_id"]).get("records", []))
+    evidence_result = cached_research_evidence(snapshot["snapshot_id"])
+    evidence_count = len(evidence_result.get("records", []))
+    validation_checks = validation.get("checks", [])
+    passed_count = sum(check.get("status") == "pass" for check in validation_checks)
+    attention_count = sum(check.get("status") != "pass" for check in validation_checks)
+    quality_label, quality_color, quality_reason, report_guidance = research_quality_copy(validation, readiness)
+
+    with st.container(border=True):
+        quality_left, quality_right = st.columns([1, 3], vertical_alignment="center")
+        with quality_left:
+            st.markdown("**AI 研究质量**")
+            st.badge(quality_label, color=quality_color)
+        with quality_right:
+            st.markdown(f"**{report_guidance}**")
+            st.caption(f"原因：{quality_reason}")
+
+    st.markdown("### 为什么相信这份报告？")
+    trust_columns = st.columns(4)
+    trust_columns[0].metric("数据依据", f"{evidence_count} 项")
+    trust_columns[0].caption("本次研究引用的数据依据")
+    trust_columns[1].metric("数据检查", f"{passed_count} 项已完成")
+    trust_columns[1].caption("已完成的关键数据与计算检查")
+    trust_columns[2].metric("需要关注", f"{attention_count} 项")
+    trust_columns[2].caption("系统已标记并限制受影响结论")
+    trust_columns[3].metric("数据更新时间", freshness.get("latest_trade_date") or "未覆盖")
+    trust_columns[3].caption("当前版本纳入的最新收盘数据")
+
+    with st.expander("高级验证详情", expanded=False):
+        st.caption("以下信息用于复核完整验证链路；不会改变本页展示的研究结论。")
+        details_left, details_right = st.columns(2)
+        with details_left:
+            st.markdown("**数据版本与来源**")
+            st.write(f"数据版本：`{snapshot['snapshot_id']}`")
+            st.write(f"数据提供方：`{snapshot['provider']}`")
+            st.write(f"研究截止：`{_display_datetime(snapshot['research_as_of'])}`")
+            st.write("价格口径：`RAW / CNY`")
+        with details_right:
+            st.markdown("**Evidence Ledger / Validator**")
+            st.write(f"Evidence Ledger：`{evidence_count}` 条记录")
+            advanced_rows = [
+                {"检查项": check.get("label", check.get("code", "检查项")), "状态": {"pass": "通过", "warning": "需要关注", "blocked": "数据不足"}.get(check.get("status"), "未测量"), "说明": validation_check_copy(check)}
+                for check in validation_checks
+            ]
+            st.dataframe(pd.DataFrame(advanced_rows), width="stretch", hide_index=True)
+        st.button(
+            "查看 AI 分析过程",
+            key=f"overview_trace_link_{snapshot['snapshot_id']}",
+            icon=":material/account_tree:",
+            on_click=_select_page,
+            args=("Agent 执行轨迹",),
+        )
+
     report_ready = bool(_report_candidates(snapshot))
     readiness_checks = readiness.get("checks", {})
     delivery_rows = [
         (
-            "关键输入",
+            "核心数据",
             readiness_checks.get("key_metrics", {}).get("status", "unknown"),
-            readiness_checks.get("key_metrics", {}).get("detail", "未覆盖"),
+            "关键研究输入已完成核验" if readiness_checks.get("key_metrics", {}).get("status") == "pass" else "关键研究输入仍需补充",
             "证据与校验",
         ),
         (
-            "证据校验",
+            "数据检查",
             validation.get("status", "unknown"),
-            f"Evidence Ledger · {evidence_count} 条记录",
+            f"本次研究使用 {evidence_count} 项数据依据",
             "证据与校验",
         ),
         (
@@ -1152,10 +1986,10 @@ def overview(snapshot: dict, metadata: dict) -> None:
     ]
     status_labels = {
         "pass": ("通过", "green"), "ready": ("通过", "green"),
-        "warning": ("有限", "orange"), "limited": ("有限", "orange"),
-        "blocked": ("阻断", "red"), "unknown": ("未测量", "gray"),
+        "warning": ("需要关注", "orange"), "limited": ("需要关注", "orange"),
+        "blocked": ("数据不足", "red"), "unknown": ("未测量", "gray"),
     }
-    st.markdown("### 研究交付状态")
+    st.markdown("### 研究内容状态")
     delivery_columns = st.columns(4)
     for column, (label, status, detail, target_page) in zip(delivery_columns, delivery_rows):
         status_label, status_color = status_labels.get(status, ("未测量", "gray"))
@@ -1172,6 +2006,7 @@ def overview(snapshot: dict, metadata: dict) -> None:
                     width="stretch",
                 )
     st.caption("状态只反映当前选中快照的覆盖、校验和交付工件；页面不会用缺失数据补全结论。")
+    st.markdown("### 关键研究摘要")
     a, b, c, d = st.columns(4)
     price = metrics.get("price")
     market_cap = metrics.get("market_cap")
@@ -1202,14 +2037,14 @@ def overview(snapshot: dict, metadata: dict) -> None:
         st.error("校验已阻断：关键输入或证据链不完整，因此不展示确定性估值结论。请前往“证据与校验”查看修复建议。")
     elif validation["status"] == "warning":
         st.warning("校验存在警告：当前内容可供基础阅读，但同业覆盖或数据时效不足，不应据此形成强结论。")
-    st.markdown("### 新手研究摘要")
-    readiness_label = {"ready": "可用于基础研究", "limited": "可用但存在限制", "blocked": "关键数据不足"}[readiness["status"]]
-    st.markdown(f"**研究就绪度：{readiness_label}**")
+    st.markdown("### 研究解读")
+    st.markdown(f"**报告参考建议：{report_guidance}**")
     with st.expander("查看数据覆盖与限制", expanded=readiness["status"] != "ready"):
         labels = {"snapshot_freshness": "快照时效", "annual_financial_coverage": "年度财报覆盖", "key_metrics": "关键估值输入", "peer_coverage": "同业样本"}
-        rows = [{"检查项": labels[name], "状态": check["status"], "说明": check["detail"]} for name, check in readiness["checks"].items()]
+        display_status = {"pass": "通过", "warning": "需要关注", "blocked": "数据不足"}
+        rows = [{"检查项": labels[name], "状态": display_status.get(check["status"], "未测量"), "说明": validation_check_copy({"code": name, **check})} for name, check in readiness["checks"].items()]
         st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
-        st.caption("warning 表示可继续阅读但不应据此作强结论；blocked 表示缺少关键数据。")
+        st.caption("需要关注表示可继续阅读已验证内容；数据不足表示相关结论会被系统限制。")
     peer = cached_research_valuation(snapshot["snapshot_id"])
     st.markdown("### 同行估值摘要")
     if peer.get("method_boundary") == "financial_institution_pe_pb_only":
@@ -1585,6 +2420,20 @@ def _peer_unavailable_message(peer: dict) -> str:
 def valuation_safe(snapshot: dict, metadata: dict) -> None:
     """展示服务层生成的同行估值，前端不派生任何倍数。"""
     st.markdown("### 同行估值")
+    peer_sync_notice = st.session_state.pop("peer_sync_notice", None)
+    if peer_sync_notice:
+        if peer_sync_notice["status"] == "completed":
+            st.success(
+                f"已同步 {peer_sync_notice['synchronized_count']} 个同业数据版本；"
+                "已生成统一研究截止日的数据版本，同行估值仍会按财务期间和数据依据进行筛选。"
+            )
+        elif peer_sync_notice["status"] == "partial":
+            st.warning(
+                f"已同步 {peer_sync_notice['synchronized_count']} 个版本，"
+                f"另有 {peer_sync_notice['failed_count']} 个未能更新，已从本次同行比较中排除。"
+            )
+        else:
+            st.error("同行数据同步未启动；请确认当前股票和同行均有可用的真实数据版本。")
     peer = cached_research_valuation(snapshot["snapshot_id"])
     if peer.get("method_boundary") == "financial_institution_pe_pb_only":
         st.warning("金融机构不适用通用企业估值框架；当前仅展示 PE/PB，隐藏 PS、EV/EBITDA 和通用企业 DCF。")
@@ -1592,6 +2441,39 @@ def valuation_safe(snapshot: dict, metadata: dict) -> None:
         st.warning(f"当前无法进行同行估值：{_peer_unavailable_message(peer)}。")
         if peer.get("remediation"):
             st.caption(peer["remediation"])
+        preview = service.peer_sync_preview(snapshot["snapshot_id"])
+        if preview.get("available"):
+            st.info(
+                f"发现 {preview['candidate_count']} 个可同步的本地同行版本。"
+                "同步后会在同一研究截止日重新尝试同行比较；财务期间不一致的数据仍会被排除。"
+            )
+            if preview.get("truncated_count"):
+                st.caption(
+                    f"为控制联网调用，本次最多同步 {service.PEER_SYNC_MAX_SYMBOLS} 个标的；"
+                    f"其余 {preview['truncated_count']} 个同行不会参与本次刷新。"
+                )
+            if st.button(
+                "同步更新同行数据",
+                key=f"peer_sync_{snapshot['snapshot_id']}",
+                icon=":material/sync:",
+                type="primary",
+            ):
+                with st.spinner("正在同步同行收盘价并创建统一版本…"):
+                    outcome = service.refresh_peer_group(snapshot["snapshot_id"])
+                st.session_state["peer_sync_notice"] = outcome
+                if outcome.get("status") in {"completed", "partial"}:
+                    service.load_snapshot.cache_clear()
+                    cached_research_catalog.clear()
+                    load_research.clear()
+                    st.cache_data.clear()
+                    refreshed_catalog = service.list_research()
+                    labels = {item["id"]: snapshot_choice_label(item) for item in refreshed_catalog}
+                    target_snapshot_id = outcome.get("snapshot_id")
+                    if target_snapshot_id in labels:
+                        st.session_state["snapshot_picker"] = labels[target_snapshot_id]
+                st.rerun()
+        elif preview.get("reason") == "no_provider_backed_peers":
+            st.caption("当前没有可同步的真实数据同行快照；请先建立同行的本地数据版本。")
         st.caption("因此不判断估值高低，也不生成替代数字。")
         return
     metric = st.segmented_control("估值指标", list(peer["multiples"]), default=next(iter(peer["multiples"])))
@@ -1667,20 +2549,22 @@ def valuation_safe(snapshot: dict, metadata: dict) -> None:
 
 
 def evidence(snapshot: dict, metadata: dict) -> None:
-    st.markdown("### 证据与校验中心")
+    st.markdown("### 数据依据与检查")
     evidence_result = cached_research_evidence(snapshot["snapshot_id"])
     validation = cached_research_validation(snapshot["snapshot_id"])
+    readiness = cached_research_readiness(snapshot["snapshot_id"])
     records = evidence_result["records"]
     checks = validation.get("checks", [])
-    status_labels = {"pass": "通过", "warning": "有限", "blocked": "阻断"}
-    status_value = status_labels.get(validation.get("status"), "未测量")
+    status_labels = {"pass": "通过", "warning": "需要关注", "blocked": "数据不足"}
+    quality_label, _, quality_reason, _ = research_quality_copy(validation, readiness)
     passed_count = sum(check.get("status") == "pass" for check in checks)
     attention_count = sum(check.get("status") != "pass" for check in checks)
     summary_columns = st.columns(4)
-    summary_columns[0].metric("综合状态", status_value)
-    summary_columns[1].metric("Evidence 记录", len(records))
-    summary_columns[2].metric("已通过检查", passed_count)
-    summary_columns[3].metric("待处理检查", attention_count)
+    summary_columns[0].metric("研究质量", quality_label)
+    summary_columns[1].metric("数据依据", f"{len(records)} 项")
+    summary_columns[2].metric("数据检查", f"{passed_count} 项通过")
+    summary_columns[3].metric("需要关注", f"{attention_count} 项")
+    st.caption(f"研究质量说明：{quality_reason}")
     attention = [check for check in checks if check.get("status") != "pass"]
     if attention:
         with st.container(border=True):
@@ -1689,7 +2573,7 @@ def evidence(snapshot: dict, metadata: dict) -> None:
                 label = status_labels.get(check.get("status"), "未测量")
                 st.markdown(
                     f"**{check.get('label', check.get('code', '检查项'))} · {label}**："
-                    f"{check.get('detail', '未提供详情')}"
+                    f"{validation_check_copy(check)}"
                 )
                 if check.get("remediation"):
                     st.caption(f"处理建议：{check['remediation']}")
@@ -1783,19 +2667,19 @@ def evidence(snapshot: dict, metadata: dict) -> None:
         else:
             st.info("当前证据集中没有计算依赖关系。")
     with right:
-        st.markdown("#### Validator 清单")
+        st.markdown("#### 数据检查详情")
         for check in validation["checks"]:
             if check["status"] == "pass":
-                message = f"**{check['label']}** — 已通过：{check['detail']}"
+                message = f"**{check['label']}** — 已通过：{validation_check_copy(check)}"
             elif check["status"] == "warning":
                 message = (
-                    f"**{check['label']}** — 研究范围限制：{check['detail']}\n\n"
+                    f"**{check['label']}** — 需要关注：{validation_check_copy(check)}\n\n"
                     f"当前影响：不阻断已验证事实和基础报告；涉及该项的扩展结论会降级或不展示。\n\n"
                     f"如需扩展范围：{check['remediation']}"
                 )
             else:
                 message = (
-                    f"**{check['label']}** — 关键阻断：{check['detail']}\n\n"
+                    f"**{check['label']}** — 数据不足：{validation_check_copy(check)}\n\n"
                     f"需要处理：{check['remediation']}"
                 )
             if check["status"] == "pass":
@@ -1804,11 +2688,11 @@ def evidence(snapshot: dict, metadata: dict) -> None:
                 st.warning(message)
             else:
                 st.error(message)
-        st.caption(f"综合状态：{validation['status']} · 允许确定性结论：{validation['conclusion_allowed']} · 研究截至：{validation['research_as_of']}")
+        st.caption(f"当前数据版本的研究截止时间：{validation['research_as_of']}")
 
 
 def _trace_legacy(snapshot: dict) -> None:
-    st.markdown("### Agent 执行轨迹")
+    st.markdown("### AI 分析过程")
     st.caption("仅呈现已记录的研究流程摘要；外部工具内容始终按数据处理。")
     events = [("01", "解析研究对象", f"{snapshot['symbol']} · A 股实体解析", "成功", "—"), ("02", "加载版本化快照", f"{snapshot.get('provider', 'snapshot')} / {snapshot['snapshot_id']}", "成功", "—"), ("03", "确定性计算", "TTM 与市场价值", "成功", "—"), ("04", "Evidence Ledger", "生成事实与计算依赖", "成功", "—")]
     for n, title, detail, status, duration in events:
@@ -1818,10 +2702,38 @@ def _trace_legacy(snapshot: dict) -> None:
 def trace(snapshot: dict) -> None:
     """Render only persisted task events; legacy snapshots remain explicitly empty."""
     result = service.research_trace(snapshot["snapshot_id"])
-    st.markdown("### Agent 执行轨迹")
+    st.markdown("### AI 分析过程")
     if not result["available"]:
         st.info("该快照没有已持久化的执行轨迹；不会补造成功步骤。")
         return
+    # Real Agent tasks persist a richer event stream than the generic task
+    # transition trace.  Prefer it when available so this page exposes the
+    # actual plan, model/tool calls, evidence registration and Validator gate.
+    task_id = result.get("task_id")
+    if task_id:
+        try:
+            agent_task = agent_service.get_agent_task(task_id)
+            stream = agent_service.agent_task_events(task_id)
+        except KeyError:
+            agent_task = None
+            stream = None
+        if agent_task is not None and stream is not None:
+            st.caption(
+                f"任务 {task_id} · 模型 {agent_task.get('model_name') or '未记录'} · "
+                f"状态 {agent_task.get('status') or '未记录'}"
+            )
+            for event in stream["events"]:
+                with st.container(border=True):
+                    st.write(f"**{event.get('event', 'unknown')}** · {event.get('status', 'unknown')}")
+                    st.caption(f"{event.get('timestamp') or '—'} · {event.get('detail') or '—'}")
+                    evidence_ids = (event.get("metadata") or {}).get("evidence_ids") or []
+                    if evidence_ids:
+                        st.code(", ".join(evidence_ids), language=None)
+            tool_trace = stream.get("tool_trace") or []
+            if tool_trace:
+                with st.expander("工具调用明细", expanded=False):
+                    st.dataframe(tool_trace, width="stretch", hide_index=True)
+            return
     st.caption(
         f"任务 {result['task_id']} · Trace {result['trace_id']} · "
         f"模型 {result.get('model') or '未记录'} · Prompt {result.get('prompt_version') or '未记录'}"
@@ -1878,12 +2790,51 @@ def _report_matches_snapshot(path: Path, snapshot_id: str) -> bool:
     return _report_sidecar(path, snapshot_id) is not None
 
 
+def _latest_validated_agent_report(snapshot_id: str) -> dict | None:
+    """Return the newest passing Agent narrative for one pinned snapshot."""
+    for item in service.list_tasks():
+        if (item.get("kind") != "agent_research" or item.get("snapshot_id") != snapshot_id
+                or item.get("status") != "succeeded"):
+            continue
+        try:
+            task = agent_service.get_agent_task(item["id"])
+        except KeyError:
+            continue
+        validation = task.get("validation") or {}
+        answer = str(task.get("answer") or "").strip()
+        if validation.get("valid") and answer:
+            return task
+    return None
+
+
 def report(snapshot: dict) -> None:
     st.markdown("### 中文研究报告")
+    agent_report = _latest_validated_agent_report(snapshot["snapshot_id"])
     candidates = _report_candidates(snapshot)
-    if not candidates:
+    if agent_report:
+        task_id = agent_report["id"]
+        answer = str(agent_report["answer"])
+        st.success("该报告由真实 Agent 生成，且本轮已通过 Validator 校验。")
+        st.caption(
+            f"任务 {task_id} · 模型 {agent_report.get('model_name') or '未记录'} · "
+            f"研究截至 {agent_report.get('research_as_of') or '未记录'}"
+        )
+        st.download_button(
+            "下载 Agent 研究报告",
+            data=answer,
+            file_name=f"{snapshot['symbol']}_{snapshot['snapshot_id']}_agent_report.md",
+            mime="text/markdown",
+            key=f"download_agent_report_{task_id}",
+        )
+        st.markdown(answer)
+    if not candidates and not agent_report:
         st.info("该快照尚未生成独立研究报告。请使用受控离线研究流程生成后再查看。")
         return
+    if not candidates:
+        return
+    if agent_report and candidates:
+        st.divider()
+        st.caption("以下是同一快照的独立离线研究报告。")
     labels = {path.name: path for path in candidates}
     selected_name = st.selectbox(
         "报告版本", list(labels), key=f"report_picker_{snapshot['snapshot_id']}"
@@ -1989,6 +2940,25 @@ def documents() -> None:
         st.warning(detail["type_mismatch_warning"])
     if detail["status"] == "degraded":
         st.error("该文档解析失败页比例过高：仅供参考，不可作为事实来源。")
+        usable_label = next(
+            (
+                label for label, candidate_id in labels.items()
+                if (candidate := next(item for item in listing["items"] if item["document_id"] == candidate_id))
+                and candidate["status"] in {"ok", "partial"}
+                and candidate["fact_count"] > 0
+            ),
+            None,
+        )
+        if usable_label:
+            def _show_usable_document() -> None:
+                st.session_state["document_picker"] = usable_label
+                st.session_state.pop("document_fact_id", None)
+
+            st.button(
+                "查看可解析的示例年报",
+                help="当前扫描页没有任何可识别文字；切换到已登记且含可定位数值的年报。",
+                on_click=_show_usable_document,
+            )
 
     with st.expander("解析摘要（逐页）", expanded=False):
         events = detail["parse_events"]
@@ -2568,7 +3538,7 @@ def tasks() -> None:
                 st.rerun()
 
 
-def agent_research() -> None:
+def agent_research(selected_snapshot_id: str) -> None:
     """A chat-first, auditable interface to the shared CnResearchAgent.
 
     A conversation is pinned to one versioned snapshot.  That is deliberately
@@ -2580,14 +3550,11 @@ def agent_research() -> None:
         "直接输入问题即可开始对话。每一轮都会重新调用工具并通过 Validator；快照是版本化历史数据，不是实时行情。"
     )
     catalog = cached_research_catalog()
-    if not catalog:
-        st.info("尚无可用快照。")
+    selected_item = next((item for item in catalog if item["id"] == selected_snapshot_id), None)
+    if selected_item is None:
+        st.error("侧边栏当前选择的数据版本已不存在；请重新选择后再启动 Agent。")
         return
-    labels = {f"{item['name']} · {item['symbol']}": item for item in catalog}
-    default_label = next(
-        (label for label in labels if label == st.session_state.get("snapshot_picker")),
-        list(labels)[0],
-    )
+    cutoff = str(selected_item.get("research_as_of") or selected_item.get("as_of") or "")[:19]
     task_id = st.session_state.get("agent_task_id")
     active = False
     if task_id:
@@ -2599,44 +3566,60 @@ def agent_research() -> None:
 
     controls, description = st.columns([1, 4])
     with controls:
-        if st.button("新建对话", icon=":material/add_comment:", disabled=active, key="agent_new_conversation"):
-            st.session_state.pop("agent_task_id", None)
-            st.rerun()
+        st.button(
+            "新建对话",
+            icon=":material/add_comment:",
+            key="agent_new_conversation",
+            on_click=start_new_agent_conversation,
+        )
     with description:
         if task_id:
-            st.caption("本会话已锁定研究快照与模型；新建对话后才能更换它们。")
+            try:
+                task_snapshot_id = agent_service.get_agent_task(task_id).get("snapshot_id")
+            except KeyError:
+                task_snapshot_id = None
+            if task_snapshot_id and task_snapshot_id != selected_snapshot_id:
+                st.warning("当前会话已锁定在另一份数据版本。新建对话后，Agent 才会使用侧边栏当前选择。")
+            else:
+                st.caption("本会话已锁定侧边栏当前选择的数据版本与模型。")
         else:
-            st.caption("开始前可在下方设置研究快照、模型和研究截止时点。")
+            st.caption("本轮将直接使用侧边栏当前选择的数据版本；无需再次选择股票。")
+
+    new_conversation_notice = st.session_state.pop("agent_new_conversation_notice", None)
+    if new_conversation_notice:
+        severity, message = new_conversation_notice
+        {"success": st.success, "warning": st.warning}[severity](message)
+    agent_research_archive(task_id)
 
     settings_disabled = bool(task_id)
     with st.expander("研究设置", expanded=not bool(task_id)):
-        selected_label = st.selectbox(
-            "研究快照", list(labels), index=list(labels).index(default_label),
-            key="agent_snapshot_choice", disabled=settings_disabled,
-            on_change=_sync_agent_snapshot_settings, args=(labels,),
+        origin = "联网更新版本" if selected_item.get("snapshot_origin") == "online_refresh" else "本地基准版本"
+        display_cutoff = cutoff.replace("T", " ") if cutoff else "未记录"
+        st.markdown(
+            f'''<div class="agent-context">
+                <div class="agent-context-head">当前研究上下文 <span>已同步侧边栏</span></div>
+                <div class="agent-context-grid">
+                    <div class="agent-context-item"><span>研究对象</span><strong>{escape(str(selected_item['name']))} <em>· {escape(str(selected_item['symbol']))}</em></strong></div>
+                    <div class="agent-context-item"><span>数据版本</span><strong>{origin}</strong></div>
+                    <div class="agent-context-item"><span>研究截止</span><strong>{escape(display_cutoff)}</strong></div>
+                </div>
+            </div>''',
+            unsafe_allow_html=True,
         )
-        selected_item = labels[selected_label]
-        default_cutoff = (selected_item.get("research_as_of") or selected_item.get("as_of") or "")[:19]
-        if "agent_cutoff" not in st.session_state:
-            st.session_state["agent_cutoff"] = default_cutoff
-        c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            st.text_input("证券代码", value=selected_item["symbol"], disabled=True)
-        with c2:
-            cutoff = st.text_input(
-                "研究截止时点", key="agent_cutoff", disabled=settings_disabled,
-                help="本轮只使用在此时点前已可获得的数据。切换研究快照时会自动同步。",
-            )
-        with c3:
-            model_name = st.text_input("模型", value="deepseek-v4-flash", key="agent_model", disabled=settings_disabled)
-        with c4:
-            max_steps = st.number_input("最大工具轮次", min_value=1, max_value=10, value=6, step=1,
-                                        key="agent_max_steps", disabled=settings_disabled,
-                                        help="单轮研究最多可进行多少次模型决策和工具调用。")
-        temperature = st.number_input("回答随机性", min_value=0.0, max_value=1.0, value=0.0, step=0.1,
-                                      key="agent_temperature", disabled=settings_disabled,
-                                      help="0 表示更稳定、可复现的输出；数值越高，回答措辞越多样。")
-        st.caption("问题中的日期不会自动改写 cutoff。历史价格覆盖不足时，工具会明确返回数据缺口。")
+        st.markdown("##### 分析参数")
+        model_name = st.text_input("模型", value="deepseek-v4-flash", key="agent_model", disabled=settings_disabled)
+        with st.expander("高级参数（默认：6 轮 · 随机性 0）", expanded=False):
+            st.caption("默认设置优先保证研究过程稳定、可复现，并限制单轮执行时间。")
+            c1, c2 = st.columns(2)
+            with c1:
+                max_steps = st.number_input("最大工具轮次", min_value=1, max_value=10, value=6, step=1,
+                                            key="agent_max_steps", disabled=settings_disabled,
+                                            help="单轮研究最多可进行多少次模型决策和工具调用。")
+            with c2:
+                temperature = st.number_input("回答随机性", min_value=0.0, max_value=1.0, value=0.0, step=0.1,
+                                              key="agent_temperature", disabled=settings_disabled,
+                                              help="0 表示更稳定、可复现的输出；数值越高，回答措辞越多样。")
+        st.caption("研究截止日固定为侧边栏选定版本的截止日；问题中的日期不会改写它。历史价格覆盖不足时，工具会明确返回数据缺口。")
 
     _render_agent_conversation(task_id)
     agent_task_view()
@@ -2662,18 +3645,82 @@ def agent_research() -> None:
     )
     if prompt:
         _submit_agent_chat_turn(
-            prompt, labels[selected_label], cutoff, model_name, temperature, max_steps, task_id,
+            prompt, selected_item, cutoff, model_name, temperature, max_steps, task_id,
         )
 
 
-def _sync_agent_snapshot_settings(labels: dict[str, dict]) -> None:
-    """Synchronise dependent settings when the user chooses another snapshot."""
-    selected = labels.get(st.session_state.get("agent_snapshot_choice"))
-    if not selected:
-        return
-    st.session_state["agent_cutoff"] = (
-        selected.get("research_as_of") or selected.get("as_of") or ""
-    )[:19]
+def start_new_agent_conversation() -> None:
+    """Reset the visible thread without discarding its persisted audit trail."""
+    previous_task_id = st.session_state.get("agent_task_id")
+    if previous_task_id:
+        try:
+            active = agent_service.get_agent_task(previous_task_id).get("status") in agent_service.ACTIVE_AGENT_STATUSES
+        except KeyError:
+            active = False
+        if active:
+            st.session_state["agent_new_conversation_notice"] = (
+                "warning", "当前 Agent 仍在运行；请先取消或等待完成，避免丢失正在生成的研究记录。"
+            )
+            return
+    st.session_state.pop("agent_task_id", None)
+    st.session_state.pop("agent_intro_reply", None)
+    st.session_state["agent_new_conversation_notice"] = (
+        "success", "已准备新的研究对话；历史研究仍保留在下方档案中。"
+    )
+
+
+def open_agent_archive(task_id: str) -> None:
+    """Open an existing persisted Agent thread with its evidence and audit."""
+    st.session_state["agent_task_id"] = task_id
+    st.session_state["agent_archive_notice"] = "已打开历史研究；下方保留原始对话、证据数量与执行审计。"
+
+
+def agent_research_archive(current_task_id: str | None) -> None:
+    """Render leaf Agent threads as a compact, traceable research archive."""
+    account = current_account()
+    with st.expander("研究档案", expanded=False):
+        if account is None:
+            st.info("登录后可查看仅属于该账号的可追溯研究档案。")
+            return
+        owned_task_ids = account_service.agent_task_ids_for_user(account["id"])
+        tasks = [
+            item for item in service.list_tasks()
+            if item.get("kind") == "agent_research" and item.get("id") in owned_task_ids
+        ]
+        parent_ids = {str(item.get("parent_task_id")) for item in tasks if item.get("parent_task_id")}
+        conversations = [item for item in tasks if item.get("id") not in parent_ids]
+        archive_notice = st.session_state.pop("agent_archive_notice", None)
+        if archive_notice:
+            st.info(archive_notice)
+        st.caption("每条记录均绑定原始数据版本、研究截止日、对话内容、证据数量和执行审计。")
+        if not conversations:
+            st.info("尚无已保存的 Agent 研究。完成第一轮研究后会自动归档到当前账号。")
+            return
+        status_labels = {
+            "succeeded": "已验证", "blocked": "已阻断", "failed": "失败",
+            "cancelled": "已取消", "running": "进行中", "queued": "排队中",
+        }
+        for item in conversations[:20]:
+            status = str(item.get("status") or "unknown")
+            created_at = str(item.get("created_at") or "—").replace("T", " ")[:19]
+            cutoff = str(item.get("research_as_of") or "—").replace("T", " ")[:19]
+            query = str(item.get("query") or "未记录研究问题").strip()
+            with st.container(border=True):
+                main, action = st.columns([6, 1], vertical_alignment="center")
+                with main:
+                    st.markdown(f"**{item.get('symbol') or '未知标的'} · {status_labels.get(status, status)}**")
+                    st.caption(f"研究截止 {cutoff} · 创建于 {created_at}")
+                    st.write(query[:120] + ("…" if len(query) > 120 else ""))
+                with action:
+                    st.button(
+                        "打开",
+                        key=f"open_agent_archive_{item['id']}",
+                        disabled=item["id"] == current_task_id,
+                        on_click=open_agent_archive,
+                        args=(item["id"],),
+                    )
+        if len(conversations) > 20:
+            st.caption(f"仅显示最近 20 条研究档案；共有 {len(conversations)} 条已保存记录。")
 
 
 def _render_agent_conversation(task_id: str | None) -> None:
@@ -2727,6 +3774,10 @@ def _submit_agent_chat_turn(
     if len(text) < 3:
         st.error("请输入至少 3 个字符的问题。")
         return
+    account = current_account()
+    if account is None:
+        st.warning("请先在左侧账户区登录或注册；登录后才能创建可追溯的个人 Agent 研究档案。")
+        return
     try:
         if parent_task_id:
             parent = agent_service.get_agent_task(parent_task_id)
@@ -2746,11 +3797,14 @@ def _submit_agent_chat_turn(
                 temperature=float(temperature), max_steps=int(max_steps),
             )
         task = agent_service.start_agent_research(request)
+        account_service.assign_agent_task(account["id"], task["id"])
         st.session_state.pop("agent_intro_reply", None)
         st.session_state["agent_task_id"] = task["id"]
         st.rerun()
     except agent_service.AgentResearchError as exc:
         st.error(f"无法启动 Agent：{exc}")
+    except account_service.AccountError as exc:
+        st.error(f"研究已创建但未能写入个人档案：{exc}")
     except KeyError as exc:
         st.error(f"快照或任务不存在：{exc}")
 
@@ -2803,10 +3857,11 @@ def agent_task_view() -> None:
 
 @st.fragment(run_every="3s")
 def _agent_task_poll(task_id: str) -> None:
-    """Refresh only the small progress panel while a task is active.
+    """Show the Agent's persisted decision trail while its task is running.
 
-    Keeping this fragment narrow avoids repeatedly serialising conversation
-    history, trace tables and evidence blocks into the browser during a run.
+    The panel does not invent a plan or a tool result: every row comes from the
+    event callback emitted by ``CnResearchAgent``. This gives the user a live
+    view of the actual ReAct loop instead of a generic loading spinner.
     """
     try:
         public = agent_service.get_agent_task(task_id)
@@ -2817,10 +3872,26 @@ def _agent_task_poll(task_id: str) -> None:
     if status not in agent_service.ACTIVE_AGENT_STATUSES:
         st.rerun(scope="app")
         return
-    st.markdown(f"#### 任务 `{task_id}`")
-    st.caption(f"状态：**{status}** · 当前步骤：{public.get('current_step') or '—'} · 更新于 {public.get('updated_at') or '—'}")
+    st.markdown(f"#### Agent 正在研究 · `{task_id}`")
+    st.caption(
+        f"状态：**{status}** · 当前动作：{_agent_event_label(public.get('current_step'))} · "
+        f"更新于 {public.get('updated_at') or '—'}"
+    )
     progress = service.get_task_progress(task_id).get("progress_percent")
     st.progress(int(progress or 0), text=public.get("message") or status)
+    stream = agent_service.agent_task_events(task_id)
+    events = stream.get("events") or []
+    with st.status("实时执行轨迹（仅展示已发生的动作）", state="running", expanded=True):
+        st.caption("Agent 会先固定 A 股代码和研究截止时点，再按问题决定需要调用哪些工具；没有证据的结论会被 Validator 阻断。")
+        if not events:
+            st.write("已入队，等待执行器开始。")
+        for event in events[-12:]:
+            label = _agent_event_label(event.get("event"))
+            detail = str(event.get("detail") or "")
+            tool_name = (event.get("metadata") or {}).get("tool_name")
+            suffix = f" · `{tool_name}`" if tool_name else ""
+            suffix += f" · {detail}" if detail else ""
+            st.write(f"{_agent_event_icon(event.get('status'))} **{label}**{suffix}")
     if st.button("取消任务", icon=":material/cancel:", key=f"cancel_agent_{task_id}"):
         with st.spinner("正在请求协作式停止…"):
             try:
@@ -2828,6 +3899,37 @@ def _agent_task_poll(task_id: str) -> None:
             except ValueError as exc:
                 st.error(f"无法取消：{exc}")
         st.rerun(scope="app")
+
+
+def _agent_event_label(event: object) -> str:
+    """Human-readable labels for persisted, machine-originated Agent events."""
+    labels = {
+        "queued": "任务已入队",
+        "agent_started": "开始研究",
+        "research_plan": "已确定本轮覆盖计划",
+        "llm_call_started": "Agent 正在决定下一步",
+        "llm_call_completed": "Agent 已作出下一步决策",
+        "tool_arguments_pinned": "工具参数已固定",
+        "tool_call_started": "正在调用工具",
+        "tool_call_completed": "工具返回结果",
+        "evidence_registered": "已登记证据",
+        "validation_started": "开始确定性校验",
+        "validation_passed": "校验通过",
+        "validation_blocked": "校验阻断结论",
+        "task_completed": "任务完成",
+        "task_cancelled": "任务已取消",
+        "task_failed": "任务失败",
+    }
+    return labels.get(str(event or ""), str(event or "等待执行"))
+
+
+def _agent_event_icon(status: object) -> str:
+    normalized = str(status or "").lower()
+    if normalized in {"error", "failed", "blocked"}:
+        return "✕"
+    if normalized in {"running", "queued"}:
+        return "…"
+    return "✓"
 
 
 def _agent_final_answer(public: dict, status: str) -> None:
@@ -3281,6 +4383,7 @@ def main() -> None:
     if not service_contract_ready():
         return
     demo_prewarm_autostart()
+    account_topbar()
     catalog = sorted(
         cached_research_catalog(),
         key=lambda item: (str(item.get("research_as_of", "")), str(item.get("id", ""))),
@@ -3292,16 +4395,98 @@ def main() -> None:
             unsafe_allow_html=True,
         )
         choices = {snapshot_choice_label(item): item["id"] for item in catalog}
-        if st.button("刷新本地快照", key="refresh_snapshot_catalog", width="stretch", icon=":material/refresh:"):
-            service.load_snapshot.cache_clear()
-            cached_research_catalog.clear()
-            load_research.clear()
-            st.cache_data.clear()
-            st.session_state.pop("snapshot_picker", None)
-            st.rerun()
-        if st.session_state.get("snapshot_picker") not in choices:
-            st.session_state.pop("snapshot_picker", None)
-        selected_label = st.selectbox("研究快照", list(choices), key="snapshot_picker")
+        # Keep local reload, online refresh and version selection in one visual
+        # group.  They all answer the same user question: which snapshot is
+        # the research workspace currently using?
+        with st.expander("快照管理", expanded=True):
+            autoselect_id = st.session_state.pop("online_refresh_autoselect", None)
+            if autoselect_id:
+                labels_by_snapshot_id = {item["id"]: snapshot_choice_label(item) for item in catalog}
+                if autoselect_id in labels_by_snapshot_id:
+                    st.session_state["snapshot_picker"] = labels_by_snapshot_id[autoselect_id]
+
+            if st.session_state.get("snapshot_picker") not in choices:
+                st.session_state.pop("snapshot_picker", None)
+            selected_label = st.selectbox(
+                "当前研究版本",
+                list(choices),
+                key="snapshot_picker",
+                format_func=snapshot_picker_label,
+            )
+            selected_item = next(item for item in catalog if item["id"] == choices[selected_label])
+            selected_origin = (
+                "联网更新版本" if selected_item.get("snapshot_origin") == "online_refresh" else "本地基准版本"
+            )
+            selected_close_date = selected_item.get("latest_raw_close_date") or "未覆盖"
+            st.caption(
+                f"当前：{selected_origin} · 收盘数据截至 {selected_close_date} · "
+                f"研究截至 {str(selected_item.get('research_as_of', ''))[:10]}"
+            )
+            st.button(
+                "切回本地基准",
+                key="refresh_snapshot_catalog",
+                width="stretch",
+                icon=":material/history:",
+                on_click=switch_to_local_baseline,
+                args=(choices[selected_label],),
+            )
+            # The detailed network controls stay available without making the
+            # ordinary sidebar state a long form.
+            with st.popover("联网更新", use_container_width=True):
+                st.caption("仅更新最新 RAW 收盘价；成功后自动创建新版本。")
+                online_options = online_refresh_symbols(catalog)
+                if not online_options:
+                    st.info("暂无可更新的标的。")
+                else:
+                    online_label = st.selectbox("更新标的", list(online_options), key="online_refresh_symbol")
+                    online_bars_only = st.checkbox(
+                        "仅更新收盘价（复用已披露财务）", value=True, key="online_refresh_bars_only",
+                        help="勾选时只拉取最新 RAW 日线收盘；财务仍使用截至研究日已披露的数据。",
+                    )
+                    if st.button("获取最新收盘价", key="refresh_snapshot_online", width="stretch", icon=":material/cloud_download:"):
+                        with st.spinner("正在联网获取最新收盘行情…"):
+                            try:
+                                outcome = service.refresh_snapshot(
+                                    online_options[online_label], bars_only=online_bars_only,
+                                )
+                            except Exception as refresh_exc:  # 结构化上报，不静默吞掉
+                                outcome = {
+                                    "refresh_status": "failed", "reason_code": "unexpected_error",
+                                    "message": f"刷新调用异常：{type(refresh_exc).__name__}: {refresh_exc}",
+                                    "retryable": False, "current_snapshot": None,
+                                }
+                        severity, notice_text = describe_refresh_outcome(outcome)
+                        st.session_state["online_refresh_notice"] = {
+                            "symbol": outcome.get("symbol") or online_options[online_label],
+                            "severity": severity,
+                            "text": notice_text,
+                        }
+                        if outcome.get("refresh_status") == "succeeded" and outcome.get("snapshot_id"):
+                            service.load_snapshot.cache_clear()
+                            cached_research_catalog.clear()
+                            load_research.clear()
+                            st.cache_data.clear()
+                            st.session_state["online_refresh_autoselect"] = outcome["snapshot_id"]
+                        st.rerun()
+
+            online_notice = st.session_state.pop("online_refresh_notice", None)
+            if online_notice:
+                severity, notice_text = scoped_refresh_notice(
+                    online_notice, current_symbol=selected_item["symbol"]
+                )
+                {"success": st.success, "info": st.info,
+                 "warning": st.warning, "error": st.error}[severity](notice_text)
+            local_baseline_notice = st.session_state.pop("local_baseline_notice", None)
+            if local_baseline_notice:
+                st.info(local_baseline_notice)
+            st.button(
+                "查看研究总览",
+                key="open_selected_snapshot",
+                width="stretch",
+                icon=":material/visibility:",
+                on_click=_select_page,
+                args=("研究总览",),
+            )
         page = sidebar_navigation()
         demo_prewarm_controls()
         with st.expander("怎么判断有没有问题", expanded=False):
@@ -3324,7 +4509,7 @@ def main() -> None:
         demo_cases(catalog)
         return
     if page == "AI Agent 研究":
-        agent_research()
+        agent_research(choices[selected_label])
         return
     if page == "文档智能":
         documents()
@@ -3344,6 +4529,10 @@ def main() -> None:
         return
     snapshot, metadata = load_research(choices[selected_label])
     header(snapshot, metadata)
+    # The overview begins with research quality and its plain-language
+    # explanation.  Cross-module navigation stays available on detail pages.
+    if page != "研究总览":
+        research_next_steps(page)
     {"研究总览": lambda: overview(snapshot, metadata), "市场与行情": lambda: market(snapshot), "财务表现": lambda: financials(snapshot), "同行估值": lambda: valuation_safe(snapshot, metadata), "证据与校验": lambda: evidence(snapshot, metadata), "Agent 执行轨迹": lambda: trace(snapshot), "研究报告": lambda: report(snapshot), "研究任务": tasks, "评测与消融": evaluations}[page]()
 
 

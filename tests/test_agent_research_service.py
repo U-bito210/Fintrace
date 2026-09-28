@@ -115,6 +115,30 @@ def test_valid_request_queues_agent_research_task(isolated):
     assert task["max_steps"] == 6
     assert task["temperature"] == 0.0
 
+
+def test_model_credit_exhaustion_has_actionable_safe_feedback(isolated, monkeypatch):
+    """A provider 402 must not look like an unexplained Agent failure."""
+    task = agent_service.start_agent_research(_request())
+
+    async def _out_of_credit(_: str) -> None:
+        raise RuntimeError("APIStatusError: Error code: 402 - Insufficient Balance")
+
+    monkeypatch.setattr(agent_service, "_run_agent_research", _out_of_credit)
+    agent_service._execute_agent_research_task(task["id"])
+
+    public = agent_service.get_agent_task(task["id"])
+    assert public["status"] == "failed"
+    assert public["message"] == "模型账户余额不足，未执行研究工具；充值后可重试。"
+    events = agent_service.agent_task_events(task["id"])["events"]
+    assert any("余额不足（402）" in event["detail"] for event in events)
+    assert all("APIStatusError" not in event["detail"] for event in events)
+
+
+def test_valuation_request_requires_total_shares_evidence(isolated):
+    task = agent_service.start_agent_research(_request(query="分析估值和主要风险。"))
+    assert task["required_metrics"] == ["total_shares"]
+    assert task["required_tools"] == ["get_cn_prices", "generate_cn_research_report"]
+
     # The task was submitted to the (stubbed) shared executor, not run inline.
     assert isolated.submitted
 

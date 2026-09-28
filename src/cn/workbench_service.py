@@ -19,6 +19,7 @@ from threading import Lock
 from typing import Any
 from uuid import uuid4
 
+from . import snapshot_refresh
 from .domain import FinancialStatement
 from .demo_data import ensure_demo_snapshots
 from .industries import get_industry_code, is_financial_institution
@@ -47,6 +48,11 @@ ACTIVE_TASK_STATUSES = {"queued", "running"}
 # calculations. Missing values must remain visible; this classification only
 # tells the UI whether the gap is informational or valuation-critical.
 OPTIONAL_FINANCIAL_METRICS = frozenset({"ebit", "ebitda", "free_cash_flow"})
+
+# A coordinated refresh is deliberately bounded.  The target plus at most five
+# locally available same-industry peers are enough for a useful first pass,
+# while keeping one user action from becoming an unbounded provider crawl.
+PEER_SYNC_MAX_SYMBOLS = 6
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -119,12 +125,25 @@ def list_research() -> list[dict[str, str]]:
     for path in sorted(SNAPSHOT_DIR.glob("*.json")):
         payload = _read_json(path)
         profile = payload.get("data", {}).get("profile", {})
+        cutoff_date = str(payload.get("research_as_of", ""))[:10]
+        raw_dates = [
+            str(bar["trade_date"])
+            for bar in payload.get("data", {}).get("bars", [])
+            if bar.get("adjustment") == "RAW"
+            and bar.get("trade_date")
+            and str(bar["trade_date"]) <= cutoff_date
+        ]
+        refreshed = bool((payload.get("source_metadata") or {}).get("refresh"))
         items.append({
             "id": payload["snapshot_id"], "symbol": payload["symbol"],
             "name": profile.get("name", payload["symbol"]),
             "industry": profile.get("industry_name", "未覆盖"),
             "provider": payload.get("provider", "snapshot"),
             "research_as_of": payload["research_as_of"],
+            # The file is always local, but this distinguishes a saved baseline
+            # from a version produced by the online refresh action.
+            "snapshot_origin": "online_refresh" if refreshed else "local_baseline",
+            "latest_raw_close_date": max(raw_dates) if raw_dates else "",
         })
     return items
 
@@ -134,6 +153,208 @@ def find_snapshot_for_symbol(symbol_text: str) -> dict[str, str] | None:
     symbol = str(normalize_cn_symbol(symbol_text))
     matches = [item for item in list_research() if item["symbol"] == symbol]
     return max(matches, key=lambda item: item["research_as_of"], default=None)
+
+
+def find_local_baseline_snapshot(snapshot_id: str) -> dict[str, str] | None:
+    """Find the saved, pre-refresh baseline for the current symbol and provider.
+
+    A provider refresh also creates a *local* immutable file, so "latest local"
+    is not the same as "local baseline".  This helper makes that distinction
+    explicit for the workbench's offline reset control.  It never selects a
+    future cutoff or a different provider as a silent fallback.
+    """
+    current = load_snapshot(snapshot_id)
+    symbol = str(current["symbol"])
+    provider = str(current.get("provider", "snapshot"))
+    cutoff = str(current["research_as_of"])
+    candidates = []
+    for payload in snapshot_refresh.iter_snapshots(SNAPSHOT_DIR):
+        if payload.get("symbol") != symbol or str(payload.get("provider", "snapshot")) != provider:
+            continue
+        if str(payload.get("research_as_of", "")) > cutoff:
+            continue
+        if (payload.get("source_metadata") or {}).get("refresh") is True:
+            continue
+        candidates.append(payload)
+    if not candidates:
+        return None
+    selected = max(candidates, key=lambda payload: str(payload["research_as_of"]))
+    profile = (selected.get("data") or {}).get("profile") or {}
+    return {
+        "id": selected["snapshot_id"],
+        "symbol": selected["symbol"],
+        "name": profile.get("name", selected["symbol"]),
+        "industry": profile.get("industry_name", "未覆盖"),
+        "provider": selected.get("provider", "snapshot"),
+        "research_as_of": selected["research_as_of"],
+    }
+
+
+def snapshot_freshness(snapshot_id: str, *, now: datetime | None = None) -> dict[str, Any]:
+    """Report how current one snapshot's newest RAW close is.
+
+    Read-only and deterministic when ``now`` is supplied; the label is always
+    derived from the snapshot's own latest trade date, never hard-coded.
+    """
+    payload = load_snapshot(snapshot_id)
+    cutoff_date = payload["research_as_of"][:10]
+    bars = [
+        bar for bar in payload["data"].get("bars", [])
+        if bar.get("adjustment") == "RAW" and bar.get("trade_date") and bar["trade_date"] <= cutoff_date
+    ]
+    latest = max((bar["trade_date"] for bar in bars), default=None)
+    base = {
+        "snapshot_id": snapshot_id,
+        "provider": payload.get("provider", "snapshot"),
+        "research_as_of": payload["research_as_of"],
+        "data_quality": payload.get("data_quality"),
+        "latest_trade_date": latest,
+        "raw_bar_count": len(bars),
+    }
+    if latest is None:
+        return {
+            **base, "status": "unknown",
+            "label": "快照不含可用的 RAW 收盘价", "stale": True,
+            "calendar_basis": "unavailable", "calendar_days_since": None, "trading_days_since": None,
+        }
+    return {**base, **snapshot_refresh.describe_freshness(latest, now)}
+
+
+def refresh_snapshot(
+    symbol_text: str,
+    *,
+    bars_only: bool = True,
+    research_as_of: str | None = None,
+    now: datetime | None = None,
+    provider: Any = None,
+    token_loader: Any = None,
+    write: bool = True,
+) -> dict[str, Any]:
+    """Server-side refresh of the latest A-share close into a *new* snapshot.
+
+    Shared by the HTTP API and the Streamlit workbench, so the browser never
+    reaches Tushare and never sees the token.  Existing snapshot files are never
+    modified; success writes a fresh ``snapshot_id`` with an incremented version.
+    """
+    _ensure_default_snapshots()
+    outcome = snapshot_refresh.refresh_snapshot(
+        symbol_text,
+        snapshot_dir=SNAPSHOT_DIR,
+        bars_only=bars_only,
+        research_as_of=research_as_of,
+        now=now,
+        provider=provider,
+        token_loader=token_loader,
+        write=write,
+    )
+    if outcome.get("refresh_status") == snapshot_refresh.REFRESH_SUCCEEDED:
+        # A new snapshot file exists now; the cached id->payload map must not
+        # keep hiding it from the catalog.
+        load_snapshot.cache_clear()
+    return outcome
+
+
+def peer_sync_preview(snapshot_id: str) -> dict[str, Any]:
+    """Return refreshable same-industry snapshots for a coordinated peer run.
+
+    Only provider-backed snapshots at or before the target cutoff are eligible.
+    Selecting a base after the target cutoff would leak future facts into a
+    historical comparison, so such a snapshot is never used as a fallback.
+    """
+    target = load_snapshot(snapshot_id)
+    target_symbol = str(target["symbol"])
+    cutoff = str(target["research_as_of"])
+    target_industry = get_industry_code(target_symbol.split(".")[0])
+    if not snapshot_refresh.is_provider_backed(target):
+        return {
+            "available": False, "reason": "target_not_provider_backed",
+            "snapshot_id": snapshot_id, "symbols": [], "candidate_count": 0,
+        }
+    if not target_industry:
+        return {
+            "available": False, "reason": "industry_not_classified",
+            "snapshot_id": snapshot_id, "symbols": [], "candidate_count": 0,
+        }
+
+    latest_by_symbol: dict[str, dict[str, Any]] = {}
+    for payload in snapshot_refresh.iter_snapshots(SNAPSHOT_DIR):
+        symbol = str(payload.get("symbol", ""))
+        if symbol == target_symbol or not snapshot_refresh.is_provider_backed(payload):
+            continue
+        if get_industry_code(symbol.split(".")[0]) != target_industry:
+            continue
+        if str(payload.get("research_as_of", "")) > cutoff:
+            continue
+        previous = latest_by_symbol.get(symbol)
+        if previous is None or str(payload["research_as_of"]) > str(previous["research_as_of"]):
+            latest_by_symbol[symbol] = payload
+
+    all_peers = sorted(latest_by_symbol.values(), key=lambda item: str(item["symbol"]))
+    limit = max(PEER_SYNC_MAX_SYMBOLS - 1, 0)
+    selected = all_peers[:limit]
+    return {
+        "available": bool(selected), "reason": None if selected else "no_provider_backed_peers",
+        "snapshot_id": snapshot_id, "target_symbol": target_symbol,
+        "research_as_of": cutoff, "industry_code": target_industry,
+        "candidate_count": len(all_peers), "truncated_count": max(len(all_peers) - len(selected), 0),
+        "symbols": [
+            {"symbol": item["symbol"], "snapshot_id": item["snapshot_id"], "research_as_of": item["research_as_of"]}
+            for item in selected
+        ],
+    }
+
+
+def refresh_peer_group(
+    snapshot_id: str,
+    *,
+    now: datetime | None = None,
+    token_loader: Any = None,
+    refresh_fn: Any = snapshot_refresh.refresh_snapshot,
+) -> dict[str, Any]:
+    """Synchronize a bounded peer set to one research cutoff using RAW bars.
+
+    Each symbol is refreshed from its explicitly selected provider-backed base.
+    A failure is retained as a per-symbol result; it never falls back to a
+    stale peer snapshot or fabricates a price.  ``materialize_cutoff`` records
+    a fresh version even when a non-trading day has no newer daily bar, so the
+    peer set still has one explicit research cutoff.
+    """
+    preview = peer_sync_preview(snapshot_id)
+    if not preview["available"]:
+        return {"status": "blocked", "reason": preview["reason"], "preview": preview, "outcomes": []}
+
+    target = load_snapshot(snapshot_id)
+    members = [{"symbol": target["symbol"], "snapshot_id": target["snapshot_id"]}, *preview["symbols"]]
+    outcomes: list[dict[str, Any]] = []
+    for member in members:
+        outcome = refresh_fn(
+            member["symbol"],
+            snapshot_dir=SNAPSHOT_DIR,
+            bars_only=True,
+            research_as_of=preview["research_as_of"],
+            now=now,
+            token_loader=token_loader,
+            base_snapshot_id=member["snapshot_id"],
+            materialize_cutoff=True,
+        )
+        outcomes.append({"symbol": member["symbol"], "base_snapshot_id": member["snapshot_id"], **outcome})
+
+    succeeded = [item for item in outcomes if item.get("refresh_status") in {snapshot_refresh.REFRESH_SUCCEEDED, snapshot_refresh.REFRESH_NO_NEW_DATA}]
+    failed = [item for item in outcomes if item not in succeeded]
+    target_outcome = next(item for item in outcomes if item["symbol"] == target["symbol"])
+    target_snapshot_id = target_outcome.get("snapshot_id") or target["snapshot_id"]
+    if any(item.get("refresh_status") == snapshot_refresh.REFRESH_SUCCEEDED for item in outcomes):
+        load_snapshot.cache_clear()
+    return {
+        "status": "completed" if not failed else "partial",
+        "reason": None if not failed else "some_peers_not_refreshed",
+        "snapshot_id": target_snapshot_id,
+        "research_as_of": preview["research_as_of"],
+        "candidate_count": preview["candidate_count"],
+        "truncated_count": preview["truncated_count"],
+        "synchronized_count": len(succeeded), "failed_count": len(failed),
+        "outcomes": outcomes, "preview": preview,
+    }
 
 
 def _task_path(task_id: str) -> Path:

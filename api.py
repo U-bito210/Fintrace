@@ -127,7 +127,7 @@ def _research_meta(snapshot_id: str, data: dict[str, Any], *, unit: Any = None, 
         unit=unit if unit is not None else data.get("unit"),
         period_basis=period_basis if period_basis is not None else data.get("period_basis"),
         evidence_ids=evidence, validation_status=validation["status"],
-        data_coverage=readiness["checks"], freshness=readiness["checks"].get("snapshot_freshness"),
+        data_coverage=readiness["checks"], freshness=service.snapshot_freshness(snapshot_id),
     )
 
 
@@ -298,6 +298,101 @@ def acquire_snapshot(request: SnapshotAcquisitionRequest) -> ApiEnvelope:
         return _ok(service.collect_snapshot(request.symbol, start_date=request.start_date, end_date=request.end_date))
     except (ValueError, UnsupportedSymbolError) as exc:
         raise HTTPException(status_code=422, detail={"code": "INVALID_ACQUISITION_REQUEST", "message": str(exc)}) from exc
+
+
+# ---------------------------------------------------------------------------
+# Online snapshot refresh: pull the latest A-share close into a NEW snapshot.
+#
+# Versioned local snapshots remain the research input; this endpoint only adds
+# one.  Existing snapshot files are never overwritten, the browser never reaches
+# Tushare, and a failure is reported as a structured error -- never as stale
+# data masquerading as a successful update.
+# ---------------------------------------------------------------------------
+class SnapshotRefreshRequest(BaseModel):
+    symbol: str = Field(description="Canonical A-share symbol, for example 600519.SH.")
+    bars_only: bool = Field(
+        default=True,
+        description="只刷新行情（RAW 日线收盘）。False 时同时重新拉取已披露财务数据。",
+    )
+    research_as_of: str | None = Field(
+        default=None, description="可选 ISO-8601 研究截止时间；缺省为当前时间（Asia/Shanghai）。"
+    )
+
+
+#: reason_code -> HTTP status.  Request-shape problems stay 422; credential and
+#: upstream problems are distinguished so a client can decide whether to retry.
+_REFRESH_REASON_HTTP: dict[str, int] = {
+    "credentials_missing": 503,
+    "credentials_invalid": 503,
+    "call_budget_exhausted": 503,
+    "rate_limited": 429,
+    "provider_timeout": 502,
+    "network_error": 502,
+    "provider_error": 502,
+    "provider_no_data": 502,
+    "no_bars_at_or_before_cutoff": 502,
+    "base_snapshot_missing": 409,
+    "base_snapshot_not_provider_backed": 409,
+    "unsupported_symbol": 422,
+}
+
+
+def _refresh_meta(outcome: dict[str, Any]) -> dict[str, Any]:
+    """Point meta at the new snapshot, or at the one still in use on failure."""
+    current = outcome.get("current_snapshot") or {}
+    new_id = outcome.get("snapshot_id")
+    if new_id:
+        return _meta(
+            snapshot_id=new_id, research_as_of=outcome.get("research_as_of"),
+            provider=outcome.get("provider"), freshness=outcome.get("freshness"),
+        )
+    return _meta(
+        snapshot_id=current.get("snapshot_id"), research_as_of=current.get("research_as_of"),
+        provider=current.get("provider") or outcome.get("provider"),
+        freshness=outcome.get("freshness"),
+    )
+
+
+def _refresh_error(outcome: dict[str, Any]) -> JSONResponse:
+    reason = str(outcome.get("reason_code") or "refresh_failed")
+    return JSONResponse(
+        status_code=_REFRESH_REASON_HTTP.get(reason, 502),
+        content={
+            "schema_version": API_SCHEMA_VERSION,
+            "status": "error",
+            "data": outcome,
+            "meta": _refresh_meta(outcome),
+            "error": {
+                "code": reason.upper(),
+                "message": outcome.get("message", "Snapshot refresh failed."),
+                "retryable": bool(outcome.get("retryable")),
+            },
+        },
+    )
+
+
+@app.post("/api/research/snapshots/refresh")
+def refresh_research_snapshot(request: SnapshotRefreshRequest) -> ApiEnvelope:
+    """Pull the latest available A-share close and create a new snapshot version.
+
+    Success returns an ``ok`` envelope whose ``meta`` points at the *new*
+    snapshot.  A failure returns a structured ``error`` envelope that still
+    carries, in ``meta`` and ``data.current_snapshot``, the cutoff of the
+    snapshot the workbench keeps using.
+    """
+    try:
+        outcome = service.refresh_snapshot(
+            request.symbol, bars_only=request.bars_only, research_as_of=request.research_as_of,
+        )
+    except (ValueError, UnsupportedSymbolError) as exc:
+        raise HTTPException(status_code=422, detail={"code": "INVALID_REFRESH_REQUEST", "message": str(exc)}) from exc
+
+    if outcome.get("refresh_status") == "succeeded":
+        return _ok(outcome, meta=_research_meta(outcome["snapshot_id"], {}))
+    if outcome.get("refresh_status") == "no_new_data":
+        # Not an error: the local snapshot already holds the latest close.
+        return _ok(outcome, meta=_refresh_meta(outcome))
+    return _refresh_error(outcome)
 
 
 @app.get("/api/research/{snapshot_id}/summary")

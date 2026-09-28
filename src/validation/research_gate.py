@@ -24,6 +24,9 @@ class ResearchGateRequirements:
     required_metrics: tuple[str, ...] = ()
     requires_evidence: bool = False
     requested_valuation_method: Optional[str] = None
+    #: Snapshot tools a composite request must have executed successfully.
+    #: This is a coverage requirement, never a substitute for evidence IDs.
+    required_tools: tuple[str, ...] = ()
 
 
 class ResearchGateValidator:
@@ -51,6 +54,13 @@ class ResearchGateValidator:
 
         if requirements.requires_evidence and not records:
             errors.append("no_evidence")
+
+        successful_tools = {
+            trace.tool_name for trace in state.tool_trace if trace.result_status == "ok"
+        }
+        for tool_name in requirements.required_tools:
+            if tool_name not in successful_tools:
+                errors.append(f"required_tool_missing:{tool_name}")
 
         if not _is_valid_timestamp(research_as_of):
             errors.append(f"invalid_research_as_of:{research_as_of}")

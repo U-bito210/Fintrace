@@ -14,7 +14,7 @@ from types import SimpleNamespace
 import pytest
 
 from src.cn.offline_agent import OfflineCnAgent, SYSTEM_PROMPT
-from src.cn.research_agent import CnResearchAgent
+from src.cn.research_agent import CnResearchAgent, infer_required_metrics, infer_required_tools
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "cn" / "600519.SH_illustrative_v1.json"
@@ -74,6 +74,32 @@ async def test_research_agent_price_path_passes_validator():
     assert prices.result_status == "ok"
     assert prices.evidence_ids == ["fact_600519_SH_close_2025-03-31_RAW"]
     assert state.validation_result == {"valid": True, "errors": [], "missing_evidence": []}
+
+
+def test_composite_question_requires_financial_market_and_valuation_tools():
+    assert infer_required_tools("分析收入、净利润、估值和主要风险") == (
+        "get_cn_financials", "get_cn_prices", "generate_cn_research_report",
+    )
+    assert infer_required_metrics("分析收入、净利润、估值和主要风险") == ("total_shares",)
+
+
+@pytest.mark.asyncio
+async def test_composite_research_is_blocked_when_a_required_surface_is_missing():
+    provider = _ScriptedProvider([
+        _tool(calls=[_call("get_cn_financials", {"ticker": "600519.SH"})]),
+        _final("只有财务数据。"),
+    ])
+    agent = CnResearchAgent(
+        snapshot_path=FIXTURE, model_name="gpt-4o-mini", provider=provider, max_steps=3,
+        required_tools=infer_required_tools("分析收入、净利润、估值和股价"),
+    )
+    state = await agent.run("分析收入、净利润、估值和股价")
+
+    assert state.validation_result["valid"] is False
+    assert set(state.validation_result["errors"]) >= {
+        "required_tool_missing:get_cn_prices",
+        "required_tool_missing:generate_cn_research_report",
+    }
 
 
 # ---------------------------------------------------------------------------

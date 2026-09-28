@@ -16,3 +16,4 @@ plotly==6.9.0
 jieba==0.42.1  # CARD-06 检索分词（MIT）；缺失时 tokenize 自动降级到确定性空白+CJK二元，离线测试仍可跑
 reportlab==5.0.1  # 文档/PDF fixture 生成与原始页面渲染
 pdfplumber==0.11.10  # 年报文本、表格与 bbox 定位解析
+pytesseract==0.3.13  # 可选：本地 Tesseract 扫描件 OCR；需另装 Tesseract + chi_sim 语言包
