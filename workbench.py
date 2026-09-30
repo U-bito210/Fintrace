@@ -185,6 +185,42 @@ RESEARCH_NEXT_STEPS = {
     "研究报告": (("查看数据依据", "证据与校验"), ("查看 AI 分析过程", "Agent 执行轨迹")),
 }
 
+#: The research pipeline rendered as a position rail under the hero.  It is a
+#: navigation hint only: the highlighted step comes from the page the reader
+#: is on, never from a claim about the snapshot's own state.  Pages that carry
+#: no pipeline position (任务中心) simply render the rail unhighlighted.
+RESEARCH_ROUTE = ("选择标的", "拉取快照", "校验证据", "估值计算", "AI 解读", "生成报告")
+RESEARCH_ROUTE_STEP = {
+    "研究总览": 4,
+    "市场与行情": 2,
+    "财务表现": 2,
+    "同行估值": 3,
+    "证据与校验": 2,
+    "Agent 执行轨迹": 4,
+    "研究报告": 5,
+}
+
+#: How many recorded trace steps the overview summary shows before deferring to
+#: the dedicated 执行轨迹 page.  The full list is never hidden silently: the
+#: count is always stated next to the truncated rail.
+OVERVIEW_TRACE_STEPS = 5
+
+#: Ledger head length on the overview.  Real snapshots can register >1000
+#: evidence records; the overview states both the shown head and the total so a
+#: subset is never mistaken for the whole ledger.
+OVERVIEW_LEDGER_ROWS = 20
+
+#: Row cap for the dense ledger table on 证据与校验.  The HTML table (unlike the
+#: old canvas dataframe) has no internal scroll, so the cap must be stated next
+#: to the table; filters and the JSON export reach everything beyond it.
+EVIDENCE_TABLE_ROWS = 60
+
+#: Only evidence statuses whose vocabulary has actually been observed on real
+#: snapshots get a label.  Everything else is echoed verbatim rather than
+#: guessed at, so an unmapped backend value stays visible instead of being
+#: silently relabelled.
+EVIDENCE_STATUS_LABELS = {"verified": "● 通过"}
+
 
 def _select_page(page: str) -> None:
     """Update the canonical page state from a compact grouped sidebar item."""
@@ -242,6 +278,43 @@ def research_next_steps(page: str) -> None:
             args=(destination,),
         )
     columns[-1].caption("跨模块入口仅跳转到同一份版本化快照。")
+
+
+def research_route(page: str) -> None:
+    """Render the research pipeline rail with the current step highlighted.
+
+    The rail restates the fixed research pipeline and the reader's position in
+    it.  It carries no snapshot state and computes nothing: both the highlight
+    and the "next step" hint come from the routing tables above.
+    """
+    current = RESEARCH_ROUTE_STEP.get(page)
+    steps = '<span class="rstep">→</span>'.join(
+        f'<i>{label}</i>' if index == current else f'<span class="rstep">{label}</span>'
+        for index, label in enumerate(RESEARCH_ROUTE)
+    )
+    actions = RESEARCH_NEXT_STEPS.get(page) or ()
+    tail = f'　·　<b>下一步</b>：{actions[0][0]} →' if actions else ""
+    st.markdown(f'<div class="route">研究路径：{steps}{tail}</div>', unsafe_allow_html=True)
+
+
+def page_eyebrow(text: str) -> None:
+    """Faint uppercase kicker that sits above a page head (D `.eyebrow`)."""
+    st.markdown(f'<div class="eyebrow">{escape(text)}</div>', unsafe_allow_html=True)
+
+
+def page_head(eyebrow: str, title: str, tag: str = "") -> None:
+    """Render the shared D-style page head: eyebrow → serif title → right tag.
+
+    Every research page opens with the same three-part rhythm, so the reader can
+    tell "where am I / what does this page cover" before reading any content.
+    The head carries no snapshot state and computes nothing.
+    """
+    page_eyebrow(eyebrow)
+    tag_html = f'<span class="tag">{escape(tag)}</span>' if tag else ""
+    st.markdown(
+        f'<div class="pagetitle"><h2>{escape(title)}</h2>{tag_html}</div>',
+        unsafe_allow_html=True,
+    )
 
 
 #: 自动预热开关。默认**关闭**：冒烟脚本与 UI 测试要能在「不解析 229 页年报」的
@@ -403,6 +476,11 @@ def cached_research_overview_insights(snapshot_id: str) -> dict:
 @st.cache_data(ttl=300, max_entries=64, show_spinner=False)
 def cached_research_display_guardrails(snapshot_id: str) -> dict:
     return service.research_display_guardrails(snapshot_id)
+
+
+@st.cache_data(ttl=300, max_entries=64, show_spinner=False)
+def cached_research_trace(snapshot_id: str) -> dict:
+    return service.research_trace(snapshot_id)
 
 
 def cn_money(value: float, unit: str = "亿元") -> str:
@@ -703,34 +781,43 @@ def demo_cases(catalog: list[dict[str, str]]) -> None:
 # Apple-inspired design tokens.  All colors come from the design system
 # page; Chinese rendering uses Sarasa Gothic SC when available, falling back
 # to system sans-serif so SF Pro / PingFang / Noto resolve natively.
+# Editorial design tokens (米白编辑杂志风 × Ghostfolio 排版骨架).
+# Warm paper canvas, serif display type, hairline surfaces.  Chinese
+# rendering uses Sarasa Gothic SC / Noto Serif when available, falling
+# back to system serif/sans so PingFang / Noto resolve natively.
 APPLE_TOKENS = {
-    "ink": "#1D1D1F",
-    "ink_muted_48": "#7A7A7A",
-    "ink_muted_64": "#6E6E73",
-    "ink_muted_80": "#535359",
-    "primary": "#0066CC",
-    "primary_focus": "#0071E3",
-    "primary_on_dark": "#2997FF",
+    "ink": "#191610",
+    "ink_muted_48": "#A49B8A",
+    "ink_muted_64": "#7A7264",
+    "ink_muted_80": "#4A443A",
+    "primary": "#2B4A8B",
+    "primary_focus": "#24407A",
+    "primary_on_dark": "#7FA3D8",
+    "primary_wash": "rgba(43, 74, 139, .08)",
+    # Chart series: revenue bars / profit line / incumbent volume bars.  Kept
+    # here so no figure carries a hardcoded colour of its own.
+    "chart_bar": "#6D8FD5",
+    "chart_line": "#8A7A5C",
     "canvas": "#FFFFFF",
-    "parchment": "#F5F5F7",
-    "pearl": "#FAFAFC",
-    "surface_chip_translucent": "#D2D2D7",
-    "divider_soft": "#F0F0F0",
-    "hairline": "#E0E0E0",
-    "tile_dark": "#272729",
-    "success_bg": "#DFF4EB",
-    "success_fg": "#1E7E50",
-    "warning_bg": "#FFF1CF",
-    "warning_fg": "#8A5A00",
-    "blocked_bg": "#FDE4E1",
-    "blocked_fg": "#A33B32",
-    "snapshot_bg": "#E8EFFA",
-    "snapshot_fg": "#315D9D",
+    "parchment": "#F6F2E9",
+    "pearl": "#FAF8F3",
+    "surface_chip_translucent": "#D8CFC0",
+    "divider_soft": "#EFE9DC",
+    "hairline": "#E7E0D2",
+    "tile_dark": "#26221C",
+    "success_bg": "#E9F3EC",
+    "success_fg": "#1F8A5D",
+    "warning_bg": "#F7EED8",
+    "warning_fg": "#9A6B14",
+    "blocked_bg": "#F8E9E6",
+    "blocked_fg": "#B5544A",
+    "snapshot_bg": "#F1EDE2",
+    "snapshot_fg": "#7A7264",
     # A-share market semantics: 涨红跌绿 (only for quote / context where it
     # matches real trading conventions).  Brand color is never used for these.
-    "quote_up": "#C0392B",
-    "quote_down": "#1C9A82",
-    "evidence": "#0066CC",
+    "quote_up": "#C53A3A",
+    "quote_down": "#1F8A5D",
+    "evidence": "#2B4A8B",
 }
 
 
@@ -760,7 +847,7 @@ def _plotly_template() -> go.layout.Template:
     )
     template.layout.colorway = [
         APPLE_TOKENS["primary"],  # Action Blue — first/primary
-        "#1C9A82",                # teal accent (was #0F766E in old theme)
+        "#8A7A5C",                # teal accent (was #0F766E in old theme)
         "#6D8FD5",                # muted blue (matches the existing financial bars)
         APPLE_TOKENS["quote_up"],
         APPLE_TOKENS["quote_down"],
@@ -1372,14 +1459,15 @@ section[data-testid="stSidebar"] .stSelectbox * {{
   -webkit-text-fill-color: #FFFFFF !important;
   opacity: 1 !important;
 }}
-/* Wise-inspired research workspace: quiet white canvas, soft neutral cards,
-   deep green typography, and one high-visibility lime action colour. */
+/* Editorial research workspace (v4): the legacy --wise-* var names now hold
+   the 米白编辑风 values — ink typography on warm paper, hairline surfaces,
+   ink action pills.  Geometry & serif type live in the v4 block at the end. */
 :root {{
-  --wise-ink: #163300;
-  --wise-lime: #9FE870;
-  --wise-lime-hover: #8DD95C;
-  --wise-surface: #F4F6F1;
-  --wise-line: #E3E8DF;
+  --wise-ink: #191610;
+  --wise-lime: #191610;
+  --wise-lime-hover: #3A342B;
+  --wise-surface: #F6F2E9;
+  --wise-line: #E7E0D2;
 }}
 .stApp {{
   background: #FFFFFF !important;
@@ -1392,26 +1480,26 @@ section[data-testid="stSidebar"] {{
   min-width: 282px;
   max-width: 306px;
 }}
-section[data-testid="stSidebar"] * {{ color: #244116 !important; }}
+section[data-testid="stSidebar"] * {{ color: #3D3830 !important; }}
 section[data-testid="stSidebar"] .brand {{ color: var(--wise-ink) !important; }}
 section[data-testid="stSidebar"] .brand-sub,
 section[data-testid="stSidebar"] .stCaption,
 section[data-testid="stSidebar"] [data-testid="stExpander"] summary,
-section[data-testid="stSidebar"] [data-testid="stExpander"] summary span {{ color: #71816A !important; }}
+section[data-testid="stSidebar"] [data-testid="stExpander"] summary span {{ color: #8A8070 !important; }}
 section[data-testid="stSidebar"] [data-testid="stExpander"] {{ border-top-color: var(--wise-line) !important; }}
 section[data-testid="stSidebar"] [data-testid="stExpander"] .stButton > button {{
-  color: #526049 !important;
+  color: #5C554A !important;
   border-radius: 999px !important;
   min-height: 2.35rem;
   padding: .48rem .86rem !important;
 }}
 section[data-testid="stSidebar"] [data-testid="stExpander"] .stButton > button:hover {{
-  background: #EEF3E9 !important;
+  background: #F1EDE2 !important;
   border-color: transparent !important;
   color: var(--wise-ink) !important;
 }}
 section[data-testid="stSidebar"] [data-testid="stExpander"] .stButton > button[kind="primary"] {{
-  background: #EAF1E5 !important;
+  background: #F1EDE2 !important;
   color: var(--wise-ink) !important;
   border-color: transparent !important;
   box-shadow: none !important;
@@ -1420,7 +1508,7 @@ section[data-testid="stSidebar"] .stSelectbox,
 section[data-testid="stSidebar"] .stSelectbox > div,
 section[data-testid="stSidebar"] .stSelectbox [data-testid="stSelectbox"],
 section[data-testid="stSidebar"] .stSelectbox * {{
-  background-color: #F3F6F0 !important;
+  background-color: #FFFFFF !important;
   color: var(--wise-ink) !important;
   -webkit-text-fill-color: var(--wise-ink) !important;
 }}
@@ -1432,14 +1520,14 @@ section[data-testid="stSidebar"] .stSelectbox > div {{ border-color: var(--wise-
   -webkit-text-fill-color: var(--wise-ink) !important;
 }}
 h1, h2, h3, [data-testid="stMetricValue"] {{ color: var(--wise-ink) !important; }}
-.hero-kicker {{ color: #547444; }}
-.hero-dot {{ background: var(--wise-lime); box-shadow: 0 0 0 4px rgba(159,232,112,.22); }}
+.hero-kicker {{ color: #7A7264; }}
+.hero-dot {{ background: var(--wise-lime); box-shadow: 0 0 0 4px rgba(43,74,139,.16); }}
 .hero-title {{ color: var(--wise-ink); font-size: 2.15rem; }}
 .hero-subtitle, .subline {{ color: #72806B; }}
 .statusbar {{ background: #FFFFFF; border-color: var(--wise-line); box-shadow: none; border-radius: 16px; }}
-.snapshot {{ background: #EEF5E9; color: #386420; }}
+.snapshot {{ background: #F1EDE2; color: #5C554A; }}
 .neutral {{ background: #F5F7F3; color: #66735F; border-color: var(--wise-line); }}
-.verified {{ background: #E2F7D5; color: #285A14; }}
+.verified {{ background: #E9F3EC; color: #4A443A; }}
 [data-testid="stMetric"],
 div[data-testid="stVerticalBlockBorderWrapper"] > div,
 .stContainer[data-testid="stContainer"]:has(> div[data-testid="stVerticalBlock"]),
@@ -1468,7 +1556,7 @@ div[data-testid="stVerticalBlockBorderWrapper"] > div,
 }}
 .stButton > button, .stDownloadButton > button, .stFormSubmitButton > button {{
   border-radius: 999px !important;
-  border-color: #DCE5D6 !important;
+  border-color: #E0D8C8 !important;
   background: #FFFFFF !important;
   color: var(--wise-ink) !important;
   box-shadow: none !important;
@@ -1488,15 +1576,15 @@ div[data-testid="stVerticalBlockBorderWrapper"] > div,
   transform: none !important;
 }}
 .stTextInput input, .stDateInput input, .stTextArea textarea, .stNumberInput input,
-[data-baseweb="input"] input {{ background: #FFFFFF !important; border-color: #DCE5D6 !important; }}
+[data-baseweb="input"] input {{ background: #FFFFFF !important; border-color: #E0D8C8 !important; }}
 .stTextInput input:focus, .stDateInput input:focus, .stTextArea textarea:focus {{
-  border-color: #6FAA42 !important; box-shadow: 0 0 0 3px rgba(159,232,112,.28) !important;
+  border-color: #2B4A8B !important; box-shadow: 0 0 0 3px rgba(43,74,139,.2) !important;
 }}
 /* Sidebar snapshot controls need a readable neutral field, independently of
    older utility-button rules above. */
 section[data-testid="stSidebar"] .st-key-refresh_snapshot_catalog button {{
-  background: #EEF3E9 !important;
-  border-color: #DCE5D6 !important;
+  background: #F1EDE2 !important;
+  border-color: #E0D8C8 !important;
   color: var(--wise-ink) !important;
 }}
 section[data-testid="stSidebar"] .st-key-refresh_snapshot_catalog button * {{
@@ -1505,8 +1593,8 @@ section[data-testid="stSidebar"] .st-key-refresh_snapshot_catalog button * {{
 /* The refresh control has a generated wrapper in some Streamlit builds, so
    retain this scoped fallback.  Navigation buttons below have stronger rules. */
 section[data-testid="stSidebar"] .stButton > button {{
-  background: #EEF3E9 !important;
-  border-color: #DCE5D6 !important;
+  background: #F1EDE2 !important;
+  border-color: #E0D8C8 !important;
   color: var(--wise-ink) !important;
 }}
 section[data-testid="stSidebar"] .stButton > button * {{
@@ -1514,7 +1602,7 @@ section[data-testid="stSidebar"] .stButton > button * {{
 }}
 section[data-testid="stSidebar"] .stButton > button:hover {{
   background: #DDEDD5 !important;
-  border-color: #C9DDBD !important;
+  border-color: #D0C7B2 !important;
   color: var(--wise-ink) !important;
 }}
 section[data-testid="stSidebar"] .stButton > button:hover * {{
@@ -1525,15 +1613,15 @@ section[data-testid="stSidebar"] [data-testid="stExpander"] .stButton > button {
   border-color: transparent !important;
 }}
 section[data-testid="stSidebar"] [data-testid="stExpander"] .stButton > button:hover {{
-  background: #EEF3E9 !important;
+  background: #F1EDE2 !important;
 }}
 section[data-testid="stSidebar"] [data-testid="stExpander"] .stButton > button[kind="primary"] {{
-  background: #EAF1E5 !important;
+  background: #F1EDE2 !important;
 }}
 section[data-testid="stSidebar"] [data-testid="stSelectbox"] > div,
 section[data-testid="stSidebar"] [data-testid="stSelectbox"] > div > div {{
   background: #FFFFFF !important;
-  border-color: #C9D8C0 !important;
+  border-color: #D0C7B2 !important;
   color: var(--wise-ink) !important;
 }}
 section[data-testid="stSidebar"] [data-testid="stSelectbox"] input {{
@@ -1544,7 +1632,7 @@ section[data-testid="stSidebar"] [data-testid="stSelectbox"] input {{
   font-weight: 650 !important;
 }}
 section[data-testid="stSidebar"] [data-testid="stSelectbox"] svg {{
-  fill: #5F7B50 !important;
+  fill: #7A7264 !important;
 }}
 /* Sidebar control refinement: this is intentionally limited to the launch
    controls shown above navigation.  It restores one visual rhythm between
@@ -1561,43 +1649,43 @@ section[data-testid="stSidebar"] .brand {{
 }}
 section[data-testid="stSidebar"] .brand-sub {{
   margin: 0 !important;
-  color: #71816A !important;
+  color: #8A8070 !important;
   font-size: .6rem !important;
   letter-spacing: .12em !important;
 }}
 section[data-testid="stSidebar"] .st-key-refresh_snapshot_catalog button {{
   min-height: 2.65rem !important;
   border-radius: 10px !important;
-  background: #EEF3E9 !important;
-  border-color: #D7E4CF !important;
+  background: #F1EDE2 !important;
+  border-color: #DDD5C4 !important;
   font-size: .88rem !important;
 }}
 section[data-testid="stSidebar"] .st-key-refresh_snapshot_catalog button:hover {{
-  background: #E4EFDC !important;
-  border-color: #C8DABC !important;
+  background: #EAE4D6 !important;
+  border-color: #D0C7B2 !important;
 }}
 section[data-testid="stSidebar"] [data-testid="stPopover"] > button {{
   min-height: 2.65rem !important;
   border-radius: 10px !important;
   background: #FFFFFF !important;
-  border-color: #D7E4CF !important;
+  border-color: #DDD5C4 !important;
   color: var(--wise-ink) !important;
   font-size: .82rem !important;
 }}
 section[data-testid="stSidebar"] [data-testid="stPopover"] > button:hover {{
-  background: #EEF3E9 !important;
-  border-color: #C8DABC !important;
+  background: #F1EDE2 !important;
+  border-color: #D0C7B2 !important;
 }}
 section[data-testid="stSidebar"] [data-testid="stExpander"]:has(.st-key-refresh_snapshot_catalog) {{
   margin: .9rem 0 1rem !important;
-  border: 1px solid #DCE5D6 !important;
+  border: 1px solid #E0D8C8 !important;
   border-radius: 14px !important;
   background: #FAFCF8 !important;
   overflow: hidden;
 }}
 section[data-testid="stSidebar"] [data-testid="stExpander"]:has(.st-key-refresh_snapshot_catalog) summary {{
   padding: .82rem 1rem !important;
-  background: #F2F6EF !important;
+  background: #F7F4EC !important;
   font-size: .92rem !important;
   font-weight: 700 !important;
   letter-spacing: 0 !important;
@@ -1615,7 +1703,7 @@ section[data-testid="stSidebar"] .snapshot-section-title {{
 }}
 section[data-testid="stSidebar"] .snapshot-section-copy {{
   margin: .05rem 0 .25rem;
-  color: #71816A !important;
+  color: #8A8070 !important;
   font-size: .72rem;
   line-height: 1.45;
 }}
@@ -1631,14 +1719,14 @@ section[data-testid="stSidebar"] .snapshot-picker-heading {{
 }}
 section[data-testid="stSidebar"] .snapshot-field-label {{
   margin: .35rem 0 -.15rem;
-  color: #526049 !important;
+  color: #5C554A !important;
   font-size: .73rem;
   font-weight: 700;
 }}
 section[data-testid="stSidebar"] .st-key-online_refresh_symbol [data-testid="stSelectbox"] > div,
 section[data-testid="stSidebar"] .st-key-snapshot_picker [data-testid="stSelectbox"] > div {{
   min-height: 2.7rem !important;
-  border: 1px solid #C9DDBD !important;
+  border: 1px solid #D0C7B2 !important;
   border-radius: 11px !important;
   background: #FFFFFF !important;
   box-shadow: none !important;
@@ -1659,7 +1747,7 @@ section[data-testid="stSidebar"] .st-key-online_refresh_bars_only {{
 }}
 section[data-testid="stSidebar"] .st-key-online_refresh_bars_only label {{
   align-items: flex-start !important;
-  color: #526049 !important;
+  color: #5C554A !important;
   font-size: .82rem !important;
   line-height: 1.45 !important;
 }}
@@ -1692,13 +1780,13 @@ section[data-testid="stSidebar"] .st-key-open_selected_snapshot button {{
   margin: .1rem 0 0;
   border-radius: 10px !important;
   background: #FFFFFF !important;
-  border-color: #C9DDBD !important;
+  border-color: #D0C7B2 !important;
   color: var(--wise-ink) !important;
   font-size: .82rem !important;
 }}
 section[data-testid="stSidebar"] .st-key-open_selected_snapshot button:hover {{
-  background: #EEF3E9 !important;
-  border-color: #BBD3AC !important;
+  background: #F1EDE2 !important;
+  border-color: #C4BAA4 !important;
 }}
 section[data-testid="stSidebar"] .st-key-open_selected_snapshot button *,
 section[data-testid="stSidebar"] .st-key-open_selected_snapshot button:hover * {{
@@ -1714,71 +1802,72 @@ section[data-testid="stSidebar"] .st-key-open_selected_snapshot button:hover * {
 .home-nav, .home-hero-grid {{ position: relative; z-index: 1; }}
 .home-nav {{ display: flex; justify-content: space-between; align-items: center; padding-bottom: 2rem; border-bottom: 1px solid var(--wise-line); }}
 .home-wordmark {{ font-size: 1.05rem; font-weight: 780; letter-spacing: -.015em; }}
-.home-wordmark span {{ color: #6FAA42; margin-right: .25rem; }}
-.home-nav-note {{ color: #71816A; font-size: .78rem; }}
+.home-wordmark span {{ color: #2B4A8B; margin-right: .25rem; }}
+.home-nav-note {{ color: #8A8070; font-size: .78rem; }}
 .home-hero-grid {{ min-height: 0; display: block; padding-top: 2.25rem; }}
-.home-eyebrow, .section-kicker {{ color: #547444; font-size: .68rem; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }}
+.home-eyebrow, .section-kicker {{ color: #7A7264; font-size: .68rem; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }}
 .home-eyebrow {{ display: flex; align-items: center; gap: .5rem; }}
-.home-eyebrow i {{ width: .5rem; height: .5rem; border-radius: 50%; background: var(--wise-lime); box-shadow: 0 0 0 4px rgba(159,232,112,.22); }}
+.home-eyebrow i {{ width: .5rem; height: .5rem; border-radius: 50%; background: var(--wise-lime); box-shadow: 0 0 0 4px rgba(43,74,139,.16); }}
 .home-hero h1 {{ margin: .7rem 0 0 !important; color: var(--wise-ink) !important; font-size: clamp(2.35rem, 5vw, 3.85rem) !important; line-height: 1.08 !important; letter-spacing: -.06em !important; }}
-.home-hero p {{ max-width: 650px; margin: 1rem 0 0; color: #71816A; font-size: 1.02rem; line-height: 1.75; }}
-.value-pills {{ display: flex; flex-wrap: wrap; gap: .55rem; margin-top: 1.35rem; }}
-.value-pills span {{ border: 1px solid #DCE5D6; border-radius: 999px; padding: .42rem .76rem; background: #F4F6F1; color: #526049; font-size: .8rem; font-weight: 650; }}
+.home-hero p {{ max-width: 650px; margin: 1rem 0 0; color: #8A8070; font-size: 1.02rem; line-height: 1.75; }}
+.value-pills {{ display: flex; flex-wrap: wrap; margin-top: 1.2rem; align-items: baseline; }}
+.value-pills span {{ color: #7A7264; font-size: .78rem; font-weight: 600; letter-spacing: .04em; }}
+.value-pills span + span::before {{ content: "·"; margin: 0 .95rem; color: #C9C0AE; font-weight: 700; }}
 /* The diagram was decorative rather than actionable; the only first-screen
    action should be the CTA below the message. */
 .home-orbit {{ display: none; }}
 [class*="st-key-home_start_research"] button {{ margin-top: 1.05rem; min-width: 156px; background: var(--wise-lime) !important; border-color: var(--wise-lime) !important; color: var(--wise-ink) !important; }}
 [class*="st-key-home_start_research"] button * {{ color: var(--wise-ink) !important; }}
 .home-section {{ margin-top: 5.5rem; }}
-.section-kicker {{ color: #547444; }}
+.section-kicker {{ color: #7A7264; }}
 .home-section h2, .architecture-section h2 {{ margin: .42rem 0 0 !important; color: var(--wise-ink) !important; font-size: clamp(1.85rem, 3vw, 2.6rem) !important; letter-spacing: -.045em !important; }}
-.section-lead {{ max-width: 650px; margin: .7rem 0 0; color: #71816A; font-size: 1rem; line-height: 1.7; }}
+.section-lead {{ max-width: 650px; margin: .7rem 0 0; color: #8A8070; font-size: 1rem; line-height: 1.7; }}
 .problem-grid, .feature-grid {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; margin-top: 1.7rem; }}
 .problem-grid article {{ min-height: 174px; padding: 1.25rem; border: 1px solid var(--wise-line); border-radius: 16px; background: #FFF; }}
 .problem-grid article b {{ display: grid; place-items: center; width: 1.7rem; height: 1.7rem; border-radius: 50%; background: #FFF0F0; color: #C95D67; font-size: .9rem; }}
 .problem-grid h3, .feature-grid h3, .case-card h3 {{ margin: 1rem 0 .35rem !important; color: var(--wise-ink) !important; font-size: 1.03rem !important; }}
-.problem-grid p, .feature-grid p, .case-card p {{ margin: 0; color: #71816A; font-size: .88rem; line-height: 1.65; }}
+.problem-grid p, .feature-grid p, .case-card p {{ margin: 0; color: #8A8070; font-size: .88rem; line-height: 1.65; }}
 .workflow-section {{ padding: 2.1rem; border: 1px solid var(--wise-line); border-radius: 20px; background: var(--wise-surface); }}
 .workflow-rail {{ display: flex; align-items: stretch; gap: .65rem; margin-top: 1.75rem; }}
 .workflow-rail div {{ flex: 1; min-width: 0; }}
-.workflow-rail em {{ display: block; color: #547444; font-size: .7rem; font-style: normal; font-weight: 800; letter-spacing: .08em; }}
+.workflow-rail em {{ display: block; color: #7A7264; font-size: .7rem; font-style: normal; font-weight: 800; letter-spacing: .08em; }}
 .workflow-rail strong {{ display: block; margin-top: .4rem; color: var(--wise-ink); font-size: .97rem; }}
-.workflow-rail span {{ display: block; margin-top: .3rem; color: #71816A; font-size: .76rem; }}
-.workflow-rail > i {{ width: 40px; align-self: 27px; height: 1px; background: #C9DDBD; }}
+.workflow-rail span {{ display: block; margin-top: .3rem; color: #8A8070; font-size: .76rem; }}
+.workflow-rail > i {{ width: 40px; align-self: 27px; height: 1px; background: #D0C7B2; }}
 .feature-grid article {{ min-height: 226px; padding: 1.35rem; border: 1px solid var(--wise-line); border-radius: 17px; background: #FFFFFF; box-shadow: none; }}
 .feature-grid article:nth-child(2) {{ background: var(--wise-surface); border-color: var(--wise-line); }}
 .feature-grid article:nth-child(2) h3 {{ color: var(--wise-ink) !important; }}
-.feature-grid article:nth-child(2) b {{ color: #547444 !important; }}
-.feature-grid article:nth-child(2) p {{ color: #71816A; }}
-.feature-number {{ color: #547444; font-size: .7rem; font-weight: 800; letter-spacing: .1em; }}
-.feature-grid b {{ color: #547444; font-size: .78rem; font-weight: 650; }}
+.feature-grid article:nth-child(2) b {{ color: #7A7264 !important; }}
+.feature-grid article:nth-child(2) p {{ color: #8A8070; }}
+.feature-number {{ color: #7A7264; font-size: .7rem; font-weight: 800; letter-spacing: .1em; }}
+.feature-grid b {{ color: #7A7264; font-size: .78rem; font-weight: 650; }}
 .case-section {{ margin-bottom: 1.6rem; }}
 .featured-case {{ margin-top: 2.6rem; }}
 .case-card {{ min-height: 245px; padding: 1.45rem; border: 1px solid var(--wise-line); border-radius: 18px 18px 0 0; background: #FFF; }}
-.case-card.case-pass {{ border-top: 3px solid #43A980; }} .case-card.case-block {{ border-top: 3px solid #D68471; }}
-.case-top {{ display: flex; justify-content: space-between; gap: 1rem; color: #71816A; font-size: .73rem; font-weight: 700; }}
+.case-card.case-pass {{ border-top: 3px solid #1F8A5D; }} .case-card.case-block {{ border-top: 3px solid #D68471; }}
+.case-top {{ display: flex; justify-content: space-between; gap: 1rem; color: #8A8070; font-size: .73rem; font-weight: 700; }}
 .case-top b {{ border-radius: 999px; padding: .32rem .55rem; font-size: .71rem; }}
-.case-pass .case-top b {{ background: #E7F6EE; color: #207653; }} .case-block .case-top b {{ background: #FDF0EC; color: #B55F4D; }}
+.case-pass .case-top b {{ background: #E9F3EC; color: #207653; }} .case-block .case-top b {{ background: #FDF0EC; color: #B55F4D; }}
 .case-card ul {{ display: flex; flex-wrap: wrap; gap: .5rem; padding: 0; margin: 1.1rem 0 0; list-style: none; }}
-.case-card li {{ border-radius: 6px; padding: .36rem .48rem; background: #F4F6F1; color: #526049; font-size: .73rem; }}
+.case-card li {{ border-radius: 6px; padding: .36rem .48rem; background: #F6F2E9; color: #5C554A; font-size: .73rem; }}
 .case-card + div[data-testid="stExpander"] {{ margin-top: 0 !important; border: 1px solid var(--wise-line); border-top: 0; border-radius: 0 0 18px 18px; background: #FFF; }}
-.case-card + div[data-testid="stExpander"] summary {{ color: #547444; font-size: .82rem; font-weight: 650; }}
+.case-card + div[data-testid="stExpander"] summary {{ color: #7A7264; font-size: .82rem; font-weight: 650; }}
 .architecture-section {{ margin-top: 5.5rem; padding: 2.25rem; border: 1px solid var(--wise-line); border-radius: 22px; background: var(--wise-surface); }}
-.architecture-section .section-kicker {{ color: #547444; }} .architecture-section h2 {{ color: var(--wise-ink) !important; }} .architecture-section p {{ margin: .55rem 0 0; color: #71816A; }}
+.architecture-section .section-kicker {{ color: #7A7264; }} .architecture-section h2 {{ color: var(--wise-ink) !important; }} .architecture-section p {{ margin: .55rem 0 0; color: #8A8070; }}
 .architecture-flow {{ display: flex; flex-wrap: wrap; align-items: center; gap: .65rem; margin-top: 1.5rem; }}
-.architecture-flow span {{ border: 1px solid #DCE5D6; border-radius: 9px; padding: .65rem .8rem; background: #FFFFFF; color: var(--wise-ink); font: 600 .78rem ui-monospace, SFMono-Regular, Menlo, monospace; }}
-.architecture-flow i {{ color: #6FAA42; font-style: normal; }}
-.agent-context {{ margin: .1rem 0 1rem; padding: 1rem 1.1rem; border: 1px solid var(--wise-line); border-radius: 14px; background: #FBFCF9; }}
+.architecture-flow span {{ border: 1px solid #E0D8C8; border-radius: 9px; padding: .65rem .8rem; background: #FFFFFF; color: var(--wise-ink); font: 600 .78rem ui-monospace, SFMono-Regular, Menlo, monospace; }}
+.architecture-flow i {{ color: #2B4A8B; font-style: normal; }}
+.agent-context {{ margin: .1rem 0 1rem; padding: 1rem 1.1rem; border: 1px solid var(--wise-line); border-radius: 14px; background: #FBF9F4; }}
 .agent-context-head {{ display: flex; align-items: center; justify-content: space-between; gap: .8rem; margin-bottom: .8rem; color: var(--wise-ink); font-size: .86rem; font-weight: 750; }}
-.agent-context-head span {{ border-radius: 999px; padding: .24rem .5rem; background: #EAF4E3; color: #547444; font-size: .68rem; font-weight: 700; }}
+.agent-context-head span {{ border-radius: 999px; padding: .24rem .5rem; background: #F1EDE2; color: #7A7264; font-size: .68rem; font-weight: 700; }}
 .agent-context-grid {{ display: grid; grid-template-columns: minmax(180px, 1.5fr) minmax(130px, 1fr) minmax(145px, 1fr); gap: 1rem; }}
 .agent-context-item {{ min-width: 0; }}
-.agent-context-item span {{ display: block; color: #71816A; font-size: .7rem; font-weight: 700; letter-spacing: .04em; }}
+.agent-context-item span {{ display: block; color: #8A8070; font-size: .7rem; font-weight: 700; letter-spacing: .04em; }}
 .agent-context-item strong {{ display: block; overflow: hidden; margin-top: .25rem; color: var(--wise-ink); font-size: .95rem; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }}
-.agent-context-item em {{ color: #547444; font-style: normal; font-weight: 650; }}
+.agent-context-item em {{ color: #7A7264; font-style: normal; font-weight: 650; }}
 .st-key-account_topbar {{ position: fixed !important; top: .7rem; right: 17.8rem; z-index: 2147483647 !important; width: 4.8rem; }}
-.st-key-account_topbar [data-testid="stPopover"] > button {{ min-height: 2.25rem; width: 100%; border: 1px solid #D7E4CF !important; border-radius: 10px !important; background: #FFFFFF !important; color: var(--wise-ink) !important; box-shadow: 0 3px 12px rgba(20, 42, 30, .08); font-size: .82rem; font-weight: 700; }}
-.st-key-account_topbar [data-testid="stPopover"] > button:hover {{ background: #F2F6EF !important; border-color: #BFD6B3 !important; }}
+.st-key-account_topbar [data-testid="stPopover"] > button {{ min-height: 2.25rem; width: 100%; border: 1px solid #DDD5C4 !important; border-radius: 10px !important; background: #FFFFFF !important; color: var(--wise-ink) !important; box-shadow: 0 3px 12px rgba(20, 42, 30, .08); font-size: .82rem; font-weight: 700; }}
+.st-key-account_topbar [data-testid="stPopover"] > button:hover {{ background: #F7F4EC !important; border-color: #C4BAA4 !important; }}
 @media (max-width: 700px) {{ .agent-context-grid {{ grid-template-columns: 1fr; gap: .65rem; }} .agent-context-head {{ align-items: flex-start; flex-direction: column; }} }}
 @media (max-width: 900px) {{
   .block-container {{ padding: 1.15rem 1rem 3rem; }}
@@ -1786,6 +1875,389 @@ section[data-testid="stSidebar"] .st-key-open_selected_snapshot button:hover * {
   .home-nav {{ padding-bottom: 2rem; }} .problem-grid, .feature-grid {{ grid-template-columns: 1fr; }} .workflow-rail {{ flex-direction: column; gap: .85rem; }} .workflow-rail > i {{ width: 1px; height: 20px; margin-left: .5rem; }}
   .home-section {{ margin-top: 3.5rem; }} .workflow-section, .architecture-section {{ padding: 1.35rem; }}
 }}
+/* ── v4 editorial typography (米白编辑杂志风 × Ghostfolio 排版骨架) ──────
+   Declared last on purpose.  The Wise layer above still owns palette var
+   names (--wise-*), which now hold the editorial values; this block only
+   changes type, geometry and canvas so the two concerns stay separable.
+   Serif display for headings & big numbers, warm paper canvas, hairline
+   surfaces with a single 10px radius, tabular numerals for data. */
+h1, h2, h3, .hero-title, .landing-title, .home-hero h1, .home-section h2,
+.architecture-section h2, [data-testid="stMetricValue"] {{
+  font-family: Georgia, 'Source Han Serif SC', 'Noto Serif SC', 'SimSun', serif !important;
+}}
+h1, h2, h3 {{ letter-spacing: -.01em !important; }}
+[data-testid="stMetricValue"], [data-testid="stMetricLabel"],
+.stDataFrame, [data-testid="stDataFrame"] {{ font-variant-numeric: tabular-nums; }}
+[data-testid="stMetricValue"] {{ letter-spacing: -.02em; }}
+.stApp {{
+  background: #FAF8F3 !important;
+  background-image: none !important;
+}}
+.block-container {{ max-width: 1320px !important; padding: 1.7rem 2.6rem 3.5rem !important; }}
+/* D is a dense editorial grid.  Streamlit's default column rhythm is 16px,
+   which reads as loose air on a paper canvas; tighten only the root column so
+   nested groups, forms and demo pages keep their own spacing. */
+[data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] {{ gap: .7rem; }}
+/* ── D-style hero (效果图 D)：身份行在上，白色卡片里「大数字 | 走势」两栏 ── */
+.hero-id {{ min-width: 0; }}
+.hero-card {{
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2rem;
+  align-items: end; margin-top: 1.05rem; padding: 1.25rem 1.5rem;
+  background: #FFFFFF; border: 1px solid #E7E0D2; border-radius: 10px;
+}}
+.hero-price {{ text-align: left; }}
+.hero-price-label {{
+  color: #7A7264; font-size: .68rem; font-weight: 700; letter-spacing: .14em;
+  text-transform: uppercase; white-space: nowrap; margin-bottom: .45rem;
+}}
+.hero-price-ev {{
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #2B4A8B; font-size: .62rem; letter-spacing: 0;
+  border: 1px solid #E7E0D2; border-radius: 5px; padding: 1px 6px; background: #FFFFFF;
+}}
+.hero-price-num {{
+  font-family: Georgia, 'Source Han Serif SC', 'Noto Serif SC', 'SimSun', serif;
+  font-size: 2.5rem; font-weight: 700; letter-spacing: -.02em; line-height: 1.08;
+  color: #191610; font-variant-numeric: tabular-nums;
+}}
+.hero-price-missing {{ color: #A49B8A; }}
+.hero-spark {{ align-self: end; }}
+.hero-spark-svg {{ display: block; }}
+[data-testid="stMetric"],
+div[data-testid="stVerticalBlockBorderWrapper"] > div,
+.stContainer[data-testid="stContainer"]:has(> div[data-testid="stVerticalBlock"]),
+.stContainer[border="True"],
+.stDataFrame, [data-testid="stDataFrame"], .stPlotlyChart,
+.statusbar {{
+  border-radius: 10px !important;
+  box-shadow: none !important;
+}}
+.statusbar {{ background: #FFFFFF !important; border-color: #E7E0D2 !important; }}
+section[data-testid="stSidebar"] {{
+  background: #F6F2E9 !important;
+  border-right: 1px solid #E7E0D2 !important;
+}}
+section[data-testid="stSidebar"] .brand {{ font-family: Georgia, 'Source Han Serif SC', 'Noto Serif SC', serif !important; }}
+/* Actions: ink pill on paper (the Wise lime var now holds ink, so the
+   primary/hover pair must be restated with paper-on-ink text here).
+   The metadata download button stays a quiet secondary — a large ink pill
+   next to the status badges overpowers the D hero. */
+.stButton > button[kind="primary"], .stFormSubmitButton > button[kind="primary"],
+section[data-testid="stSidebar"] .st-key-refresh_snapshot_online button,
+[class*="st-key-home_start_research"] button {{
+  background: #191610 !important;
+  border-color: #191610 !important;
+  color: #FAF8F3 !important;
+}}
+.stButton > button[kind="primary"] *, .stFormSubmitButton > button[kind="primary"] *,
+section[data-testid="stSidebar"] .st-key-refresh_snapshot_online button *,
+[class*="st-key-home_start_research"] button * {{
+  color: #FAF8F3 !important;
+}}
+.stButton > button[kind="primary"]:hover,
+.stFormSubmitButton > button[kind="primary"]:hover,
+section[data-testid="stSidebar"] .st-key-refresh_snapshot_online button:hover,
+[class*="st-key-home_start_research"] button:hover {{
+  background: #3A342B !important;
+  border-color: #3A342B !important;
+}}
+.stDownloadButton > button {{
+  background: #FFFFFF !important;
+  border: 1px solid #E0D8C8 !important;
+  color: #191610 !important;
+}}
+.stDownloadButton > button * {{ color: #191610 !important; }}
+.st-key-account_topbar [data-testid="stPopover"] > button {{ box-shadow: none !important; }}
+/* Ghostfolio-style dense data rows: hairline separators, quieter grid. */
+.stDataFrame, [data-testid="stDataFrame"] {{ border-color: #E7E0D2 !important; background: #FFFFFF !important; }}
+.stPlotlyChart {{ border-color: #E7E0D2 !important; background: #FFFFFF !important; }}
+/* ── v4b components (UI 效果图 D · 方案B × Ghostfolio 排版骨架) ─────────
+   eyebrow · sechead/tag · factrow · narr/cite · route · tstep.  Facts and
+   interpretation stay visually separate: the narrative rail is purple-ruled
+   and always carries an explicit "not a fact" note. ───────────────────── */
+.eyebrow {{
+  color: #A49B8A; font-size: .68rem; font-weight: 700;
+  letter-spacing: .28em; text-transform: uppercase; margin: .2rem 0 .6rem;
+}}
+.sechead {{
+  display: flex; align-items: baseline; gap: .7rem; flex-wrap: wrap;
+  border-bottom: 1px solid #191610; padding-bottom: .5rem; margin-bottom: .2rem;
+}}
+.sechead h4 {{
+  margin: 0 !important; font-size: .85rem !important; font-weight: 700 !important;
+  letter-spacing: .2em !important; color: #191610 !important;
+  /* h4 is not part of the v4 serif list, so it must be restated here —
+     otherwise Streamlit's "Source Sans" default wins. */
+  font-family: Georgia, 'Source Han Serif SC', 'Noto Serif SC', 'SimSun', serif !important;
+}}
+.sechead .tag {{
+  margin-left: auto; color: #A49B8A; font-size: .66rem; font-weight: 600;
+  letter-spacing: .12em; white-space: nowrap;
+}}
+.sechead .tag.ai {{ color: #6B4FA8; }}
+/* Unified page head: eyebrow → serif title → optional right-aligned tag.
+   One rhythm for every research page, mirroring D's eyebrow + stockhead. */
+.pagetitle {{
+  display: flex; align-items: baseline; gap: .8rem; flex-wrap: wrap;
+  border-bottom: 1px solid #E7E0D2; padding-bottom: .7rem; margin-bottom: .4rem;
+}}
+.pagetitle h2 {{
+  margin: 0 !important; font-size: 1.3rem !important; font-weight: 700 !important;
+  letter-spacing: .01em !important; color: #191610 !important;
+  font-family: Georgia, 'Source Han Serif SC', 'Noto Serif SC', 'SimSun', serif !important;
+}}
+.pagetitle .tag {{
+  margin-left: auto; color: #A49B8A; font-size: .66rem; font-weight: 600;
+  letter-spacing: .12em; white-space: nowrap;
+}}
+/* Closing provenance note (D `.footnote`): the quiet last word on the page. */
+.pagenote {{
+  margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #E7E0D2;
+  max-width: 780px; color: #A49B8A; font-size: .72rem; line-height: 1.9;
+}}
+.factrow {{
+  display: flex; justify-content: space-between; align-items: baseline; gap: 1rem;
+  padding: .7rem 0; border-bottom: 1px solid #EFE9DC;
+}}
+.factrow:last-child {{ border-bottom: none; }}
+.factrow .k {{ color: #7A7264; font-size: .8rem; }}
+.factrow .v {{
+  font-family: Georgia, 'Source Han Serif SC', 'Noto Serif SC', 'SimSun', serif;
+  font-size: 1rem; font-weight: 700; color: #191610;
+  font-variant-numeric: tabular-nums; text-align: right;
+}}
+/* Quote colours (涨红跌绿) stay reserved for the 行情 charts, so fact rows
+   keep ink; only "no reading" states take the muted plain treatment. */
+.factrow .v.plain {{
+  font-family: 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', sans-serif;
+  font-weight: 400; font-size: .82rem; color: #4A443A;
+}}
+.narr {{ border-left: 2px solid #6B4FA8; padding: .15rem 0 .15rem 1.15rem; }}
+.narr p {{
+  margin: 0 0 .6rem; color: #33302A; font-size: .9rem; line-height: 1.95;
+  font-family: Georgia, 'Source Han Serif SC', 'Noto Serif SC', 'SimSun', serif;
+}}
+.narr p:last-child {{ margin-bottom: 0; }}
+.narr .cite {{
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: #6B4FA8; font-size: .72rem; white-space: nowrap;
+}}
+.narrnote {{ margin-top: .7rem; color: #6B4FA8; font-size: .7rem; letter-spacing: .1em; }}
+.route {{ margin: .9rem 0 .2rem; color: #A49B8A; font-size: .8rem; line-height: 1.8; }}
+.route .rstep {{ white-space: nowrap; }}
+.route b {{ color: #191610; font-weight: 700; }}
+.route i {{ color: #2B4A8B; font-style: normal; font-weight: 600; }}
+.tstep {{
+  display: flex; align-items: baseline; gap: .9rem;
+  padding: .7rem 0; border-bottom: 1px solid #EFE9DC; font-size: .85rem;
+}}
+.tstep:last-child {{ border-bottom: none; }}
+.tstep .no {{
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  width: 26px; flex: none; color: #A49B8A; font-size: .7rem;
+}}
+.tstep b {{ font-weight: 700; color: #191610; }}
+.tstep .d {{ color: #7A7264; font-size: .8rem; }}
+.tstep .t {{
+  margin-left: auto; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: .7rem; color: #A49B8A; white-space: nowrap;
+}}
+/* Landing wordmark + 每日复盘 stat tiles: same editorial voice as the hero.
+   Numbers stay tabular so columns of quotes line up. */
+.home-wordmark {{
+  font-family: Georgia, 'Source Han Serif SC', 'Noto Serif SC', 'SimSun', serif;
+  font-weight: 700; letter-spacing: -.01em;
+}}
+.dr-stat-num {{
+  font-family: Georgia, 'Source Han Serif SC', 'Noto Serif SC', 'SimSun', serif;
+  font-size: 1.45rem; font-weight: 700; letter-spacing: -.02em;
+  color: #191610; font-variant-numeric: tabular-nums;
+}}
+.dr-stat-chg {{ font-weight: 700; font-variant-numeric: tabular-nums; }}
+/* Overview credibility panel + read-only note (was used in markup but never
+   given rules; editorial hairline card so it matches the tile grammar). */
+.panel {{
+  background: #FFFFFF; border: 1px solid #E7E0D2; border-radius: 10px;
+  padding: 1rem 1.1rem;
+}}
+.panel .subline {{ margin: .4rem 0 0; }}
+.card-note {{
+  margin-top: .75rem; color: #A49B8A;
+  font-size: .66rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+}}
+/* ── v4c page-chrome unification ────────────────────────────────────────
+   D grammar applied to Streamlit's own widget chrome so every page reads
+   as one system without rewriting each page's structure. */
+[data-testid="stMetric"] {{ background: #FFFFFF !important; }}
+[data-testid="stExpander"] {{
+  background: #FFFFFF !important;
+  border: 1px solid #E7E0D2 !important;
+  border-radius: 10px !important;
+  box-shadow: none !important;
+}}
+[data-testid="stExpander"] summary {{ font-weight: 650; }}
+[data-testid="stAlert"] {{
+  background: #FFFFFF !important;
+  border: 1px solid #E7E0D2 !important;
+  border-radius: 10px !important;
+}}
+/* Streamlit paints the status tint on an inner .stAlertContainer; flatten it
+   so the alert reads as a paper card, not a yellow/blue slab. */
+[data-testid="stAlert"] .stAlertContainer {{
+  background: transparent !important;
+  color: #4A443A !important;
+}}
+/* D-style dense table for read-only restatements (overview ledger). */
+table.tbl {{ width: 100%; border-collapse: collapse; font-size: .84rem; background: #FFFFFF; border: 1px solid #E7E0D2; }}
+table.tbl th {{
+  text-align: left; font-size: .68rem; letter-spacing: .14em;
+  color: #A49B8A; font-weight: 700; padding: .6rem .9rem;
+  border-bottom: 1px solid #191610; background: #FFFFFF;
+}}
+table.tbl td {{ padding: .62rem .9rem; border-bottom: 1px solid #EFE9DC; }}
+table.tbl tbody tr:last-child td {{ border-bottom: 0; }}
+table.tbl td.mono {{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .78rem; color: #4A443A; }}
+table.tbl td.st {{ font-size: .74rem; letter-spacing: .04em; white-space: nowrap; }}
+table.tbl td.st.ok {{ color: #1F8A5D; }}
+table.tbl td.st.part {{ color: #9A6B14; }}
+/* Landing page: same paper-and-hairline grammar, marketing structure kept. */
+.home-hero {{ background: #FFFFFF !important; border: 1px solid #E7E0D2 !important; border-radius: 10px !important; box-shadow: none !important; }}
+.home-wordmark {{ font-family: Georgia, 'Source Han Serif SC', 'Noto Serif SC', 'SimSun', serif; }}
+.home-hero p, .section-lead {{ color: #7A7264; }}
+.workflow-section, .architecture-section {{
+  background: #FFFFFF !important; border-color: #E7E0D2 !important;
+  border-radius: 10px !important; box-shadow: none !important;
+}}
+.problem-grid article, .feature-grid article, .case-card {{
+  border-radius: 10px !important; box-shadow: none !important;
+}}
+/* st.code / st.json: dark highlight blocks break the paper theme — recast as
+   editorial mono cards.  Syntax-token colours are flattened to ink tones. */
+[data-testid="stCodeBlock"], [data-testid="stJson"] {{
+  background: #FFFFFF !important;
+  border: 1px solid #E7E0D2 !important;
+  border-radius: 10px !important;
+}}
+[data-testid="stCodeBlock"] pre, [data-testid="stCodeBlock"] code,
+[data-testid="stJson"] pre, [data-testid="stJson"] code {{
+  background: transparent !important;
+  color: #191610 !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+  font-size: .8rem !important;
+}}
+[data-testid="stCodeBlock"] span, [data-testid="stJson"] span {{ color: #4A443A !important; }}
+/* Tabs: hairline underline grammar, accent on the active tab. */
+[data-testid="stTabs"] [role="tablist"] {{ border-bottom: 1px solid #E7E0D2; }}
+[data-testid="stTabs"] [role="tab"] {{ color: #7A7264; font-weight: 650; }}
+[data-testid="stTabs"] [role="tab"][aria-selected="true"] {{ color: #191610 !important; font-weight: 700; }}
+/* ── v4e mockup alignment (D1 盘口 / D3 公式卡 / D8 复盘磁贴) ──────────────
+   Component syntax transplanted from the D-series mockups.  Read-only HTML,
+   every value formatted from service fields — no frontend-derived metrics.
+   Geometry follows the 10px house radius, not the mockup's 4px. */
+.idxrow {{
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: .75rem; margin-top: .5rem;
+}}
+.idxtile {{
+  background: #FFFFFF; border: 1px solid #E7E0D2; border-radius: 10px;
+  padding: .9rem 1.1rem .8rem;
+}}
+.idxtile .lab {{
+  display: flex; justify-content: space-between; align-items: baseline; gap: .5rem;
+  color: #A49B8A; font-size: .66rem; font-weight: 700;
+  letter-spacing: .16em; margin-bottom: .55rem;
+}}
+.idxtile .lab .ev {{
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: .62rem; letter-spacing: 0; font-weight: 400;
+}}
+.idxtile .num {{
+  font-family: Georgia, 'Source Han Serif SC', 'Noto Serif SC', 'SimSun', serif;
+  font-size: 1.6rem; font-weight: 700; letter-spacing: -.01em; line-height: 1.1;
+  color: #191610; font-variant-numeric: tabular-nums;
+}}
+.idxtile .num small {{
+  font-size: .78rem; font-weight: 400; color: #7A7264; margin-left: .15rem;
+}}
+.idxtile .chg {{ margin-top: .35rem; font-weight: 700; font-size: .8rem; font-variant-numeric: tabular-nums; }}
+.quotegrid {{
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  background: #FFFFFF; border: 1px solid #E7E0D2; border-radius: 10px; overflow: hidden;
+}}
+.quotegrid .qcell {{ padding: .8rem 1.1rem .7rem; border-right: 1px solid #EFE9DC; border-bottom: 1px solid #EFE9DC; }}
+.quotegrid .qcell:nth-child(3n) {{ border-right: 0; }}
+.quotegrid .qcell:nth-last-child(-n+3) {{ border-bottom: 0; }}
+.quotegrid .k {{
+  color: #A49B8A; font-size: .66rem; font-weight: 700; letter-spacing: .16em;
+  display: flex; justify-content: space-between; align-items: baseline; gap: .5rem;
+}}
+.quotegrid .k .ev {{
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: .62rem; letter-spacing: 0; font-weight: 400;
+}}
+.quotegrid .v {{
+  margin-top: .3rem; font-family: Georgia, 'Source Han Serif SC', 'Noto Serif SC', 'SimSun', serif;
+  font-size: 1.15rem; font-weight: 700; color: #191610; font-variant-numeric: tabular-nums;
+}}
+.quotegrid .v small {{ font-size: .72rem; font-weight: 400; color: #7A7264; margin-left: .15rem; }}
+.quotegrid .v.up {{ color: #C53A3A; }}
+.quotegrid .v.down {{ color: #1F8A5D; }}
+.formula {{
+  background: #F6F2E9; border: 1px solid #E7E0D2; border-radius: 10px;
+  padding: .9rem 1.2rem; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: .78rem; color: #4A443A; line-height: 2;
+}}
+.formula .cap {{
+  display: block; font-family: 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', sans-serif;
+  font-size: .66rem; font-weight: 700; letter-spacing: .16em; color: #A49B8A;
+  margin-bottom: .15rem;
+}}
+table.tbl td.st.drop {{ color: #7A7264; }}
+/* st.form：与 v4c 折叠面板同款白卡发丝线（登录/注册、受控研究、采集表单）。 */
+[data-testid="stForm"] {{
+  background: #FFFFFF; border: 1px solid #E7E0D2; border-radius: 10px;
+}}
+/* D5 会话页：用户气泡（墨底纸字）、AI 生成横幅、右栏信息卡。 */
+.bubble-user {{
+  background: #191610; color: #FAF8F3; border-radius: 10px 10px 3px 10px;
+  padding: .6rem 1rem; max-width: 82%; width: fit-content;
+  margin-left: auto; font-size: .88rem; line-height: 1.8;
+  overflow-wrap: anywhere;
+}}
+.badge.ai {{ color: #6B4FA8; background: rgba(107,79,168,.08); }}
+.railcard {{
+  background: #FFFFFF; border: 1px solid #E7E0D2; border-radius: 10px;
+  padding: .8rem 1rem; margin-bottom: .75rem;
+}}
+.railcard h5 {{
+  margin: 0 0 .3rem; font-size: .66rem; font-weight: 700;
+  letter-spacing: .2em; color: #A49B8A; text-transform: uppercase;
+  font-family: 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', sans-serif;
+}}
+.railrow {{
+  display: flex; justify-content: space-between; align-items: baseline; gap: .6rem;
+  padding: .42rem 0; border-bottom: 1px solid #EFE9DC; font-size: .78rem;
+}}
+.railrow:last-child {{ border-bottom: none; }}
+.railrow .k {{ color: #7A7264; white-space: nowrap; }}
+.railrow .v {{
+  font-weight: 600; color: #191610; text-align: right;
+  font-variant-numeric: tabular-nums; overflow-wrap: anywhere;
+}}
+/* D7 报告页：目录栏（静态大纲，装饰性）。 */
+.tocbox .cap {{
+  font-size: .66rem; letter-spacing: .22em; color: #A49B8A; font-weight: 700;
+  margin-bottom: .4rem;
+}}
+.tocitem {{
+  font-family: Georgia, 'Source Han Serif SC', 'Noto Serif SC', 'SimSun', serif;
+  font-size: .8rem; color: #7A7264; padding: .3rem 0 .3rem .7rem;
+  border-left: 1px solid #E7E0D2; overflow-wrap: anywhere;
+}}
+.tocitem.lv1 {{ color: #191610; font-weight: 700; }}
+.tocitem.lv2 {{ margin-left: .55rem; }}
+.tocitem.lv3 {{ margin-left: 1.1rem; font-size: .74rem; }}
+.tocnote {{ margin-top: .5rem; font-size: .68rem; color: #A49B8A; line-height: 1.7; }}
 </style>""",
         unsafe_allow_html=True,
     )
@@ -1835,6 +2307,36 @@ def validation_check_copy(check: dict) -> str:
     return messages.get(code, "该项数据检查需要关注，请查看处理建议。")
 
 
+def _hero_sparkline_svg(bars: list[dict], as_of: str, *, width: int = 300, height: int = 56) -> str:
+    """Inline SVG sparkline of RAW closes up to the research cutoff.
+
+    Pure visualization of the same evidence-linked bars the line chart plots
+    below; no derived numbers (change %, averages) are computed here.
+    """
+    closes = [
+        float(bar["close"])
+        for bar in bars
+        if bar.get("adjustment") == "RAW" and bar.get("close") is not None
+        and str(bar.get("trade_date", "")) <= str(as_of)[:10]
+    ]
+    tail = closes[-40:]
+    if len(tail) < 2:
+        return ""
+    lo, hi = min(tail), max(tail)
+    span = (hi - lo) or 1.0
+    step = width / (len(tail) - 1)
+    points = " ".join(
+        f"{i * step:.1f},{height - 4 - (value - lo) / span * (height - 8):.1f}"
+        for i, value in enumerate(tail)
+    )
+    return (
+        f'<svg class="hero-spark-svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}"'
+        f' preserveAspectRatio="none" style="width:100%;max-width:{width * 1.6:.0f}px;height:{height}px"'
+        f' role="img" aria-label="RAW 收盘价走势示意"><polyline points="{points}"'
+        f' fill="none" stroke="#2B4A8B" stroke-width="1.6" stroke-linejoin="round"/></svg>'
+    )
+
+
 def header(snapshot: dict, metadata: dict) -> None:
     profile = snapshot["data"]["profile"]
     source_metadata = snapshot.get("source_metadata") or {}
@@ -1851,23 +2353,45 @@ def header(snapshot: dict, metadata: dict) -> None:
     readiness = cached_research_readiness(snapshot["snapshot_id"])
     quality_label, quality_color, _, _ = research_quality_copy(validation, readiness)
     quality_class = {"green": "verified", "orange": "warning", "red": "blocked"}[quality_color]
-    left, right = st.columns([7, 2], vertical_alignment="center")
-    with left:
-        st.markdown(
-            f'''<div class="hero-shell">
-                <div class="hero-kicker"><span class="hero-dot"></span> FINTRACE / CN · AI 金融研究</div>
-                <div class="hero-title">{profile['name']} <span>·</span> {snapshot['symbol']}</div>
-                <div class="hero-subtitle">{profile["industry_name"]} <span class="hero-sep">/</span> {profile["currency"]} <span class="hero-sep">/</span> 研究截至 {_display_datetime(snapshot["research_as_of"])}</div>
-            </div>''',
-            unsafe_allow_html=True,
-        )
-    with right:
-        st.download_button("导出研究信息", json.dumps(metadata, ensure_ascii=False, indent=2), f"{snapshot['symbol']}-research-metadata.json", "application/json", width="stretch")
+    price = (metadata.get("key_metrics") or {}).get("price")
+    price_id = (metadata.get("evidence_ids") or {}).get("price")
+    spark_svg = _hero_sparkline_svg(
+        snapshot.get("data", {}).get("bars", []), snapshot.get("research_as_of", "")
+    )
+    price_ev_html = f' <span class="hero-price-ev">{price_id}</span>' if price_id else ""
+    if price is not None:
+        price_num_html = f'<div class="hero-price-num">¥ {price:,.2f}</div>'
+    else:
+        price_num_html = '<div class="hero-price-num hero-price-missing">未覆盖</div>'
+    spark_html = f'<div class="hero-spark">{spark_svg}</div>' if spark_svg else ""
     st.markdown(
-        f'''<div class="statusbar"><span class="badge {quality_class}">● 研究质量：{quality_label}</span>
-        <span class="badge neutral">{origin_label} · 收盘数据截至 {latest_raw_close_date}</span></div>''',
+        f'''<div class="hero-shell">
+            <div class="hero-kicker"><span class="hero-dot"></span> FINTRACE / CN · AI 金融研究</div>
+            <div class="hero-quote">
+                <div class="hero-id">
+                    <div class="hero-title">{profile['name']} <span>·</span> {snapshot['symbol']}</div>
+                    <div class="hero-subtitle">{profile["industry_name"]} <span class="hero-sep">/</span> {profile["currency"]} <span class="hero-sep">/</span> 研究截至 {_display_datetime(snapshot["research_as_of"])}</div>
+                </div>
+                <div class="hero-card">
+                    <div class="hero-price">
+                        <div class="hero-price-label">RAW 收盘价{price_ev_html}</div>
+                        {price_num_html}
+                    </div>
+                    {spark_html}
+                </div>
+            </div>
+        </div>''',
         unsafe_allow_html=True,
     )
+    status_left, status_right = st.columns([8, 2], vertical_alignment="center")
+    with status_left:
+        st.markdown(
+            f'''<div class="statusbar"><span class="badge {quality_class}">● 研究质量：{quality_label}</span>
+            <span class="badge neutral">{origin_label} · 收盘数据截至 {latest_raw_close_date}</span></div>''',
+            unsafe_allow_html=True,
+        )
+    with status_right:
+        st.download_button("导出研究信息", json.dumps(metadata, ensure_ascii=False, indent=2), f"{snapshot['symbol']}-research-metadata.json", "application/json", width="stretch")
 
 
 def security_status(snapshot_id: str) -> None:
@@ -1911,102 +2435,15 @@ def overview(snapshot: dict, metadata: dict) -> None:
     attention_count = sum(check.get("status") != "pass" for check in validation_checks)
     quality_label, quality_color, quality_reason, report_guidance = research_quality_copy(validation, readiness)
 
-    with st.container(border=True):
-        quality_left, quality_right = st.columns([1, 3], vertical_alignment="center")
-        with quality_left:
-            st.markdown("**AI 研究质量**")
-            st.badge(quality_label, color=quality_color)
-        with quality_right:
-            st.markdown(f"**{report_guidance}**")
-            st.caption(f"原因：{quality_reason}")
-
-    st.markdown("### 为什么相信这份报告？")
-    trust_columns = st.columns(4)
-    trust_columns[0].metric("数据依据", f"{evidence_count} 项")
-    trust_columns[0].caption("本次研究引用的数据依据")
-    trust_columns[1].metric("数据检查", f"{passed_count} 项已完成")
-    trust_columns[1].caption("已完成的关键数据与计算检查")
-    trust_columns[2].metric("需要关注", f"{attention_count} 项")
-    trust_columns[2].caption("系统已标记并限制受影响结论")
-    trust_columns[3].metric("数据更新时间", freshness.get("latest_trade_date") or "未覆盖")
-    trust_columns[3].caption("当前版本纳入的最新收盘数据")
-
-    with st.expander("高级验证详情", expanded=False):
-        st.caption("以下信息用于复核完整验证链路；不会改变本页展示的研究结论。")
-        details_left, details_right = st.columns(2)
-        with details_left:
-            st.markdown("**数据版本与来源**")
-            st.write(f"数据版本：`{snapshot['snapshot_id']}`")
-            st.write(f"数据提供方：`{snapshot['provider']}`")
-            st.write(f"研究截止：`{_display_datetime(snapshot['research_as_of'])}`")
-            st.write("价格口径：`RAW / CNY`")
-        with details_right:
-            st.markdown("**Evidence Ledger / Validator**")
-            st.write(f"Evidence Ledger：`{evidence_count}` 条记录")
-            advanced_rows = [
-                {"检查项": check.get("label", check.get("code", "检查项")), "状态": {"pass": "通过", "warning": "需要关注", "blocked": "数据不足"}.get(check.get("status"), "未测量"), "说明": validation_check_copy(check)}
-                for check in validation_checks
-            ]
-            st.dataframe(pd.DataFrame(advanced_rows), width="stretch", hide_index=True)
-        st.button(
-            "查看 AI 分析过程",
-            key=f"overview_trace_link_{snapshot['snapshot_id']}",
-            icon=":material/account_tree:",
-            on_click=_select_page,
-            args=("Agent 执行轨迹",),
-        )
-
-    report_ready = bool(_report_candidates(snapshot))
-    readiness_checks = readiness.get("checks", {})
-    delivery_rows = [
-        (
-            "核心数据",
-            readiness_checks.get("key_metrics", {}).get("status", "unknown"),
-            "关键研究输入已完成核验" if readiness_checks.get("key_metrics", {}).get("status") == "pass" else "关键研究输入仍需补充",
-            "证据与校验",
-        ),
-        (
-            "数据检查",
-            validation.get("status", "unknown"),
-            f"本次研究使用 {evidence_count} 项数据依据",
-            "证据与校验",
-        ),
-        (
-            "同行估值",
-            "pass" if peer.get("available") and peer.get("conclusion_allowed") else "warning" if peer.get("available") else "blocked",
-            f"已纳入 {peer.get('peer_count', 0)} 家同行" if peer.get("available") else "暂无兼容的本地同行快照",
-            "同行估值",
-        ),
-        (
-            "研究报告",
-            "pass" if report_ready else "warning",
-            "已发现本地版本化报告" if report_ready else "尚未生成报告工件",
-            "研究报告",
-        ),
-    ]
-    status_labels = {
-        "pass": ("通过", "green"), "ready": ("通过", "green"),
-        "warning": ("需要关注", "orange"), "limited": ("需要关注", "orange"),
-        "blocked": ("数据不足", "red"), "unknown": ("未测量", "gray"),
-    }
-    st.markdown("### 研究内容状态")
-    delivery_columns = st.columns(4)
-    for column, (label, status, detail, target_page) in zip(delivery_columns, delivery_rows):
-        status_label, status_color = status_labels.get(status, ("未测量", "gray"))
-        with column:
-            with st.container(border=True):
-                st.markdown(f"**{label}**")
-                st.badge(status_label, color=status_color)
-                st.caption(detail)
-                st.button(
-                    "打开详情",
-                    key=f"delivery_{snapshot['snapshot_id']}_{label}",
-                    on_click=_select_page,
-                    args=(target_page,),
-                    width="stretch",
-                )
-    st.caption("状态只反映当前选中快照的覆盖、校验和交付工件；页面不会用缺失数据补全结论。")
-    st.markdown("### 关键研究摘要")
+    if validation["status"] == "blocked":
+        st.error("校验已阻断：关键输入或证据链不完整，因此不展示确定性估值结论。请前往“证据与校验”查看修复建议。")
+    elif validation["status"] == "warning":
+        st.warning("校验存在警告：当前内容可供基础阅读，但同业覆盖或数据时效不足，不应据此形成强结论。")
+    st.markdown(
+        '<div class="sechead"><h4>关键估值读数</h4>'
+        '<span class="tag">KEY METRICS · 服务层计算</span></div>',
+        unsafe_allow_html=True,
+    )
     a, b, c, d = st.columns(4)
     price = metrics.get("price")
     market_cap = metrics.get("market_cap")
@@ -2016,6 +2453,8 @@ def overview(snapshot: dict, metadata: dict) -> None:
     b.metric("市值", cn_money(market_cap) if market_cap is not None else "未覆盖", help="总股本 × RAW 收盘价")
     c.metric("TTM P/E", f"{pe_ttm:.2f}×" if pe_ttm is not None and validation["conclusion_allowed"] else "已阻断", help="市值 ÷ TTM 归母净利润；校验阻断时不展示")
     d.metric("TTM 归母净利润", cn_money(ttm_profit) if ttm_profit is not None else "未覆盖", help="后端确定性计算结果")
+    # D 的磁贴把证据 id 放在角标位置：四个拉伸按钮换成每贴一枚紧凑角标，
+    # 保留「点角标即跳证据与校验」的一跳能力，不再占据整行。
     evidence_actions = [
         (a, "收盘价证据", metadata["evidence_ids"].get("price")),
         (b, "市值证据", metadata["evidence_ids"].get("market_cap")),
@@ -2025,28 +2464,152 @@ def overview(snapshot: dict, metadata: dict) -> None:
     for container, label, item_id in evidence_actions:
         with container:
             st.button(
-                label, key=f"overview_{label}_{snapshot['snapshot_id']}",
+                item_id or "证据未覆盖", key=f"overview_{label}_{snapshot['snapshot_id']}",
                 icon=":material/account_tree:", disabled=item_id is None,
                 on_click=open_evidence if item_id else None, args=(item_id,) if item_id else (),
-                width="stretch",
+                width="content",
             )
-    price_id = metadata["evidence_ids"]["price"] or "未覆盖"
-    ttm_id = metadata["evidence_ids"]["ttm_net_profit"] or "未覆盖"
-    st.caption(f"关键数值可追溯：收盘价 {price_id} · 市值 {metadata['evidence_ids'].get('market_cap') or '未覆盖'} · P/E {metadata['evidence_ids'].get('pe_ttm') or '未覆盖'} · TTM {ttm_id}")
-    if validation["status"] == "blocked":
-        st.error("校验已阻断：关键输入或证据链不完整，因此不展示确定性估值结论。请前往“证据与校验”查看修复建议。")
-    elif validation["status"] == "warning":
-        st.warning("校验存在警告：当前内容可供基础阅读，但同业覆盖或数据时效不足，不应据此形成强结论。")
-    st.markdown("### 研究解读")
-    st.markdown(f"**报告参考建议：{report_guidance}**")
-    with st.expander("查看数据覆盖与限制", expanded=readiness["status"] != "ready"):
-        labels = {"snapshot_freshness": "快照时效", "annual_financial_coverage": "年度财报覆盖", "key_metrics": "关键估值输入", "peer_coverage": "同业样本"}
-        display_status = {"pass": "通过", "warning": "需要关注", "blocked": "数据不足"}
-        rows = [{"检查项": labels[name], "状态": display_status.get(check["status"], "未测量"), "说明": validation_check_copy({"code": name, **check})} for name, check in readiness["checks"].items()]
-        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
-        st.caption("需要关注表示可继续阅读已验证内容；数据不足表示相关结论会被系统限制。")
-    peer = cached_research_valuation(snapshot["snapshot_id"])
-    st.markdown("### 同行估值摘要")
+    # The pipeline rail sits between the readings and their interpretation, so
+    # the reader's position is stated by the page before any conclusion is read.
+    research_route("研究总览")
+    insights = cached_research_overview_insights(snapshot["snapshot_id"])
+    revenue_change = insights["revenue_change_percent"]
+    profit_change = insights["net_profit_change_percent"]
+    latest_period = insights["latest_period"]
+    pe = metrics.get("pe_ttm")
+    trend_available = revenue_change is not None and profit_change is not None
+    performance_state = (
+        {"improving": "改善", "under_pressure": "承压", "diverging": "分化"}[insights["performance_status"]]
+        if trend_available else None
+    )
+    # Facts stay on the left as plain readings of stored snapshot data; the
+    # interpretation on the right is generated deterministically by the service
+    # layer, so it is labelled as such and never presented as a fact.
+    fact_rows: list[str] = []
+    if trend_available:
+        fact_rows.append(f'<div class="factrow"><span class="k">业绩状态（{latest_period}）</span><span class="v">{performance_state}</span></div>')
+        fact_rows.append(f'<div class="factrow"><span class="k">营收变化</span><span class="v">{revenue_change:+.1f}%</span></div>')
+        fact_rows.append(f'<div class="factrow"><span class="k">归母净利润变化</span><span class="v">{profit_change:+.1f}%</span></div>')
+    else:
+        fact_rows.append('<div class="factrow"><span class="k">业绩状态</span><span class="v plain">可比年度数据不足</span></div>')
+    if not validation["conclusion_allowed"]:
+        fact_rows.append('<div class="factrow"><span class="k">TTM P/E</span><span class="v plain">已阻断</span></div>')
+    elif pe is None or pe <= 0:
+        fact_rows.append('<div class="factrow"><span class="k">TTM P/E</span><span class="v plain">不可用 · 盈利或输入不足</span></div>')
+    else:
+        fact_rows.append(f'<div class="factrow"><span class="k">TTM P/E</span><span class="v">{pe:.1f} 倍</span></div>')
+    narrative_parts: list[str] = []
+    if trend_available:
+        narrative_parts.append(
+            f"最近可比年度营收变化 <b>{revenue_change:+.1f}%</b>，归母净利润变化 "
+            f"<b>{profit_change:+.1f}%</b>，业绩状态为 <b>{performance_state}</b>。"
+            "这是已披露业绩变化，不是预测。"
+        )
+    else:
+        narrative_parts.append("可比年度数据不足，暂不作趋势判断。")
+    if not validation["conclusion_allowed"]:
+        narrative_parts.append("估值解读已被 Validator 阻断，本页不给出估值读数。")
+    elif pe is None or pe <= 0:
+        narrative_parts.append("盈利或估值输入不足，PE 暂不可用。")
+    else:
+        pe_evidence = metadata["evidence_ids"].get("pe_ttm")
+        pe_cite = f' <span class="cite">[{pe_evidence}]</span>' if pe_evidence else ""
+        narrative_parts.append(
+            f"市场为最近十二个月每 1 元利润支付约 <b>{pe:.1f}</b> 元{pe_cite}；"
+            "没有完整同业和历史分位数据，不能仅凭此判断贵或便宜。"
+        )
+    if latest_period is None:
+        narrative_parts.append("缺少完整年度财报，建议先补齐数据，再判断下一次应验证什么。")
+    else:
+        narrative_parts.append(
+            f"下一次应验证：关注下一份财报的营收、归母净利润是否延续 <b>{latest_period}</b> 的趋势；"
+            "若背离，再查看成本、毛利率和一次性损益。"
+        )
+    summary_left, summary_right = st.columns([1.05, 1])
+    with summary_left:
+        st.markdown(
+            '<div class="sechead"><h4>关键研究摘要</h4>'
+            '<span class="tag">事实 · 服务层计算</span></div>' + "".join(fact_rows),
+            unsafe_allow_html=True,
+        )
+        st.caption("以上为快照中已披露数据的读数，不是预测；未在前端派生任何数字。")
+    with summary_right:
+        st.markdown(
+            '<div class="sechead"><h4>AI 研究解读</h4>'
+            '<span class="tag ai">服务层自动生成 · 需人工复核</span></div>'
+            '<div class="narr">' + "".join(f"<p>{part}</p>" for part in narrative_parts) + "</div>",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            '<div class="narrnote">解读与事实分列呈现 · 由服务层依已披露数据确定性生成，'
+            '非模型推理 · 不可作为事实引用</div>',
+            unsafe_allow_html=True,
+        )
+    st.caption(f"摘要仅使用截至 {snapshot['research_as_of'][:10]} 的快照和已披露财报自动生成，不构成买卖建议。")
+    st.markdown(
+        '<div class="sechead"><h4>关键数据图示</h4>'
+        '<span class="tag">交互可选证据 · 服务层数值</span></div>',
+        unsafe_allow_html=True,
+    )
+    left, right = st.columns([1.65, 1])
+    with left:
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=bars.trade_date, y=bars.close, mode="lines+markers", customdata=bars[["evidence_id", "price_basis", "provider"]], hovertemplate="日期: %{x}<br>收盘价: %{y}<br>Evidence ID: %{customdata[0]}<br>价格口径: %{customdata[1]}<br>来源: %{customdata[2]}<extra></extra>", line=dict(color=APPLE_TOKENS["primary"], width=2.5), fill="tozeroy", fillcolor=APPLE_TOKENS["primary_wash"], name="RAW 收盘价"))
+        fig.add_vline(x=snapshot["research_as_of"][:10], line_dash="dot", line_color=APPLE_TOKENS["ink_muted_48"])
+        fig.update_layout(title="价格区间（RAW）", height=310, margin=dict(l=15,r=15,t=45,b=15), paper_bgcolor=APPLE_TOKENS["canvas"], plot_bgcolor=APPLE_TOKENS["canvas"], yaxis_title="CNY / 股", xaxis=dict(showgrid=False), yaxis=dict(gridcolor=APPLE_TOKENS["divider_soft"]), showlegend=False)
+        event = st.plotly_chart(fig, width="stretch", on_select="rerun", selection_mode="points", key=f"overview_market_{snapshot['snapshot_id']}")
+        if event.selection.points:
+            selected_id = event.selection.points[0].get("customdata", [None])[0]
+            if selected_id:
+                st.session_state["selected_evidence_id"] = selected_id
+    with right:
+        validation_text = {"pass": "证据与关键输入通过", "warning": "存在非阻断警告", "blocked": "关键结论已阻断"}[validation["status"]]
+        st.markdown(f"<div class='panel'><b>可信度状态</b><br><br><span class='badge {validation_class}'>● {validation_text}</span><p class='subline'>状态来自后端 Evidence Ledger 与研究门控；计算仅在服务层完成。</p><div class='card-note'>只读 · 无前端派生计算</div></div>", unsafe_allow_html=True)
+        st.markdown("<div class='warn'><b>非实时行情</b><br>本页仅展示固定版本快照，不构成交易或投资建议。</div>", unsafe_allow_html=True)
+    chart_financials = fy.dropna(subset=["revenue_billion", "net_profit_billion"])
+    chart_financials = chart_financials.copy()
+    chart_financials["revenue_evidence_id"] = chart_financials["evidence_ids"].apply(lambda ids: ids.get("revenue"))
+    chart_financials["profit_evidence_id"] = chart_financials["evidence_ids"].apply(lambda ids: ids.get("net_profit"))
+    revenue_custom = list(zip(chart_financials["revenue_evidence_id"], chart_financials["published_at"], [financial_result["provider"]] * len(chart_financials)))
+    profit_custom = list(zip(chart_financials["profit_evidence_id"], chart_financials["published_at"], [financial_result["provider"]] * len(chart_financials)))
+    fig2 = go.Figure()
+    revenue_text = chart_financials["revenue_billion"].map(lambda value: f"{value:,.1f}")
+    fig2.add_bar(
+        x=chart_financials.fiscal_period, y=chart_financials["revenue_billion"],
+        width=0.42, text=revenue_text, texttemplate="%{text}", textposition="outside",
+        cliponaxis=False, customdata=revenue_custom,
+        hovertemplate="报告期: %{x}<br>营业收入: %{y:,.1f} 亿元<br>Evidence ID: %{customdata[0]}<br>披露时间: %{customdata[1]}<br>来源: %{customdata[2]}<extra></extra>",
+        name="营业收入（蓝色柱）", marker_color=APPLE_TOKENS["chart_bar"],
+    )
+    fig2.add_scatter(
+        x=chart_financials.fiscal_period, y=chart_financials["net_profit_billion"],
+        customdata=profit_custom,
+        hovertemplate="报告期: %{x}<br>归母净利润: %{y:,.1f} 亿元<br>Evidence ID: %{customdata[0]}<br>披露时间: %{customdata[1]}<br>来源: %{customdata[2]}<extra></extra>",
+        name="归母净利润（暖棕线）", yaxis="y2", mode="lines+markers",
+        line=dict(color=APPLE_TOKENS["chart_line"], width=2.5), marker=dict(size=8),
+    )
+    fig2.update_layout(
+        height=360,
+        margin=dict(l=15, r=25, t=55, b=20), paper_bgcolor=APPLE_TOKENS["canvas"], plot_bgcolor=APPLE_TOKENS["canvas"],
+        legend=dict(orientation="h", x=0, y=1.12), bargap=0.45,
+        yaxis=dict(title="营业收入（亿元）", gridcolor=APPLE_TOKENS["divider_soft"], rangemode="tozero"),
+        yaxis2=dict(title="归母净利润（亿元）", overlaying="y", side="right", showgrid=False),
+    )
+    st.caption("年度业绩趋势（单位：亿元）：蓝色柱表示营业收入，暖棕折线表示归母净利润；分别读取左、右纵轴。柱顶显示收入数值，悬停棕色点可查看净利润及其证据来源。")
+    event2 = st.plotly_chart(fig2, width="stretch", on_select="rerun", selection_mode="points", key=f"overview_financial_{snapshot['snapshot_id']}")
+    if event2.selection.points:
+        selected_id = event2.selection.points[0].get("customdata", [None])[0]
+        if selected_id:
+            st.session_state["selected_evidence_id"] = selected_id
+
+    # ── 同行估值摘要 ───────────────────────────────────────────────────
+    # The comparison table follows the target company's own readings, so the
+    # reader meets "what this company is" before "how it sits next to peers".
+    st.markdown(
+        '<div class="sechead"><h4>同行估值摘要</h4>'
+        '<span class="tag">仅兼容本地快照 · RAW 价格</span></div>',
+        unsafe_allow_html=True,
+    )
     if peer.get("method_boundary") == "financial_institution_pe_pb_only":
         st.caption("金融机构仅展示 PE/PB；通用企业 PS 等方法已由服务层隐藏。")
     if not peer.get("available"):
@@ -2098,85 +2661,196 @@ def overview(snapshot: dict, metadata: dict) -> None:
         args=("同行估值",),
         icon=":material/arrow_forward:",
     )
-    insights = cached_research_overview_insights(snapshot["snapshot_id"])
-    revenue_change = insights["revenue_change_percent"]
-    profit_change = insights["net_profit_change_percent"]
-    summary_left, summary_middle, summary_right = st.columns(3)
-    with summary_left:
-        if revenue_change is None or profit_change is None:
-            st.info("业绩趋势：可比年度数据不足，暂不作趋势判断。")
-        else:
-            state = {"improving": "改善", "under_pressure": "承压", "diverging": "分化"}[insights["performance_status"]]
-            st.markdown(f"**业绩状态：{state}**\n\n最近可比年度营收变化 **{revenue_change:+.1f}%**，归母净利润变化 **{profit_change:+.1f}%**。这是已披露业绩变化，不是预测。")
-    with summary_middle:
-        pe = metrics.get("pe_ttm")
-        if not validation["conclusion_allowed"]:
-            st.error("估值解读已被 Validator 阻断。")
-        elif pe is None or pe <= 0:
-            st.info("估值解读：盈利或估值输入不足，PE 暂不可用。")
-        else:
-            st.markdown(f"**估值读法：TTM PE {pe:.1f} 倍**\n\n市场为最近十二个月每 1 元利润支付约 {pe:.1f} 元。没有完整同业和历史分位数据，不能仅凭此判断贵或便宜。")
-    with summary_right:
-        if insights["latest_period"] is None:
-            st.info("下一次关注：缺少完整年度财报，建议先补齐数据。")
-        else:
-            st.markdown(f"**下一次应验证什么**\n\n关注下一份财报的营收、归母净利润是否延续 {insights['latest_period']} 的趋势；若背离，再查看成本、毛利率和一次性损益。")
-    st.caption(f"摘要仅使用截至 {snapshot['research_as_of'][:10]} 的快照和已披露财报自动生成，不构成买卖建议。")
-    left, right = st.columns([1.65, 1])
-    with left:
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=bars.trade_date, y=bars.close, mode="lines+markers", customdata=bars[["evidence_id", "price_basis", "provider"]], hovertemplate="日期: %{x}<br>收盘价: %{y}<br>Evidence ID: %{customdata[0]}<br>价格口径: %{customdata[1]}<br>来源: %{customdata[2]}<extra></extra>", line=dict(color="#0066cc", width=2.5), fill="tozeroy", fillcolor="rgba(0, 102, 204,.08)", name="RAW 收盘价"))
-        fig.add_vline(x=snapshot["research_as_of"][:10], line_dash="dot", line_color="#8b9bb0")
-        fig.update_layout(title="价格区间（RAW）", height=310, margin=dict(l=15,r=15,t=45,b=15), paper_bgcolor="#fff", plot_bgcolor="#fff", yaxis_title="CNY / 股", xaxis=dict(showgrid=False), yaxis=dict(gridcolor="#F0F0F0"), showlegend=False)
-        event = st.plotly_chart(fig, width="stretch", on_select="rerun", selection_mode="points", key=f"overview_market_{snapshot['snapshot_id']}")
-        if event.selection.points:
-            selected_id = event.selection.points[0].get("customdata", [None])[0]
-            if selected_id:
-                st.session_state["selected_evidence_id"] = selected_id
-    with right:
-        validation_text = {"pass": "证据与关键输入通过", "warning": "存在非阻断警告", "blocked": "关键结论已阻断"}[validation["status"]]
-        st.markdown(f"<div class='panel'><b>可信度状态</b><br><br><span class='badge {validation_class}'>● {validation_text}</span><p class='subline'>状态来自后端 Evidence Ledger 与研究门控；计算仅在服务层完成。</p><div class='card-note'>只读 · 无前端派生计算</div></div>", unsafe_allow_html=True)
-        st.markdown("<div class='warn'><b>非实时行情</b><br>本页仅展示固定版本快照，不构成交易或投资建议。</div>", unsafe_allow_html=True)
-    chart_financials = fy.dropna(subset=["revenue_billion", "net_profit_billion"])
-    chart_financials = chart_financials.copy()
-    chart_financials["revenue_evidence_id"] = chart_financials["evidence_ids"].apply(lambda ids: ids.get("revenue"))
-    chart_financials["profit_evidence_id"] = chart_financials["evidence_ids"].apply(lambda ids: ids.get("net_profit"))
-    revenue_custom = list(zip(chart_financials["revenue_evidence_id"], chart_financials["published_at"], [financial_result["provider"]] * len(chart_financials)))
-    profit_custom = list(zip(chart_financials["profit_evidence_id"], chart_financials["published_at"], [financial_result["provider"]] * len(chart_financials)))
-    fig2 = go.Figure()
-    revenue_text = chart_financials["revenue_billion"].map(lambda value: f"{value:,.1f}")
-    fig2.add_bar(
-        x=chart_financials.fiscal_period, y=chart_financials["revenue_billion"],
-        width=0.42, text=revenue_text, texttemplate="%{text}", textposition="outside",
-        cliponaxis=False, customdata=revenue_custom,
-        hovertemplate="报告期: %{x}<br>营业收入: %{y:,.1f} 亿元<br>Evidence ID: %{customdata[0]}<br>披露时间: %{customdata[1]}<br>来源: %{customdata[2]}<extra></extra>",
-        name="营业收入（蓝色柱）", marker_color="#6d8fd5",
+
+    # ── 证据台账 ───────────────────────────────────────────────────────
+    # A read-only restatement of the same ledger the evidence page renders.  It
+    # is deliberately not interactive: row selection lives on 证据与校验 so the
+    # overview cannot silently diverge from the page that owns the detail view.
+    # Real snapshots can carry >1000 records, so the overview states both the
+    # head length and the full count instead of quietly showing a subset.
+    ledger_records = evidence_result.get("records", [])
+    ledger_rows = [{
+        "Evidence ID": item["evidence_id"],
+        "类型": "计算" if item["kind"] == "calculation" else "事实",
+        "指标": item["metric"],
+        "期间": item.get("period") or "—",
+        "截止": item.get("published_at") or "—",
+        "来源": item["provider"],
+        "状态": EVIDENCE_STATUS_LABELS.get(item["status"], item["status"]),
+    } for item in ledger_records[:OVERVIEW_LEDGER_ROWS]]
+    st.markdown(
+        f'<div class="sechead"><h4>证据台账</h4>'
+        f'<span class="tag">EVIDENCE LEDGER · {evidence_count} 条</span></div>',
+        unsafe_allow_html=True,
     )
-    fig2.add_scatter(
-        x=chart_financials.fiscal_period, y=chart_financials["net_profit_billion"],
-        customdata=profit_custom,
-        hovertemplate="报告期: %{x}<br>归母净利润: %{y:,.1f} 亿元<br>Evidence ID: %{customdata[0]}<br>披露时间: %{customdata[1]}<br>来源: %{customdata[2]}<extra></extra>",
-        name="归母净利润（绿色线）", yaxis="y2", mode="lines+markers",
-        line=dict(color="#0F766E", width=2.5), marker=dict(size=8),
+    if ledger_rows:
+        st.markdown(_ledger_table_html(ledger_rows), unsafe_allow_html=True)
+        shown = len(ledger_rows)
+        if shown < evidence_count:
+            st.caption(
+                f"上表列出前 {shown} / {evidence_count} 条证据；"
+                "完整台账含筛选、字段路径与计算依赖，请在“证据与校验”查看。"
+            )
+        else:
+            st.caption(f"上表列出全部 {evidence_count} 条证据；字段路径与计算依赖在“证据与校验”查看。")
+    else:
+        st.info("该快照没有已登记的证据记录；不会补造数据依据。")
+    st.button(
+        "查看完整证据台账",
+        key=f"overview_ledger_link_{snapshot['snapshot_id']}",
+        on_click=_select_page,
+        args=("证据与校验",),
+        icon=":material/arrow_forward:",
     )
-    fig2.update_layout(
-        height=360,
-        margin=dict(l=15, r=25, t=55, b=20), paper_bgcolor="#fff", plot_bgcolor="#fff",
-        legend=dict(orientation="h", x=0, y=1.12), bargap=0.45,
-        yaxis=dict(title="营业收入（亿元）", gridcolor="#F0F0F0", rangemode="tozero"),
-        yaxis2=dict(title="归母净利润（亿元）", overlaying="y", side="right", showgrid=False),
+
+    # ── AI 分析过程 ────────────────────────────────────────────────────
+    trace_view = _trace_view(snapshot["snapshot_id"])
+    st.markdown(
+        '<div class="sechead"><h4>AI 分析过程</h4>'
+        '<span class="tag">TRACE · 只回放已记录事件</span></div>',
+        unsafe_allow_html=True,
     )
-    st.caption("年度业绩趋势（单位：亿元）：蓝色柱表示营业收入，绿色折线表示归母净利润；分别读取左、右纵轴。柱顶显示收入数值，悬停绿色点可查看净利润及其证据来源。")
-    event2 = st.plotly_chart(fig2, width="stretch", on_select="rerun", selection_mode="points", key=f"overview_financial_{snapshot['snapshot_id']}")
-    if event2.selection.points:
-        selected_id = event2.selection.points[0].get("customdata", [None])[0]
-        if selected_id:
-            st.session_state["selected_evidence_id"] = selected_id
+    if trace_view["available"]:
+        st.caption(trace_view["caption"])
+        st.markdown(
+            _trace_steps_html(trace_view["steps"][:OVERVIEW_TRACE_STEPS]),
+            unsafe_allow_html=True,
+        )
+        if len(trace_view["steps"]) > OVERVIEW_TRACE_STEPS:
+            st.caption(
+                f"以上为前 {OVERVIEW_TRACE_STEPS} 步，共 {len(trace_view['steps'])} 步；"
+                "完整事件流与工具调用明细在“Agent 执行轨迹”。"
+            )
+    else:
+        st.info("该快照没有已持久化的执行轨迹；不会补造成功步骤。")
+    st.button(
+        "查看完整执行轨迹",
+        key=f"overview_trace_link_{snapshot['snapshot_id']}",
+        icon=":material/account_tree:",
+        on_click=_select_page,
+        args=("Agent 执行轨迹",),
+    )
+
+    st.divider()
+
+    # ── 交付与校验（页尾） ─────────────────────────────────────────────
+    # Quality and delivery state close the page: the mockup folds them into the
+    # top status bar, which the hero already carries, so their detail belongs
+    # after the research content rather than in front of it.
+    with st.container(border=True):
+        quality_left, quality_right = st.columns([1, 3], vertical_alignment="center")
+        with quality_left:
+            st.markdown("**AI 研究质量**")
+            st.badge(quality_label, color=quality_color)
+        with quality_right:
+            st.markdown(f"**{report_guidance}**")
+            st.caption(f"原因：{quality_reason}")
+
+    st.markdown(
+        '<div class="sechead"><h4>为什么相信这份报告？</h4>'
+        '<span class="tag">VALIDATOR · 校验与证据</span></div>',
+        unsafe_allow_html=True,
+    )
+    trust_columns = st.columns(4)
+    trust_columns[0].metric("数据依据", f"{evidence_count} 项")
+    trust_columns[0].caption("本次研究引用的数据依据")
+    trust_columns[1].metric("数据检查", f"{passed_count} 项已完成")
+    trust_columns[1].caption("已完成的关键数据与计算检查")
+    trust_columns[2].metric("需要关注", f"{attention_count} 项")
+    trust_columns[2].caption("系统已标记并限制受影响结论")
+    trust_columns[3].metric("数据更新时间", freshness.get("latest_trade_date") or "未覆盖")
+    trust_columns[3].caption("当前版本纳入的最新收盘数据")
+
+    with st.expander("高级验证详情", expanded=False):
+        st.caption("以下信息用于复核完整验证链路；不会改变本页展示的研究结论。")
+        details_left, details_right = st.columns(2)
+        with details_left:
+            st.markdown("**数据版本与来源**")
+            st.write(f"数据版本：`{snapshot['snapshot_id']}`")
+            st.write(f"数据提供方：`{snapshot['provider']}`")
+            st.write(f"研究截止：`{_display_datetime(snapshot['research_as_of'])}`")
+            st.write("价格口径：`RAW / CNY`")
+        with details_right:
+            st.markdown("**Evidence Ledger / Validator**")
+            st.write(f"Evidence Ledger：`{evidence_count}` 条记录")
+            advanced_rows = [
+                {"检查项": check.get("label", check.get("code", "检查项")), "状态": {"pass": "通过", "warning": "需要关注", "blocked": "数据不足"}.get(check.get("status"), "未测量"), "说明": validation_check_copy(check)}
+                for check in validation_checks
+            ]
+            st.dataframe(pd.DataFrame(advanced_rows), width="stretch", hide_index=True)
+
+    report_ready = bool(_report_candidates(snapshot))
+    readiness_checks = readiness.get("checks", {})
+    delivery_rows = [
+        (
+            "核心数据",
+            readiness_checks.get("key_metrics", {}).get("status", "unknown"),
+            "关键研究输入已完成核验" if readiness_checks.get("key_metrics", {}).get("status") == "pass" else "关键研究输入仍需补充",
+            "证据与校验",
+        ),
+        (
+            "数据检查",
+            validation.get("status", "unknown"),
+            f"本次研究使用 {evidence_count} 项数据依据",
+            "证据与校验",
+        ),
+        (
+            "同行估值",
+            "pass" if peer.get("available") and peer.get("conclusion_allowed") else "warning" if peer.get("available") else "blocked",
+            f"已纳入 {peer.get('peer_count', 0)} 家同行" if peer.get("available") else "暂无兼容的本地同行快照",
+            "同行估值",
+        ),
+        (
+            "研究报告",
+            "pass" if report_ready else "warning",
+            "已发现本地版本化报告" if report_ready else "尚未生成报告工件",
+            "研究报告",
+        ),
+    ]
+    status_labels = {
+        "pass": ("通过", "green"), "ready": ("通过", "green"),
+        "warning": ("需要关注", "orange"), "limited": ("需要关注", "orange"),
+        "blocked": ("数据不足", "red"), "unknown": ("未测量", "gray"),
+    }
+    st.markdown(
+        '<div class="sechead"><h4>研究内容状态</h4>'
+        '<span class="tag">交付状态 · 只读</span></div>',
+        unsafe_allow_html=True,
+    )
+    delivery_columns = st.columns(4)
+    for column, (label, status, detail, target_page) in zip(delivery_columns, delivery_rows):
+        status_label, status_color = status_labels.get(status, ("未测量", "gray"))
+        with column:
+            with st.container(border=True):
+                st.markdown(f"**{label}**")
+                st.badge(status_label, color=status_color)
+                st.caption(detail)
+                st.button(
+                    "打开详情",
+                    key=f"delivery_{snapshot['snapshot_id']}_{label}",
+                    on_click=_select_page,
+                    args=(target_page,),
+                    width="stretch",
+                )
+    st.caption("状态只反映当前选中快照的覆盖、校验和交付工件；页面不会用缺失数据补全结论。")
+    st.markdown(f"**报告参考建议：{report_guidance}**")
+    with st.expander("查看数据覆盖与限制", expanded=readiness["status"] != "ready"):
+        labels = {"snapshot_freshness": "快照时效", "annual_financial_coverage": "年度财报覆盖", "key_metrics": "关键估值输入", "peer_coverage": "同业样本"}
+        display_status = {"pass": "通过", "warning": "需要关注", "blocked": "数据不足"}
+        rows = [{"检查项": labels[name], "状态": display_status.get(check["status"], "未测量"), "说明": validation_check_copy({"code": name, **check})} for name, check in readiness["checks"].items()]
+        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+        st.caption("需要关注表示可继续阅读已验证内容；数据不足表示相关结论会被系统限制。")
+    st.markdown(
+        '<div class="pagenote">本页仅展示固定版本快照，非实时行情，不构成交易或投资建议。'
+        '所有计算在服务层完成，前端只读展示；证据 ID、来源、期间、截止与校验状态来自后端 '
+        'Evidence Ledger 与研究门控。</div>',
+        unsafe_allow_html=True,
+    )
 
 
 def market(snapshot: dict) -> None:
     market_result = cached_research_market(snapshot["snapshot_id"])
-    st.markdown("### 市场与行情")
+    page_head("市场与行情 · 固定快照价格与成交", "市场与行情", "快照内 bars[] · 非实时")
     coverage = market_result["adjustment_coverage"]
     mode = st.segmented_control("复权口径", ["RAW", "QFQ", "HFQ"], default="RAW")
     if not coverage.get(mode, False):
@@ -2201,6 +2875,32 @@ def market(snapshot: dict) -> None:
         f"当前展示口径：{mode} · 单位：{market_result['unit']} · 成交量：{market_result['volume_unit']} · "
         f"Provider：{market_result['provider']}"
     )
+    st.markdown(
+        '<div class="sechead"><h4>当日盘口</h4>'
+        f'<span class="tag">最新交易日读数 · 单位 {market_result["unit"]}</span></div>',
+        unsafe_allow_html=True,
+    )
+    quote_cells = [
+        ("开盘", f"{latest.open:,.2f}", "", ""),
+        ("最高", f"{latest.high:,.2f}", "", ""),
+        ("最低", f"{latest.low:,.2f}", "", ""),
+        ("收盘", f"{latest.close:,.2f}", "", escape(str(latest.evidence_id))),
+        ("成交量", f"{latest.volume:,.0f}", market_result["volume_unit"], ""),
+        ("交易日", escape(str(latest.trade_date)), "", ""),
+    ]
+    st.markdown(
+        '<div class="quotegrid">'
+        + "".join(
+            f'<div class="qcell"><div class="k"><span>{label}</span>'
+            + (f'<span class="ev">{ev}</span>' if ev else "")
+            + f'</div><div class="v">{value}'
+            + (f"<small>{unit}</small>" if unit else "")
+            + "</div></div>"
+            for label, value, unit, ev in quote_cells
+        )
+        + "</div>",
+        unsafe_allow_html=True,
+    )
     hover = [
         f"日期: {row.trade_date}<br>开盘: {row.open:.2f}<br>最高: {row.high:.2f}"
         f"<br>最低: {row.low:.2f}<br>收盘: {row.close:.2f}"
@@ -2212,11 +2912,11 @@ def market(snapshot: dict) -> None:
         x=bars.trade_date, open=bars.open, high=bars.high, low=bars.low, close=bars.close,
         customdata=bars[["evidence_id", "price_basis", "provider"]],
         hovertext=hover, hoverinfo="text",
-        increasing_line_color="#c0392b", decreasing_line_color="#1c9a82", name="RAW",
+        increasing_line_color=APPLE_TOKENS["quote_up"], decreasing_line_color=APPLE_TOKENS["quote_down"], name="RAW",
     ), row=1, col=1)
-    fig.add_trace(go.Bar(x=bars.trade_date, y=bars.volume, marker_color="#D2D2D7", name="成交量（手）", hovertemplate="日期: %{x}<br>成交量: %{y:,.0f} 手<extra></extra>"), row=2, col=1)
-    fig.add_vline(x=snapshot["research_as_of"][:10], line_dash="dot", line_color="#8b9bb0", annotation_text="研究时点", row=1, col=1)
-    fig.update_layout(height=560, title=f"日线与成交量 / {mode}", xaxis_rangeslider_visible=False, paper_bgcolor="#fff", plot_bgcolor="#fff", margin=dict(l=15,r=15,t=45,b=15), showlegend=False)
+    fig.add_trace(go.Bar(x=bars.trade_date, y=bars.volume, marker_color=APPLE_TOKENS["surface_chip_translucent"], name="成交量（手）", hovertemplate="日期: %{x}<br>成交量: %{y:,.0f} 手<extra></extra>"), row=2, col=1)
+    fig.add_vline(x=snapshot["research_as_of"][:10], line_dash="dot", line_color=APPLE_TOKENS["ink_muted_48"], annotation_text="研究时点", row=1, col=1)
+    fig.update_layout(height=560, title=f"日线与成交量 / {mode}", xaxis_rangeslider_visible=False, paper_bgcolor=APPLE_TOKENS["canvas"], plot_bgcolor=APPLE_TOKENS["canvas"], margin=dict(l=15,r=15,t=45,b=15), showlegend=False)
     fig.update_yaxes(title_text="CNY / 股", row=1, col=1)
     fig.update_yaxes(title_text="手", row=2, col=1)
     event = st.plotly_chart(fig, width="stretch", on_select="rerun", selection_mode="points", key=f"market_chart_{snapshot['snapshot_id']}")
@@ -2267,7 +2967,7 @@ def _annual_income(statements: pd.DataFrame) -> pd.DataFrame:
 
 def financials(snapshot: dict) -> None:
     guardrails = cached_research_display_guardrails(snapshot["snapshot_id"])
-    st.markdown("### 财务表现")
+    page_head("财务表现 · 已披露财报读数", "财务表现", "已披露口径 · 服务层计算")
     period_basis = st.segmented_control("期间口径", ["FY", "Q1", "H1", "9M", "TTM"], default="FY")
     metric = st.segmented_control("展示指标", ["收入", "归母净利润", "净利率"], default="收入")
     field = {"收入": "revenue", "归母净利润": "net_profit", "净利率": "net_margin"}[metric]
@@ -2308,10 +3008,10 @@ def financials(snapshot: dict) -> None:
         fig = px.bar(
             chart_data, x="fiscal_period", y="value", text_auto=".1f",
             custom_data=["evidence_id", "published_at", "provider", "period_basis"],
-            color_discrete_sequence=["#0066cc"],
+            color_discrete_sequence=[APPLE_TOKENS["primary"]],
         )
         fig.update_traces(hovertemplate="报告期: %{x}<br>数值: %{y}<br>Evidence ID: %{customdata[0]}<br>披露时间: %{customdata[1]}<br>来源: %{customdata[2]}<br>期间口径: %{customdata[3]}<extra></extra>")
-        fig.update_layout(title=title, height=380, paper_bgcolor="#fff", plot_bgcolor="#fff", margin=dict(l=15,r=15,t=45,b=15), yaxis_title=y_title, xaxis_title="报告期")
+        fig.update_layout(title=title, height=380, paper_bgcolor=APPLE_TOKENS["canvas"], plot_bgcolor=APPLE_TOKENS["canvas"], margin=dict(l=15,r=15,t=45,b=15), yaxis_title=y_title, xaxis_title="报告期")
         event = st.plotly_chart(fig, width="stretch", on_select="rerun", selection_mode="points", key=f"financial_chart_{snapshot['snapshot_id']}_{period_basis}_{metric}")
         if event.selection.points:
             selected_id = event.selection.points[0].get("customdata", [None])[0]
@@ -2375,7 +3075,7 @@ def _render_missing_financial_notice(guardrails: dict) -> None:
 
 def valuation(snapshot: dict, metadata: dict) -> None:
     m = metadata["key_metrics"]
-    st.markdown("### 同行估值")
+    page_head("同行估值 · 未生成估值产物", "同行估值", "未生成估值产物")
     st.info("当前多标的工作台尚未为每个快照生成同行估值产物，因此不展示或推导同业中位数。")
     rows = [{"指标": "PE", "目标公司": m["market_cap"] / m["ttm_net_profit"] if m["market_cap"] and m["ttm_net_profit"] else None}, {"指标": "PB", "目标公司": m["market_cap"] / m["book_equity"] if m["market_cap"] and m["book_equity"] else None}, {"指标": "PS", "目标公司": m["market_cap"] / m["ttm_revenue"] if m["market_cap"] and m["ttm_revenue"] else None}]
     st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
@@ -2383,7 +3083,11 @@ def valuation(snapshot: dict, metadata: dict) -> None:
     if not peer.get("available"):
         st.warning(f"当前本地快照没有可用同业参照：{_peer_unavailable_message(peer)}。")
         return
-    st.markdown("#### 同业参照（仅限兼容本地快照）")
+    st.markdown(
+        '<div class="sechead"><h4>同业参照</h4>'
+        '<span class="tag">仅限兼容本地快照</span></div>',
+        unsafe_allow_html=True,
+    )
     reference_rows = []
     for name, value in peer["multiples"].items():
         median = value.get("median")
@@ -2419,7 +3123,7 @@ def _peer_unavailable_message(peer: dict) -> str:
 
 def valuation_safe(snapshot: dict, metadata: dict) -> None:
     """展示服务层生成的同行估值，前端不派生任何倍数。"""
-    st.markdown("### 同行估值")
+    page_head("同行估值 · 兼容本地快照", "同行估值", "仅兼容本地快照 · RAW 价格")
     peer_sync_notice = st.session_state.pop("peer_sync_notice", None)
     if peer_sync_notice:
         if peer_sync_notice["status"] == "completed":
@@ -2503,10 +3207,22 @@ def valuation_safe(snapshot: dict, metadata: dict) -> None:
         )
     else:
         st.error("Validator 已阻断：隐含价格和确定性估值区间已隐藏。")
+    formula = peer["formulas"][metric]
+    st.markdown(
+        '<div class="sechead"><h4>估值公式</h4>'
+        '<span class="tag">服务层确定性换算 · RAW 价格</span></div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        '<div class="formula"><span class="cap">估值公式 · 服务层确定性计算</span>'
+        f"目标倍数 = {escape(str(formula['target_multiple']))}<br>"
+        f"隐含价格 = {escape(str(formula['implied_price']))}</div>",
+        unsafe_allow_html=True,
+    )
     distribution = pd.DataFrame(peer["distributions"][metric])
     chart_rows = distribution.dropna(subset=["value"])
     if not chart_rows.empty:
-        colors = chart_rows["included"].map({True: "#0066cc", False: "#c78512"})
+        colors = chart_rows["included"].map({True: APPLE_TOKENS["primary"], False: APPLE_TOKENS["warning_fg"]})
         fig = go.Figure()
         fig.add_trace(go.Scatter(
             x=chart_rows["value"], y=chart_rows["name"], mode="markers", marker=dict(size=12, color=colors),
@@ -2515,12 +3231,16 @@ def valuation_safe(snapshot: dict, metadata: dict) -> None:
             name="同行",
         ))
         if target is not None:
-            fig.add_vline(x=target, line_color="#0F766E", line_width=2, annotation_text="目标公司")
+            fig.add_vline(x=target, line_color=APPLE_TOKENS["chart_line"], line_width=2, annotation_text="目标公司")
         if interval["p25"] is not None and interval["p75"] is not None:
-            fig.add_vrect(x0=interval["p25"], x1=interval["p75"], fillcolor="rgba(0, 102, 204,.10)", line_width=0, annotation_text="P25–P75")
-        fig.update_layout(height=max(330, 52 * len(chart_rows)), xaxis_title=f"{metric}（倍）", yaxis_title=None, margin=dict(l=15, r=15, t=30, b=15), paper_bgcolor="#fff", plot_bgcolor="#fff", showlegend=False)
+            fig.add_vrect(x0=interval["p25"], x1=interval["p75"], fillcolor=APPLE_TOKENS["primary_wash"], line_width=0, annotation_text="P25–P75")
+        fig.update_layout(height=max(330, 52 * len(chart_rows)), xaxis_title=f"{metric}（倍）", yaxis_title=None, margin=dict(l=15, r=15, t=30, b=15), paper_bgcolor=APPLE_TOKENS["canvas"], plot_bgcolor=APPLE_TOKENS["canvas"], showlegend=False)
         st.plotly_chart(fig, width="stretch", key=f"peer_distribution_{snapshot['snapshot_id']}_{metric}")
-    st.markdown("#### 同行纳入与剔除")
+    st.markdown(
+        '<div class="sechead"><h4>同行纳入与剔除</h4>'
+        '<span class="tag">PEER SET · 逐家说明</span></div>',
+        unsafe_allow_html=True,
+    )
     reason_labels = {
         "same_industry_same_period": "同一行业且期间兼容", "industry_mismatch": "行业不一致",
         "period_basis_mismatch": "期间口径不一致", "missing_evidence_ids": "证据缺失",
@@ -2534,10 +3254,19 @@ def valuation_safe(snapshot: dict, metadata: dict) -> None:
         decisions.append({"代码": decision["symbol"], "公司": peer["peer_names"].get(decision["symbol"], decision["symbol"]), "纳入": bool(row and row["included"]), "原因": reason_labels.get(reason, reason)})
     for symbol in peer["date_excluded_symbols"]:
         decisions.append({"代码": symbol, "公司": symbol, "纳入": False, "原因": "快照日期差超过 7 天"})
-    st.dataframe(pd.DataFrame(decisions), width="stretch", hide_index=True)
-    with st.expander("查看公式与证据输入"):
-        formula = peer["formulas"][metric]
-        st.code(f"目标倍数 = {formula['target_multiple']}\n隐含价格 = {formula['implied_price']}", language=None)
+    decision_cells = "".join(
+        f'<tr><td>{escape(str(d["公司"]))}</td><td class="mono">{escape(str(d["代码"]))}</td>'
+        f'<td class="{"st ok" if d["纳入"] else "st drop"}">{"● 纳入" if d["纳入"] else "○ 剔除"}</td>'
+        f'<td>{escape(str(d["原因"]))}</td></tr>'
+        for d in decisions
+    )
+    st.markdown(
+        '<table class="tbl"><thead><tr>'
+        "<th>公司</th><th>代码</th><th>状态</th><th>原因</th>"
+        f'</tr></thead><tbody>{decision_cells}</tbody></table>',
+        unsafe_allow_html=True,
+    )
+    with st.expander("查看证据输入", expanded=False):
         st.write({"目标公司 Evidence IDs": formula["target_input_evidence_ids"], "同行 Evidence IDs": formula["peer_input_evidence_ids"]})
         with st.container(horizontal=True):
             for item_id in formula["target_input_evidence_ids"]:
@@ -2549,8 +3278,12 @@ def valuation_safe(snapshot: dict, metadata: dict) -> None:
 
 
 def evidence(snapshot: dict, metadata: dict) -> None:
-    st.markdown("### 数据依据与检查")
     evidence_result = cached_research_evidence(snapshot["snapshot_id"])
+    page_head(
+        "证据与校验 · Evidence Ledger",
+        "数据依据与检查",
+        f"EVIDENCE LEDGER · {len(evidence_result['records'])} 条",
+    )
     validation = cached_research_validation(snapshot["snapshot_id"])
     readiness = cached_research_readiness(snapshot["snapshot_id"])
     records = evidence_result["records"]
@@ -2568,7 +3301,11 @@ def evidence(snapshot: dict, metadata: dict) -> None:
     attention = [check for check in checks if check.get("status") != "pass"]
     if attention:
         with st.container(border=True):
-            st.markdown("#### 当前需要关注")
+            st.markdown(
+                '<div class="sechead"><h4>当前需要关注</h4>'
+                '<span class="tag">VALIDATOR · 非通过项</span></div>',
+                unsafe_allow_html=True,
+            )
             for check in attention:
                 label = status_labels.get(check.get("status"), "未测量")
                 st.markdown(
@@ -2606,22 +3343,39 @@ def evidence(snapshot: dict, metadata: dict) -> None:
     rows = [{
         "Evidence ID": item["evidence_id"], "类型": "计算" if item["kind"] == "calculation" else "事实",
         "指标": item["metric"], "数值": item["value"], "单位": item["unit"],
-        "期间": item.get("period") or "—", "来源": item["provider"], "状态": item["status"],
+        "期间": item.get("period") or "—", "截止": item.get("published_at") or "—",
+        "来源": item["provider"],
+        "状态": EVIDENCE_STATUS_LABELS.get(item["status"], item["status"]),
     } for item in filtered_records]
-    frame = pd.DataFrame(rows)
-    if frame.empty:
+    if not rows:
         st.info("当前筛选条件没有匹配的证据记录；未隐藏原始数据，可清空筛选后继续查看。")
-        event = None
+        picked_id = None
     else:
-        event = st.dataframe(
-            frame, width="stretch", hide_index=True, height=360, on_select="rerun",
-            selection_mode="single-row", key=f"evidence_table_{snapshot['snapshot_id']}",
-        )
-    selected_id = st.session_state.get("selected_evidence_id")
-    if event is not None and event.selection.rows:
-        selected_id = frame.iloc[event.selection.rows[0]]["Evidence ID"]
-        st.session_state["selected_evidence_id"] = selected_id
-    selected = next((item for item in filtered_records if item["evidence_id"] == selected_id), None)
+        shown_rows = rows[:EVIDENCE_TABLE_ROWS]
+        st.markdown(_ledger_table_html(shown_rows), unsafe_allow_html=True)
+        if len(rows) > len(shown_rows):
+            st.caption(
+                f"上表列出前 {len(shown_rows)} / {len(rows)} 条；更后面的记录请收紧筛选，"
+                "或用下方 JSON 导出查看全部。"
+            )
+        # The dense table is read-only (same grammar as the overview ledger);
+        # row selection moves to a compact picker so the detail panel keeps its
+        # single entry point.  An id set elsewhere (e.g. an overview KPI chip)
+        # wins and syncs the picker whenever it is visible here.
+        ids_shown = [row["Evidence ID"] for row in shown_rows]
+        picker_key = f"evidence_detail_picker_{snapshot['snapshot_id']}"
+        incoming = st.session_state.get("selected_evidence_id")
+        if incoming in ids_shown:
+            st.session_state[picker_key] = incoming
+        row_by_id = {row["Evidence ID"]: row for row in shown_rows}
+
+        def _picker_label(evidence_id_value: str) -> str:
+            row = row_by_id.get(evidence_id_value, {})
+            return f"{evidence_id_value} · {row.get('指标', '')} · {row.get('期间', '')}"
+
+        picked_id = st.selectbox("选择证据查看详情", ids_shown, format_func=_picker_label, key=picker_key)
+        st.session_state["selected_evidence_id"] = picked_id
+    selected = next((item for item in filtered_records if item["evidence_id"] == picked_id), None)
     if selected is not None:
         with st.container(border=True):
             st.markdown(f"#### 证据详情 · `{selected['evidence_id']}`")
@@ -2634,8 +3388,10 @@ def evidence(snapshot: dict, metadata: dict) -> None:
                 "字段路径": selected.get("field_path"), "运算": selected.get("operation"),
                 "依赖 Evidence IDs": selected.get("input_ids", []), "披露时间": selected.get("published_at"),
             })
+    elif picked_id is None:
+        st.info("清空筛选后，在上方台账选择证据查看字段路径或计算依赖；也可从研究总览点击关键指标证据。")
     else:
-        st.info("选择任一证据行查看字段路径或计算依赖；也可从研究总览点击关键指标证据。")
+        st.info("在上方选择一条证据，查看字段路径或计算依赖；也可从研究总览点击关键指标证据。")
     validation_export = {
         "snapshot_id": snapshot["snapshot_id"],
         "research_as_of": validation["research_as_of"],
@@ -2660,14 +3416,22 @@ def evidence(snapshot: dict, metadata: dict) -> None:
 
     left, right = st.columns(2)
     with left:
-        st.markdown("#### 计算依赖")
+        st.markdown(
+            '<div class="sechead"><h4>计算依赖</h4>'
+            '<span class="tag">DEPENDENCY · 计算项</span></div>',
+            unsafe_allow_html=True,
+        )
         graph = evidence_result["dependency_graph"]
         if graph["edges"]:
             st.graphviz_chart(dependency_graph_dot(graph))
         else:
             st.info("当前证据集中没有计算依赖关系。")
     with right:
-        st.markdown("#### 数据检查详情")
+        st.markdown(
+            '<div class="sechead"><h4>数据检查详情</h4>'
+            '<span class="tag">VALIDATOR · 逐项</span></div>',
+            unsafe_allow_html=True,
+        )
         for check in validation["checks"]:
             if check["status"] == "pass":
                 message = f"**{check['label']}** — 已通过：{validation_check_copy(check)}"
@@ -2691,24 +3455,24 @@ def evidence(snapshot: dict, metadata: dict) -> None:
         st.caption(f"当前数据版本的研究截止时间：{validation['research_as_of']}")
 
 
-def _trace_legacy(snapshot: dict) -> None:
-    st.markdown("### AI 分析过程")
-    st.caption("仅呈现已记录的研究流程摘要；外部工具内容始终按数据处理。")
-    events = [("01", "解析研究对象", f"{snapshot['symbol']} · A 股实体解析", "成功", "—"), ("02", "加载版本化快照", f"{snapshot.get('provider', 'snapshot')} / {snapshot['snapshot_id']}", "成功", "—"), ("03", "确定性计算", "TTM 与市场价值", "成功", "—"), ("04", "Evidence Ledger", "生成事实与计算依赖", "成功", "—")]
-    for n, title, detail, status, duration in events:
-        st.markdown(f"<div class='trace'><span class='badge verified'>{n} · {status}</span> <b>{title}</b> <span class='subline'>— {detail} · {duration}</span></div>", unsafe_allow_html=True)
+def _trace_view(snapshot_id: str) -> dict:
+    """Normalise the persisted execution trace for the overview and the full page.
 
-
-def trace(snapshot: dict) -> None:
-    """Render only persisted task events; legacy snapshots remain explicitly empty."""
-    result = service.research_trace(snapshot["snapshot_id"])
-    st.markdown("### AI 分析过程")
-    if not result["available"]:
-        st.info("该快照没有已持久化的执行轨迹；不会补造成功步骤。")
-        return
-    # Real Agent tasks persist a richer event stream than the generic task
-    # transition trace.  Prefer it when available so this page exposes the
-    # actual plan, model/tool calls, evidence registration and Validator gate.
+    Only recorded events are ever returned: a real Agent task stream wins over
+    the generic task transitions, and a snapshot without persisted events stays
+    explicitly unavailable instead of being handed a fabricated success list.
+    A single source here keeps the overview summary and the dedicated trace page
+    from drifting apart.
+    """
+    result = cached_research_trace(snapshot_id)
+    view = {
+        "available": bool(result["available"]), "steps": [], "tool_trace": [],
+        "task_id": result.get("task_id"), "trace_id": result.get("trace_id"),
+        "model": result.get("model"), "prompt_version": result.get("prompt_version"),
+        "caption": None,
+    }
+    if not view["available"]:
+        return view
     task_id = result.get("task_id")
     if task_id:
         try:
@@ -2718,32 +3482,101 @@ def trace(snapshot: dict) -> None:
             agent_task = None
             stream = None
         if agent_task is not None and stream is not None:
-            st.caption(
+            view["caption"] = (
                 f"任务 {task_id} · 模型 {agent_task.get('model_name') or '未记录'} · "
                 f"状态 {agent_task.get('status') or '未记录'}"
             )
-            for event in stream["events"]:
-                with st.container(border=True):
-                    st.write(f"**{event.get('event', 'unknown')}** · {event.get('status', 'unknown')}")
-                    st.caption(f"{event.get('timestamp') or '—'} · {event.get('detail') or '—'}")
-                    evidence_ids = (event.get("metadata") or {}).get("evidence_ids") or []
-                    if evidence_ids:
-                        st.code(", ".join(evidence_ids), language=None)
-            tool_trace = stream.get("tool_trace") or []
-            if tool_trace:
-                with st.expander("工具调用明细", expanded=False):
-                    st.dataframe(tool_trace, width="stretch", hide_index=True)
-            return
-    st.caption(
+            for index, event in enumerate(stream["events"], start=1):
+                # Recorded details and tool payloads are data, never markup:
+                # everything is escaped before it reaches raw HTML.
+                detail = f"{event.get('timestamp') or '—'} · {event.get('detail') or '—'}"
+                cites = " ".join(
+                    f'<span class="cite">[{escape(str(item))}]</span>'
+                    for item in ((event.get("metadata") or {}).get("evidence_ids") or [])
+                )
+                view["steps"].append({
+                    "no": f"{index:02d}",
+                    "title": escape(str(event.get("event", "unknown"))),
+                    "detail": f"{escape(detail)}{' ' + cites if cites else ''}",
+                    "status": escape(str(event.get("status", "unknown"))),
+                })
+            view["tool_trace"] = stream.get("tool_trace") or []
+            return view
+    view["caption"] = (
         f"任务 {result['task_id']} · Trace {result['trace_id']} · "
         f"模型 {result.get('model') or '未记录'} · Prompt {result.get('prompt_version') or '未记录'}"
     )
-    for event in result["events"]:
-        with st.container(border=True):
-            st.write(f"**{event['event']}** · {event['status']}")
-            st.caption(f"{event['at']} · {event['detail']}")
-            if event.get("evidence_ids"):
-                st.code(", ".join(event["evidence_ids"]), language=None)
+    for index, event in enumerate(result["events"], start=1):
+        cites = " ".join(
+            f'<span class="cite">[{escape(str(item))}]</span>'
+            for item in (event.get("evidence_ids") or [])
+        )
+        view["steps"].append({
+            "no": f"{index:02d}",
+            "title": escape(str(event["event"])),
+            "detail": f"{escape(str(event['at']))} · {escape(str(event['detail']))}{' ' + cites if cites else ''}",
+            "status": escape(str(event["status"])),
+        })
+    return view
+
+
+def _trace_steps_html(steps: list[dict]) -> str:
+    """Render normalised trace steps as the shared D-style ``tstep`` rail."""
+    return "".join(
+        f'<div class="tstep"><span class="no">{step["no"]}</span>'
+        f'<b>{step["title"]}</b>'
+        f'<span class="d">{step["detail"]}</span>'
+        f'<span class="t">{step["status"]}</span></div>'
+        for step in steps
+    )
+
+
+def _ledger_table_html(rows: list[dict]) -> str:
+    """Render read-only ledger restatements as the D-style dense ``tbl`` table.
+
+    Every cell is escaped; status text keeps its stored value verbatim — the
+    class only tints rows whose label already reads as passed, so an unmapped
+    backend status stays visible instead of being silently re-coloured.
+    """
+    head = "".join(f"<th>{escape(str(h))}</th>" for h in rows[0])
+    body_parts = []
+    for row in rows:
+        cells = []
+        for key, value in row.items():
+            text = escape(str(value))
+            if key == "Evidence ID":
+                cells.append(f'<td class="mono">{text}</td>')
+            elif key == "状态":
+                cls = "st ok" if "通过" in str(value) else "st part"
+                cells.append(f'<td class="{cls}">{text}</td>')
+            else:
+                cells.append(f"<td>{text}</td>")
+        body_parts.append("<tr>" + "".join(cells) + "</tr>")
+    return (
+        '<table class="tbl"><thead><tr>'
+        + head
+        + "</tr></thead><tbody>"
+        + "".join(body_parts)
+        + "</tbody></table>"
+    )
+
+
+def trace(snapshot: dict) -> None:
+    """Render only persisted task events; legacy snapshots remain explicitly empty."""
+    view = _trace_view(snapshot["snapshot_id"])
+    page_head(
+        "Agent 执行轨迹 · 只回放已记录事件",
+        "AI 分析过程",
+        f"TRACE · {len(view['steps'])} 步" if view["available"] else "TRACE · 无已记录事件",
+    )
+    if not view["available"]:
+        st.info("该快照没有已持久化的执行轨迹；不会补造成功步骤。")
+        return
+    st.caption(view["caption"])
+    st.markdown(_trace_steps_html(view["steps"]), unsafe_allow_html=True)
+    if view["tool_trace"]:
+        with st.expander("工具调用明细", expanded=False):
+            st.dataframe(view["tool_trace"], width="stretch", hide_index=True)
 
 
 def _report_candidates(snapshot: dict) -> list[Path]:
@@ -2807,26 +3640,66 @@ def _latest_validated_agent_report(snapshot_id: str) -> dict | None:
     return None
 
 
+def _report_toc_html(text: str) -> str:
+    """D7 left-rail outline parsed from the report's own markdown headings.
+
+    Purely decorative (no anchor links): it mirrors document structure without
+    re-interpreting content.  Capped at 24 entries with an explicit note.
+    """
+    items = []
+    for line in text.splitlines():
+        matched = re.match(r"^(#{1,3})\s+(.+?)\s*#*\s*$", line)
+        if matched:
+            items.append((len(matched.group(1)), matched.group(2)))
+    if not items:
+        return (
+            '<div class="tocbox"><div class="cap">目 录</div>'
+            '<div class="tocnote">该报告未使用标准标题层级，未生成目录。</div></div>'
+        )
+    rows = "".join(
+        f'<div class="tocitem lv{min(level, 3)}">{escape(title)}</div>'
+        for level, title in items[:24]
+    )
+    note = ""
+    if len(items) > 24:
+        note = f'<div class="tocnote">仅显示前 24 个标题 · 共 {len(items)} 个。</div>'
+    return f'<div class="tocbox"><div class="cap">目 录</div>{rows}{note}</div>'
+
+
 def report(snapshot: dict) -> None:
-    st.markdown("### 中文研究报告")
     agent_report = _latest_validated_agent_report(snapshot["snapshot_id"])
     candidates = _report_candidates(snapshot)
+    page_head(
+        "研究报告 · 版本化交付工件",
+        "中文研究报告",
+        "真实 Agent 报告" if agent_report else f"本地工件 {len(candidates)} 份" if candidates else "尚未生成",
+    )
     if agent_report:
         task_id = agent_report["id"]
         answer = str(agent_report["answer"])
-        st.success("该报告由真实 Agent 生成，且本轮已通过 Validator 校验。")
-        st.caption(
-            f"任务 {task_id} · 模型 {agent_report.get('model_name') or '未记录'} · "
-            f"研究截至 {agent_report.get('research_as_of') or '未记录'}"
+        st.markdown(
+            '<div class="statusbar">'
+            '<span class="badge verified">● Agent 生成 · Validator 校验通过</span>'
+            f'<span class="badge snapshot">任务 {escape(str(task_id))}</span>'
+            f'<span class="badge neutral">模型 {escape(str(agent_report.get("model_name") or "未记录"))}</span>'
+            f'<span class="badge neutral">研究截至 {escape(str(agent_report.get("research_as_of") or "未记录"))}</span>'
+            "</div>",
+            unsafe_allow_html=True,
         )
-        st.download_button(
-            "下载 Agent 研究报告",
-            data=answer,
-            file_name=f"{snapshot['symbol']}_{snapshot['snapshot_id']}_agent_report.md",
-            mime="text/markdown",
-            key=f"download_agent_report_{task_id}",
-        )
-        st.markdown(answer)
+        toc_col, doc_col = st.columns([1, 3.4])
+        with toc_col:
+            st.markdown(_report_toc_html(answer), unsafe_allow_html=True)
+            st.download_button(
+                "下载 Agent 研究报告",
+                data=answer,
+                file_name=f"{snapshot['symbol']}_{snapshot['snapshot_id']}_agent_report.md",
+                mime="text/markdown",
+                key=f"download_agent_report_{task_id}",
+                width="stretch",
+            )
+        with doc_col:
+            with st.container(border=True):
+                st.markdown(answer)
     if not candidates and not agent_report:
         st.info("该快照尚未生成独立研究报告。请使用受控离线研究流程生成后再查看。")
         return
@@ -2856,20 +3729,27 @@ def report(snapshot: dict) -> None:
         f"{peer_metadata.get('peer_count', 0)} 家"
         if peer_metadata.get("available") else "不可用"
     )
-    report_summary = st.columns(4)
-    report_summary[0].metric("报告校验", report_status)
-    report_summary[1].metric("同行样本", peer_status)
-    report_summary[2].metric("Metadata", "已生成" if metadata_path is not None else "缺失")
-    report_summary[3].metric("同行 JSON", "已生成" if peer_path.exists() else "缺失")
-    st.caption(f"本地版本化工件 · {report_path.name}")
-    with st.container(horizontal=True):
-        st.download_button("下载 Markdown 报告", report_text, report_path.name, "text/markdown")
+    st.markdown(
+        '<div class="statusbar">'
+        f'<span class="badge {"verified" if report_status == "通过" else "warning"}">● 报告校验 {report_status}</span>'
+        f'<span class="badge neutral">同行样本 {escape(peer_status)}</span>'
+        f'<span class="badge neutral">Metadata {"已生成" if metadata_path is not None else "缺失"}</span>'
+        f'<span class="badge neutral">同行 JSON {"已生成" if peer_path.exists() else "缺失"}</span>'
+        f'<span class="badge snapshot">{escape(report_path.name)}</span>'
+        "</div>",
+        unsafe_allow_html=True,
+    )
+    toc_col, doc_col = st.columns([1, 3.4])
+    with toc_col:
+        st.markdown(_report_toc_html(report_text), unsafe_allow_html=True)
+        st.download_button("下载 Markdown 报告", report_text, report_path.name, "text/markdown", width="stretch")
         if metadata_path is not None and metadata_path.exists():
             st.download_button(
                 "下载报告 metadata",
                 metadata_path.read_text(encoding="utf-8"),
                 metadata_path.name,
                 "application/json",
+                width="stretch",
             )
         if peer_path.exists():
             st.download_button(
@@ -2877,15 +3757,18 @@ def report(snapshot: dict) -> None:
                 peer_path.read_text(encoding="utf-8"),
                 peer_path.name,
                 "application/json",
+                width="stretch",
             )
-    st.markdown(report_text)
+    with doc_col:
+        with st.container(border=True):
+            st.markdown(report_text)
     with st.expander("查看原始 Markdown", expanded=False):
         st.text_area("只读报告源文本", report_text, height=560, disabled=True)
 
 
 def documents() -> None:
     """CARD-01 反向跳转：报告数字 → document_id → 原始 PDF 页（bbox 高亮）。"""
-    st.markdown("#### 文档智能 · 报告数字 → 原始 PDF 页")
+    page_head("文档智能 · 报告数字 → 原始 PDF 页", "文档智能", "反向跳转 · bbox 高亮")
     st.caption(
         "每一行都来自真实解析坐标（页码 + bbox），界面不重新推导、不猜测数值。"
         "点击左侧任一数字行，右侧跳转到它所在的原始页面并高亮该单元格。"
@@ -2980,7 +3863,11 @@ def documents() -> None:
     left, right = st.columns([1.2, 1])
 
     with left:
-        st.markdown("##### 结构化事实（可点击数字）")
+        st.markdown(
+            '<div class="sechead"><h4>结构化事实</h4>'
+            '<span class="tag">点击行反向定位</span></div>',
+            unsafe_allow_html=True,
+        )
         if not fact_rows:
             st.caption("该文档没有可数值化的事实（可能是扫描页或纯文本公告）。")
             selected_fact = None
@@ -3007,7 +3894,11 @@ def documents() -> None:
                 st.caption(f"{unknown}/{len(fact_rows)} 行不在 CARD-02 指标字典内，保持原始名称，未强行映射。")
 
     with right:
-        st.markdown("##### 原始页面定位")
+        st.markdown(
+            '<div class="sechead"><h4>原始页面定位</h4>'
+            '<span class="tag">bbox 高亮</span></div>',
+            unsafe_allow_html=True,
+        )
         if not fact_rows:
             st.caption("无可定位事实。")
             return
@@ -3087,7 +3978,7 @@ def financial_analysis() -> None:
     engine produced or a comparison the engine recorded, and the expandable
     detail is the *registry's* formula + operands + its own re-derived value.
     """
-    st.markdown("#### 财务分析 · 指标与诊断信号")
+    page_head("财务分析 · 确定性引擎产出", "财务分析 · 指标与诊断信号", "CARD-02 → 计算注册表")
     st.caption(
         "全部数值由确定性引擎产出（CARD-02 规范化事实 → 计算注册表），不是模型输出。"
         "每一行都可展开公式、输入证据 id 与引擎重算值；亏损基期的同比只给绝对变动，"
@@ -3147,7 +4038,11 @@ def financial_analysis() -> None:
     if payload["metrics"]:
         left, right = st.columns([1.35, 1])
         with left:
-            st.markdown("##### 指标表（点击行查看计算过程）")
+            st.markdown(
+                '<div class="sechead"><h4>指标表</h4>'
+                '<span class="tag">点击行查看计算过程</span></div>',
+                unsafe_allow_html=True,
+            )
             frame = pd.DataFrame([_analysis_row(row) for row in payload["metrics"]])
             event = st.dataframe(
                 frame, width="stretch", hide_index=True, height=430, on_select="rerun",
@@ -3157,7 +4052,11 @@ def financial_analysis() -> None:
                 st.session_state["analysis_metric_row"] = event.selection.rows[0]
             selected = st.session_state.get("analysis_metric_row")
         with right:
-            st.markdown("##### 计算过程")
+            st.markdown(
+                '<div class="sechead"><h4>计算过程</h4>'
+                '<span class="tag">公式 · 输入证据 · 引擎重算</span></div>',
+                unsafe_allow_html=True,
+            )
             _analysis_calculation(payload["metrics"], st.session_state.get("analysis_metric_row"))
 
     _analysis_gaps(payload)
@@ -3388,7 +4287,7 @@ def _currency_of(detail_or_model) -> str | None:
 
 
 def evaluations() -> None:
-    st.markdown("### 评测与消融")
+    page_head("评测与消融 · 本地落盘产物", "评测与消融", "未测量不为 0")
     st.caption("仅展示本地已落盘的评测产物；未测量指标不会以 0 代替。")
     items = service.list_evaluations()
     if not items:
@@ -3401,6 +4300,11 @@ def evaluations() -> None:
     if detail["kind"] == "ablation":
         rows = detail.get("variants", [])
         if rows:
+            st.markdown(
+                '<div class="sechead"><h4>消融变体</h4>'
+                '<span class="tag">ABLATION · 未测量显式标注</span></div>',
+                unsafe_allow_html=True,
+            )
             st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
             _ablation_currency = _currency_of(detail)
             st.caption(
@@ -3413,6 +4317,11 @@ def evaluations() -> None:
             st.warning(f"未测量配置：{', '.join(missing)}")
         detailed_results = detail.get("detailed_results", {})
         if detailed_results:
+            st.markdown(
+                '<div class="sechead"><h4>案例级明细</h4>'
+                '<span class="tag">按变体筛选 · 逐案可回放</span></div>',
+                unsafe_allow_html=True,
+            )
             variant = st.selectbox("查看消融案例", list(detailed_results), key="ablation_variant_picker")
             cases = detailed_results[variant]
             st.dataframe(pd.DataFrame([{key: row.get(key) for key in (
@@ -3436,6 +4345,11 @@ def evaluations() -> None:
     }
     rows = [{"指标": label, "值": summary.get(key) if summary.get(key) is not None else "未测量"}
             for key, label in metric_labels.items()]
+    st.markdown(
+        '<div class="sechead"><h4>评测指标摘要</h4>'
+        '<span class="tag">BENCHMARK · 未测量不为 0</span></div>',
+        unsafe_allow_html=True,
+    )
     st.dataframe(pd.DataFrame(rows).astype({"值": str}), width="stretch", hide_index=True)
     regression = detail.get("regression")
     if regression:
@@ -3444,6 +4358,11 @@ def evaluations() -> None:
         )
     results = detail.get("results", [])
     if results:
+        st.markdown(
+            '<div class="sechead"><h4>案例结果</h4>'
+            '<span class="tag">RESULTS · 逐案可回放</span></div>',
+            unsafe_allow_html=True,
+        )
         st.dataframe(pd.DataFrame([{key: row.get(key) for key in ("case_id", "passed", "tool_f1", "parameters_ok", "evidence_coverage", "latency_seconds", "cost_usd")} for row in results]), width="stretch", hide_index=True)
         case_ids = [row.get("case_id", "unknown") for row in results]
         selected_case = st.selectbox("查看案例轨迹", case_ids, key="evaluation_case_picker")
@@ -3454,8 +4373,13 @@ def evaluations() -> None:
 
 @st.fragment(run_every="10s")
 def tasks() -> None:
-    st.markdown("### 受控研究任务")
+    page_head("研究任务 · 版本化快照驱动", "受控研究任务", "无快照只记需求")
     st.caption("仅对已有版本化快照生成研究；没有快照时，只记录采集需求，不生成任何数值或结论。")
+    st.markdown(
+        '<div class="sechead"><h4>启动受控研究</h4>'
+        '<span class="tag">SNAPSHOT · 版本化快照驱动</span></div>',
+        unsafe_allow_html=True,
+    )
     with st.form("new_research_task", border=True):
         symbol = st.text_input("A 股代码", placeholder="例如：600519.SH")
         submitted = st.form_submit_button("启动受控研究", icon=":material/play_arrow:", width="content")
@@ -3475,7 +4399,11 @@ def tasks() -> None:
                 st.code(task.get("next_step", ""), language=None)
             else:
                 st.error(f"任务状态：{task.get('status', '?')} · {task.get('message') or '—'}")
-    st.markdown("#### 新公司数据采集")
+    st.markdown(
+        '<div class="sechead"><h4>新公司数据采集</h4>'
+        '<span class="tag">ACQUISITION · 受控离线</span></div>',
+        unsafe_allow_html=True,
+    )
     st.caption("采集仅在服务端执行。Tushare Token 只从服务器 `.env` 读取；每次采集固定最多 6 次调用，且第一次失败即停止。")
     with st.form("snapshot_acquisition", border=True):
         acquisition_symbol = st.text_input("待采集 A 股代码", placeholder="例如：601318.SH", key="acquisition_symbol")
@@ -3503,6 +4431,11 @@ def tasks() -> None:
                     st.warning(task.get("message") or "任务被阻断。")
                 else:
                     st.error(f"采集未完成：{task.get('message') or '—'}")
+    st.markdown(
+        '<div class="sechead"><h4>任务记录</h4>'
+        '<span class="tag">HISTORY · 可筛选可重跑</span></div>',
+        unsafe_allow_html=True,
+    )
     history = service.list_tasks()
     status_options = sorted({item.get("status", "unknown") for item in history})
     selected_statuses = st.multiselect(
@@ -3538,6 +4471,16 @@ def tasks() -> None:
                 st.rerun()
 
 
+def _railcard_html(title: str, rows: list[tuple[str, str]]) -> str:
+    """D5 right-rail info card: read-only key/value rows, every value escaped."""
+    body = "".join(
+        f'<div class="railrow"><span class="k">{escape(str(k))}</span>'
+        f'<span class="v">{escape(str(v))}</span></div>'
+        for k, v in rows
+    )
+    return f'<div class="railcard"><h5>{escape(title)}</h5>{body}</div>'
+
+
 def agent_research(selected_snapshot_id: str) -> None:
     """A chat-first, auditable interface to the shared CnResearchAgent.
 
@@ -3545,7 +4488,7 @@ def agent_research(selected_snapshot_id: str) -> None:
     stricter than a generic chatbot: changing the snapshot halfway through a
     thread would make an earlier answer's evidence ambiguous.
     """
-    st.markdown("### AI Agent 研究")
+    page_head("AI Agent 研究 · 逐轮工具 + Validator", "AI Agent 研究", "快照非实时行情")
     st.caption(
         "直接输入问题即可开始对话。每一轮都会重新调用工具并通过 Validator；快照是版本化历史数据，不是实时行情。"
     )
@@ -3564,65 +4507,82 @@ def agent_research(selected_snapshot_id: str) -> None:
             st.session_state.pop("agent_task_id", None)
             task_id = None
 
-    controls, description = st.columns([1, 4])
-    with controls:
+    new_conversation_notice = st.session_state.pop("agent_new_conversation_notice", None)
+    if new_conversation_notice:
+        severity, message = new_conversation_notice
+        {"success": st.success, "warning": st.warning}[severity](message)
+
+    origin = "联网更新版本" if selected_item.get("snapshot_origin") == "online_refresh" else "本地基准版本"
+    display_cutoff = cutoff.replace("T", " ") if cutoff else "未记录"
+
+    # D5 布局：会话与审计占主栏，任务上下文/参数走右栏信息卡（纯只读）。
+    chat_col, rail_col = st.columns([3.1, 1])
+    with chat_col:
+        settings_disabled = bool(task_id)
+        with st.expander("研究设置", expanded=not bool(task_id)):
+            st.markdown("##### 分析参数")
+            model_name = st.text_input("模型", value="deepseek-v4-flash", key="agent_model", disabled=settings_disabled)
+            with st.expander("高级参数（默认：6 轮 · 随机性 0）", expanded=False):
+                st.caption("默认设置优先保证研究过程稳定、可复现，并限制单轮执行时间。")
+                c1, c2 = st.columns(2)
+                with c1:
+                    max_steps = st.number_input("最大工具轮次", min_value=1, max_value=10, value=6, step=1,
+                                                key="agent_max_steps", disabled=settings_disabled,
+                                                help="单轮研究最多可进行多少次模型决策和工具调用。")
+                with c2:
+                    temperature = st.number_input("回答随机性", min_value=0.0, max_value=1.0, value=0.0, step=0.1,
+                                                  key="agent_temperature", disabled=settings_disabled,
+                                                  help="0 表示更稳定、可复现的输出；数值越高，回答措辞越多样。")
+            st.caption("研究截止日固定为侧边栏选定版本的截止日；问题中的日期不会改写它。历史价格覆盖不足时，工具会明确返回数据缺口。")
+        _render_agent_conversation(task_id)
+        agent_task_view()
+        agent_research_archive(task_id)
+    with rail_col:
         st.button(
             "新建对话",
             icon=":material/add_comment:",
             key="agent_new_conversation",
             on_click=start_new_agent_conversation,
+            width="stretch",
         )
-    with description:
+        st.markdown(
+            _railcard_html(
+                "研究上下文 · 已同步侧边栏",
+                [
+                    ("研究对象", f"{selected_item['name']} · {selected_item['symbol']}"),
+                    ("数据版本", origin),
+                    ("研究截止", display_cutoff),
+                ],
+            ),
+            unsafe_allow_html=True,
+        )
         if task_id:
             try:
-                task_snapshot_id = agent_service.get_agent_task(task_id).get("snapshot_id")
+                task_public = agent_service.get_agent_task(task_id)
+                task_snapshot_id = task_public.get("snapshot_id")
             except KeyError:
+                task_public = {}
                 task_snapshot_id = None
             if task_snapshot_id and task_snapshot_id != selected_snapshot_id:
                 st.warning("当前会话已锁定在另一份数据版本。新建对话后，Agent 才会使用侧边栏当前选择。")
             else:
                 st.caption("本会话已锁定侧边栏当前选择的数据版本与模型。")
+            st.markdown(
+                _railcard_html(
+                    "会话与参数",
+                    [
+                        ("任务 ID", str(task_id)),
+                        ("状态", str(task_public.get("status") or "—")),
+                        ("模型", str(model_name or "—")),
+                        ("随机性", f"{float(temperature):.1f}"),
+                        ("最大轮次", str(int(max_steps))),
+                        ("更新于", str(task_public.get("updated_at") or "—")),
+                    ],
+                ),
+                unsafe_allow_html=True,
+            )
         else:
             st.caption("本轮将直接使用侧边栏当前选择的数据版本；无需再次选择股票。")
-
-    new_conversation_notice = st.session_state.pop("agent_new_conversation_notice", None)
-    if new_conversation_notice:
-        severity, message = new_conversation_notice
-        {"success": st.success, "warning": st.warning}[severity](message)
-    agent_research_archive(task_id)
-
-    settings_disabled = bool(task_id)
-    with st.expander("研究设置", expanded=not bool(task_id)):
-        origin = "联网更新版本" if selected_item.get("snapshot_origin") == "online_refresh" else "本地基准版本"
-        display_cutoff = cutoff.replace("T", " ") if cutoff else "未记录"
-        st.markdown(
-            f'''<div class="agent-context">
-                <div class="agent-context-head">当前研究上下文 <span>已同步侧边栏</span></div>
-                <div class="agent-context-grid">
-                    <div class="agent-context-item"><span>研究对象</span><strong>{escape(str(selected_item['name']))} <em>· {escape(str(selected_item['symbol']))}</em></strong></div>
-                    <div class="agent-context-item"><span>数据版本</span><strong>{origin}</strong></div>
-                    <div class="agent-context-item"><span>研究截止</span><strong>{escape(display_cutoff)}</strong></div>
-                </div>
-            </div>''',
-            unsafe_allow_html=True,
-        )
-        st.markdown("##### 分析参数")
-        model_name = st.text_input("模型", value="deepseek-v4-flash", key="agent_model", disabled=settings_disabled)
-        with st.expander("高级参数（默认：6 轮 · 随机性 0）", expanded=False):
-            st.caption("默认设置优先保证研究过程稳定、可复现，并限制单轮执行时间。")
-            c1, c2 = st.columns(2)
-            with c1:
-                max_steps = st.number_input("最大工具轮次", min_value=1, max_value=10, value=6, step=1,
-                                            key="agent_max_steps", disabled=settings_disabled,
-                                            help="单轮研究最多可进行多少次模型决策和工具调用。")
-            with c2:
-                temperature = st.number_input("回答随机性", min_value=0.0, max_value=1.0, value=0.0, step=0.1,
-                                              key="agent_temperature", disabled=settings_disabled,
-                                              help="0 表示更稳定、可复现的输出；数值越高，回答措辞越多样。")
-        st.caption("研究截止日固定为侧边栏选定版本的截止日；问题中的日期不会改写它。历史价格覆盖不足时，工具会明确返回数据缺口。")
-
-    _render_agent_conversation(task_id)
-    agent_task_view()
 
     chat_disabled = active
     if task_id and not active:
@@ -3738,11 +4698,18 @@ def _render_agent_conversation(task_id: str | None) -> None:
         return
     for turn in thread:
         with st.chat_message("user"):
-            st.write(turn["query"])
+            st.markdown(
+                f'<div class="bubble-user">{escape(str(turn["query"]))}</div>',
+                unsafe_allow_html=True,
+            )
         with st.chat_message("assistant"):
             if turn["status"] in agent_service.ACTIVE_AGENT_STATUSES:
                 st.status("正在检索证据并运行确定性校验…", state="running")
             elif turn["status"] == "succeeded":
+                st.markdown(
+                    '<span class="badge ai">◆ 模型生成 · 已引用证据 · 需人工复核</span>',
+                    unsafe_allow_html=True,
+                )
                 st.markdown(turn["answer"] or "本轮未返回可展示的结论。")
                 st.caption(f"已验证 · 证据 {turn['evidence_count']} 条 · 工具调用 {turn['tool_calls']} 次")
             elif turn["status"] == "blocked":
@@ -3835,7 +4802,11 @@ def agent_task_view() -> None:
         _agent_task_poll(task_id)
         return
 
-    st.markdown(f"#### 任务 `{task_id}`")
+    st.markdown(
+        '<div class="sechead"><h4>任务审计</h4>'
+        f'<span class="tag">{escape(str(task_id))}</span></div>',
+        unsafe_allow_html=True,
+    )
     st.caption(f"状态：**{status}** · 当前步骤：{public.get('current_step') or '—'} · 更新于 {public.get('updated_at') or '—'}")
     st.progress(100, text=public.get("message") or status)
     if not st.checkbox("显示本轮审计记录", key=f"show_agent_audit_{task_id}"):
@@ -3872,7 +4843,11 @@ def _agent_task_poll(task_id: str) -> None:
     if status not in agent_service.ACTIVE_AGENT_STATUSES:
         st.rerun(scope="app")
         return
-    st.markdown(f"#### Agent 正在研究 · `{task_id}`")
+    st.markdown(
+        '<div class="sechead"><h4>Agent 正在研究</h4>'
+        f'<span class="tag">{escape(str(task_id))}</span></div>',
+        unsafe_allow_html=True,
+    )
     st.caption(
         f"状态：**{status}** · 当前动作：{_agent_event_label(public.get('current_step'))} · "
         f"更新于 {public.get('updated_at') or '—'}"
@@ -4053,7 +5028,7 @@ def _seconds_between(start, end) -> float | None:
 def daily_review() -> None:
     """Read-only market breadth review built from versioned local snapshots,
     with an optional on-demand live acquisition button."""
-    st.markdown("### 每日复盘 · 市场广度")
+    page_head("每日复盘 · 市场广度", "每日复盘 · 市场广度", "默认离线 · 可点播实时")
     st.caption("默认离线演示；点击下方按钮可按需拉取 Tushare 实时数据。缺数据标注「未覆盖」，离线演示快照明确标记 synthetic_demo。")
 
     # ---- On-demand live acquisition bar ----
@@ -4150,6 +5125,13 @@ def daily_review() -> None:
         except Exception:
             return {}
 
+    def _fmt_num(value, pattern):
+        """Format an optional service number for display; never invent a value."""
+        try:
+            return pattern.format(value)
+        except (TypeError, ValueError):
+            return "—"
+
     # Determine default index: auto-select newly acquired snapshot if available.
     auto_id = st.session_state.pop("dr_auto_select_snapshot", None)
     new_label = None
@@ -4236,54 +5218,83 @@ def daily_review() -> None:
             )
 
     # 各渲染小节独立容错：单点模块缺失/异常 -> 仅显示「未覆盖」，不崩整页
-    st.markdown("#### 指数收盘")
+    st.markdown(
+        '<div class="sechead"><h4>指数收盘</h4>'
+        '<span class="tag">快照读数 · 涨红跌绿</span></div>',
+        unsafe_allow_html=True,
+    )
     try:
         indices = _safe_get(panorama, "sections", "index_closing", "indices", default=[]) or []
         if not indices:
             st.info("指数收盘数据未覆盖。")
         else:
-            cols = st.columns(min(len(indices), 3) or 1)
-            for idx, item in enumerate(indices):
-                with cols[idx % len(cols)]:
-                    with st.container(border=True):
-                        st.markdown(f"**{item.get('index_name', '?')}**")
-                        close = item.get("close")
-                        close_txt = f"{close:.2f}" if isinstance(close, (int, float)) else "—"
-                        st.markdown(f"<div style='font-size:1.4rem'>{close_txt}</div>", unsafe_allow_html=True)
-                        pc = item.get("pct_change") or 0
-                        color = "#c0392b" if pc >= 0 else "#1c9a82"
-                        sign = "+" if pc >= 0 else ""
-                        chg = item.get("change")
-                        amt = item.get("amount_yi")
-                        if isinstance(chg, (int, float)) and isinstance(amt, (int, float)):
-                            st.markdown(
-                                f"<span style='color:{color};font-weight:650'>{sign}{pc:.2f}% "
-                                f"({sign}{chg:.2f})</span> · 额 {amt:.0f}亿",
-                                unsafe_allow_html=True,
-                            )
-                        else:
-                            st.markdown(
-                                f"<span style='color:{color};font-weight:650'>{sign}{pc:.2f}%</span>",
-                                unsafe_allow_html=True,
-                            )
-                        st.caption(f"Evidence: {item.get('evidence_id', '?')}")
+            tiles = []
+            for item in indices:
+                name = escape(str(item.get("index_name", "?")))
+                ev = escape(str(item.get("evidence_id", "?")))
+                close = item.get("close")
+                close_txt = f"{close:,.2f}" if isinstance(close, (int, float)) else "—"
+                pc = item.get("pct_change") or 0
+                color = APPLE_TOKENS["quote_up"] if pc >= 0 else APPLE_TOKENS["quote_down"]
+                sign = "+" if pc >= 0 else ""
+                chg = item.get("change")
+                amt = item.get("amount_yi")
+                if isinstance(chg, (int, float)) and isinstance(amt, (int, float)):
+                    chg_txt = f"{sign}{pc:.2f}% ({sign}{chg:.2f}) · 额 {amt:.0f}亿"
+                else:
+                    chg_txt = f"{sign}{pc:.2f}%"
+                tiles.append(
+                    f'<div class="idxtile"><div class="lab"><span>{name}</span>'
+                    f'<span class="ev">{ev}</span></div>'
+                    f'<div class="num">{close_txt}</div>'
+                    f'<div class="chg" style="color:{color}">{escape(chg_txt)}</div></div>'
+                )
+            st.markdown(f'<div class="idxrow">{"".join(tiles)}</div>', unsafe_allow_html=True)
     except Exception:
         st.info("指数收盘数据渲染失败（未覆盖）。")
 
-    st.markdown("#### 板块涨幅")
+    st.markdown(
+        '<div class="sechead"><h4>市场广度</h4>'
+        '<span class="tag">收盘统计 · 服务层汇总</span></div>',
+        unsafe_allow_html=True,
+    )
+    try:
+        chars = _safe_get(panorama, "sections", "market_characteristics", default={}) or {}
+        if chars.get("up_count") is not None:
+            breadth_rows = [
+                {"指标": "上涨家数", "数值": _fmt_num(chars.get("up_count"), "{:,}")},
+                {"指标": "下跌家数", "数值": _fmt_num(chars.get("down_count"), "{:,}")},
+                {"指标": "红盘占比", "数值": _fmt_num(chars.get("up_ratio_percent"), "{:.1f}%")},
+                {"指标": "涨停 / 跌停", "数值": (
+                    f"{_fmt_num(chars.get('limit_up_count'), '{:,}')} / "
+                    f"{_fmt_num(chars.get('limit_down_count'), '{:,}')}"
+                )},
+                {"指标": "成交额合计", "数值": _fmt_num(chars.get("total_amount_yi"), "{:,.0f} 亿")},
+            ]
+            st.markdown(_ledger_table_html(breadth_rows), unsafe_allow_html=True)
+        else:
+            st.caption("市场广度数据未覆盖；不以上涨家数等口径推算。")
+    except Exception:
+        st.info("市场广度渲染失败（未覆盖）。")
+
+    st.markdown(
+        '<div class="sechead"><h4>板块涨幅</h4>'
+        '<span class="tag">热点板块 · 涨红跌绿</span></div>',
+        unsafe_allow_html=True,
+    )
     try:
         sectors = _safe_get(hotspots, "sections", "hot_sectors", "items", default=[]) or []
         if sectors:
             sdf = pd.DataFrame(sectors)
             fig = px.bar(
                 sdf, x="sector_name", y="pct_change", color="pct_change",
-                color_continuous_scale=["#1c9a82", "#c9d3e0", "#c0392b"],
+                color_continuous_scale=[APPLE_TOKENS["quote_down"], APPLE_TOKENS["surface_chip_translucent"], APPLE_TOKENS["quote_up"]],
                 custom_data=["sector_type", "leading_stock", "net_inflow_yi", "evidence_id"],
             )
             fig.update_traces(hovertemplate=(
                 "板块: %{x}<br>涨幅: %{y:.2f}%<br>类型: %{customdata[0]}<br>领涨: %{customdata[1]}"
                 "<br>净流入: %{customdata[2]:.1f}亿<br>Evidence: %{customdata[3]}<extra></extra>"))
-            fig.update_layout(height=360, paper_bgcolor="#fff", plot_bgcolor="#fff",
+            fig.update_layout(height=360, paper_bgcolor=APPLE_TOKENS["canvas"], plot_bgcolor=APPLE_TOKENS["canvas"],
                               margin=dict(l=15, r=15, t=30, b=80), yaxis_title="%", xaxis_title="")
             fig.update_coloraxes(showscale=False)
             st.plotly_chart(fig, width="stretch", key=f"dr_sector_{snapshot_id}")
@@ -4294,7 +5305,11 @@ def daily_review() -> None:
 
     left, right = st.columns(2)
     with left:
-        st.markdown("#### 连板天梯")
+        st.markdown(
+            '<div class="sechead"><h4>连板天梯</h4>'
+            '<span class="tag">涨停动力学</span></div>',
+            unsafe_allow_html=True,
+        )
         try:
             ladder = _safe_get(panorama, "sections", "stock_dynamics", "ladder", default=[]) or []
             if ladder:
@@ -4306,7 +5321,11 @@ def daily_review() -> None:
                 st.info("涨停天梯未覆盖。")
         except Exception:
             st.info("涨停天梯渲染失败（未覆盖）。")
-        st.markdown("#### 主力净流入 TOP")
+        st.markdown(
+            '<div class="sechead"><h4>主力净流入 TOP</h4>'
+            '<span class="tag">资金流向 · 单位 亿元</span></div>',
+            unsafe_allow_html=True,
+        )
         try:
             inflow = _safe_get(hotspots, "sections", "top_net_inflow", "items", default=[]) or []
             if inflow:
@@ -4319,22 +5338,24 @@ def daily_review() -> None:
         except Exception:
             st.info("主力净流入渲染失败（未覆盖）。")
     with right:
-        st.markdown("#### 全景复盘结论")
+        st.markdown(
+            '<div class="sechead"><h4>全景复盘结论</h4>'
+            '<span class="tag">服务层汇总</span></div>',
+            unsafe_allow_html=True,
+        )
         try:
             st.write(_safe_get(panorama, "sections", "index_closing", "summary", default="（无结论）"))
-            chars = _safe_get(panorama, "sections", "market_characteristics", default={}) or {}
-            if chars.get("up_ratio_percent") is not None:
-                st.write(
-                    f"红盘占比 **{chars['up_ratio_percent']}%**，涨跌家数 {chars['up_count']}/{chars['down_count']}，"
-                    f"涨停 {chars['limit_up_count']} / 跌停 {chars['limit_down_count']}，成交额 {chars['total_amount_yi']:.0f} 亿。"
-                )
             dev = _safe_get(panorama, "sections", "deviation_review", default={}) or {}
             if dev.get("supported"):
                 st.write(dev["observation"])
             st.caption("次日推演 / 宏观快照：离线快照未覆盖，不输出确定性预测。")
         except Exception:
             st.info("全景复盘结论渲染失败（未覆盖）。")
-        st.markdown("#### 热点题材")
+        st.markdown(
+            '<div class="sechead"><h4>热点题材</h4>'
+            '<span class="tag">AI 润色已逐条标注</span></div>',
+            unsafe_allow_html=True,
+        )
         try:
             themes = _safe_get(panorama, "sections", "core_drivers", "themes", default=[]) or []
             if not themes:
@@ -4528,10 +5549,14 @@ def main() -> None:
         _DEMO_RENDER[page]()
         return
     snapshot, metadata = load_research(choices[selected_label])
+    if page == "研究总览":
+        # 总览的 eyebrow 说清这是"一页式研究志"，与各子页的 eyebrow 同一节奏。
+        page_eyebrow("研究总览 · A股研究志")
     header(snapshot, metadata)
-    # The overview begins with research quality and its plain-language
-    # explanation.  Cross-module navigation stays available on detail pages.
+    # 研究总览 把研究路径排在估值读数之后（对齐 D 版排版），所以其路径栏由
+    # overview() 自己渲染；其它页面第一屏仍是「研究路径 + 跨模块入口」。
     if page != "研究总览":
+        research_route(page)
         research_next_steps(page)
     {"研究总览": lambda: overview(snapshot, metadata), "市场与行情": lambda: market(snapshot), "财务表现": lambda: financials(snapshot), "同行估值": lambda: valuation_safe(snapshot, metadata), "证据与校验": lambda: evidence(snapshot, metadata), "Agent 执行轨迹": lambda: trace(snapshot), "研究报告": lambda: report(snapshot), "研究任务": tasks, "评测与消融": evaluations}[page]()
 

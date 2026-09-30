@@ -63,7 +63,7 @@ def _render_verification(payload: Dict[str, Any]) -> None:
 
 
 def render() -> None:
-    st.subheader("结论护照 · Financial Claim Passport")
+    _shared.page_head("案例演示 · 离线演示材料", "结论护照", "Financial Claim Passport")
     st.caption(
         "DEMO_FLOW 步骤 7b（★核心动作）。结论 → 六个证明块 → 一键 VERIFY CLAIM。"
         "验证路径**零 LLM**：重查文档哈希、重算公式、检查依赖状态。"
@@ -87,7 +87,7 @@ def render() -> None:
     claim = payload.get("claim") or {}
     passport = payload.get("passport") or {}
 
-    st.markdown("#### ① 结论本身")
+    _shared.sechead("① 结论本身")
     st.markdown(f"> {claim.get('text')}")
     _shared.stat_row(
         [
@@ -100,7 +100,7 @@ def render() -> None:
         ]
     )
 
-    st.markdown("#### ② 证明链（六个证明块）")
+    _shared.sechead("② 证明链（六个证明块）")
     st.caption(
         f"口径 `{passport.get('scope')}` · 版本 `{passport.get('version_status')}` · "
         f"经济期间 `{passport.get('economic_period')}`"
@@ -116,7 +116,7 @@ def render() -> None:
             else:
                 st.write(block)
 
-    st.markdown("#### ③ VERIFY CLAIM —— 现场重新执行整套证明")
+    _shared.sechead("③ VERIFY CLAIM —— 现场重新执行整套证明")
     st.caption(
         "点击后系统**重新跑一遍**验证：重算文档 sha256、重算公式、重查依赖状态。"
         "这不是页面加载时的结果回放。"

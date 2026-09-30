@@ -20,7 +20,7 @@ from . import _shared
 
 
 def render() -> None:
-    st.subheader("研报纠错 · Report Corrections")
+    _shared.page_head("案例演示 · 离线演示材料", "研报纠错", "Report Corrections")
     st.caption(
         "DEMO_FLOW 步骤 6+7（★高潮一）。提取器只把句子结构化成 Claim，"
         "判定、复算与证据匹配全部走 CARD-05 的确定性规则引擎 —— 零模型。"
@@ -77,7 +77,7 @@ def render() -> None:
     )
 
     # --- 逐条对齐：植入 vs 检出 ---------------------------------------------
-    st.markdown("#### ① 植入清单 ↔ 实际检出（逐条对齐）")
+    _shared.sechead("① 植入清单 ↔ 实际检出（逐条对齐）")
     if planted:
         st.dataframe(rows, width="stretch", hide_index=True)
         if missed:
@@ -96,7 +96,7 @@ def render() -> None:
         st.info("这份草稿是干净语料（没有植入错误）。检出应为 0 —— 那才是正确结果，不是「没做事」。")
 
     # --- 清单之外的检出 -----------------------------------------------------
-    st.markdown("#### ② 植入清单之外的检出（须逐条判定）")
+    _shared.sechead("② 植入清单之外的检出（须逐条判定）")
     if not unmatched:
         st.caption("没有清单之外的检出。")
     else:
@@ -120,7 +120,7 @@ def render() -> None:
         )
 
     # --- 逐条纠错详情 -------------------------------------------------------
-    st.markdown("#### ③ 纠错明细（错误类型 / 原值 / 正确值 / 建议 / 证据）")
+    _shared.sechead("③ 纠错明细（错误类型 / 原值 / 正确值 / 建议 / 证据）")
     if not findings:
         st.success("本次未发现任何问题。")
     for finding_idx, finding in enumerate(findings, start=1):
@@ -179,7 +179,7 @@ def render() -> None:
                 )
 
     # --- 覆盖范围：哪些规则真的跑了 -----------------------------------------
-    st.markdown("#### ④ 检测覆盖范围（哪些规则真的执行了）")
+    _shared.sechead("④ 检测覆盖范围（哪些规则真的执行了）")
     coverage = payload.get("coverage") or {}
     rules = coverage.get("rules") or {}
     rule_rows = [

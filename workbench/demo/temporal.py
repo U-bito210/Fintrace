@@ -23,7 +23,7 @@ from . import _shared
 
 
 def render() -> None:
-    st.subheader("时间重验证 · Temporal Revalidation")
+    _shared.page_head("案例演示 · 离线演示材料", "时间重验证", "Temporal Revalidation")
     st.caption(
         "DEMO_FLOW 失败注入 F9。一次「世界变了」的事件进来后，沿版本血缘找出受影响的"
         "Fact / Calculation / Claim，并给出重验证动作。零 LLM。"
@@ -60,7 +60,7 @@ def render() -> None:
     if event.get("description"):
         st.caption(event["description"])
 
-    st.markdown("#### ① 影响面（哪些东西被这次变化波及）")
+    _shared.sechead("① 影响面（哪些东西被这次变化波及）")
     impact: Dict[str, Any] = payload.get("impact") or {}
     _shared.stat_row(
         [
@@ -78,7 +78,7 @@ def render() -> None:
             "把「没查」显示成「没问题」是这一页最容易犯的错。"
         )
 
-    st.markdown("#### ② 受影响子图")
+    _shared.sechead("② 受影响子图")
     subgraph: List[str] = list(payload.get("affected_subgraph") or ())
     if subgraph:
         for node in subgraph:
@@ -86,14 +86,14 @@ def render() -> None:
     else:
         st.caption("受影响子图为空。")
 
-    st.markdown("#### ③ 状态变化 diff（旧 → 新）")
+    _shared.sechead("③ 状态变化 diff（旧 → 新）")
     diff: List[Dict[str, Any]] = list(payload.get("state_diff") or ())
     if diff:
         st.dataframe(diff, width="stretch", hide_index=True)
     else:
         st.caption("无状态变化记录（本次变更没有改变任何节点的判定状态）。")
 
-    st.markdown("#### ④ 需要做的重验证动作")
+    _shared.sechead("④ 需要做的重验证动作")
     actions: List[Dict[str, Any]] = list(payload.get("revalidation_actions") or ())
     if actions:
         st.dataframe(
@@ -112,7 +112,7 @@ def render() -> None:
     else:
         st.caption("本次未产出待办动作。")
 
-    st.markdown("#### ⑤ 增量重算 vs 全量重算（对账读数）")
+    _shared.sechead("⑤ 增量重算 vs 全量重算（对账读数）")
     comparison: Dict[str, Any] = payload.get("full_vs_incremental") or {}
     _shared.stat_row(
         [

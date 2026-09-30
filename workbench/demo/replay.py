@@ -26,7 +26,7 @@ from . import _shared
 
 
 def render() -> None:
-    st.subheader("审计回放 · Audit Replay & Evidence Pack")
+    _shared.page_head("案例演示 · 离线演示材料", "审计回放", "Audit Replay & Evidence Pack")
     st.caption(
         "DEMO_FLOW 收尾。Run Manifest 17 字段 + 只追加事件流 → 十一阶段时间线 → "
         "一键导出证据包。回放是**视图**，不是重新执行。"
@@ -81,7 +81,7 @@ def render() -> None:
         ]
     )
 
-    st.markdown("#### ① 十一阶段时间线")
+    _shared.sechead("① 十一阶段时间线")
     timeline = demo_service.replay_view(chosen)
     if _shared.unavailable(timeline, what="回放时间线"):
         return
@@ -120,7 +120,7 @@ def render() -> None:
     if timeline.get("honesty_note"):
         st.caption(timeline["honesty_note"])
 
-    st.markdown("#### ② 导出证据包")
+    _shared.sechead("② 导出证据包")
     pack = demo_service.export_pack_view(chosen)
     if _shared.unavailable(pack, what="证据包导出"):
         return
@@ -203,7 +203,7 @@ def _render_prompt_registry() -> None:
     刻意放在两个分支都会走到的地方：注册表是否可审计，和"这个 run 目录里有没有东西"
     无关，所以没有 run 时这一节也照样渲染 —— 空目录不该顺手藏掉一段证据。
     """
-    st.markdown("#### ③ Prompt 注册表（CARD-14）")
+    _shared.sechead("③ Prompt 注册表（CARD-14）")
     st.caption(
         "源代码清单点名的 Prompt 模块：文本只有 `src/agents/prompts/templates/` 一处，"
         "注册表按 `name@version` 寻址，`prompt_hash` 进 manifest —— 所以一个 run 能被指回"

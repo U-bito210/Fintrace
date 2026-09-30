@@ -132,7 +132,7 @@ def _render_adversarial() -> None:
 
 
 def render() -> None:
-    st.subheader("对抗注入 · Failure Injection & FinFuzz")
+    _shared.page_head("案例演示 · 离线演示材料", "对抗注入", "Failure Injection & FinFuzz")
     st.caption(
         "DEMO_FLOW 失败注入 F1–F8 与 §4 创新：**FinFuzz 用金融语义变异持续对抗评测**。"
         "本页的判定标准是「系统在必须拒答时拒答」，不是「系统答对了」。"

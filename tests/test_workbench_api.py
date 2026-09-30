@@ -203,6 +203,13 @@ def test_refresh_endpoint_creates_a_snapshot_and_points_meta_at_it(tmp_path, mon
     monkeypatch.setattr(api.service, "SNAPSHOT_DIR", tmp_path)
     api.service.load_snapshot.cache_clear()
     monkeypatch.setattr(collector, "load_tushare_token", lambda: "test-token-not-a-secret")
+    # The refreshed snapshot id embeds the refresh cutoff, which defaults to
+    # "now".  Pin the clock after the 09-28 A-share close so the assertion
+    # below stays offline and independent of the wall clock.
+    monkeypatch.setattr(
+        refresh, "_coerce_now",
+        lambda now=None: refresh.datetime(2026, 9, 28, 16, 5, tzinfo=refresh.CST),
+    )
     monkeypatch.setattr(refresh, "fetch_latest_bars", lambda provider, symbol, **window: [{
         "trade_date": "2026-09-28", "open": 1700.0, "high": 1710.0, "low": 1690.0,
         "close": 1705.0, "volume": 2_000_000.0, "amount": 3.4e9,

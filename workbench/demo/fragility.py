@@ -23,7 +23,7 @@ from . import _shared
 
 
 def render() -> None:
-    st.subheader("逻辑脆弱性 · Thesis Fragility")
+    _shared.page_head("案例演示 · 离线演示材料", "逻辑脆弱性", "Thesis Fragility")
     st.caption(
         "DEMO_FLOW 步骤 10b（创新展示三）。关键依赖 / 单点失效 / 最小割集全部是"
         "**图算法**结果，每个割集都经过「移除后 Thesis 是否 BLOCKED」的反解验证。零 LLM。"
@@ -53,7 +53,7 @@ def render() -> None:
         ]
     )
 
-    st.markdown("#### ① 关键依赖（哪些节点一旦失效，逻辑就翻）")
+    _shared.sechead("① 关键依赖（哪些节点一旦失效，逻辑就翻）")
     critical: List[Dict[str, Any]] = list(payload.get("critical_dependencies") or ())
     if critical:
         st.dataframe(
@@ -80,7 +80,7 @@ def render() -> None:
     else:
         st.info("引擎未识别出关键依赖。这可能意味着依赖结构单薄，而不是「很稳健」。")
 
-    st.markdown("#### ② 最小割集（最少破坏哪些节点会让 Thesis 失效）")
+    _shared.sechead("② 最小割集（最少破坏哪些节点会让 Thesis 失效）")
     cut_sets: List[Any] = list(payload.get("minimal_cut_sets") or ())
     if cut_sets:
         for position, cut in enumerate(cut_sets, start=1):
@@ -93,7 +93,7 @@ def render() -> None:
     else:
         st.info("未产出最小割集。")
 
-    st.markdown("#### ③ Monitoring Plan（什么信号触发重验证）")
+    _shared.sechead("③ Monitoring Plan（什么信号触发重验证）")
     plans: List[Dict[str, Any]] = list(payload.get("monitoring_metrics") or ())
     if plans:
         st.dataframe(

@@ -102,7 +102,7 @@ def _render_claim(
 
 
 def render() -> None:
-    st.subheader("主张-证据图谱 · Claim-Evidence Graph")
+    _shared.page_head("案例演示 · 离线演示材料", "主张-证据图谱", "Claim-Evidence Graph")
     st.caption(
         "DEMO_FLOW 步骤 9+10。四层结构：结论 → 计算 → 证据 → 原始页码。"
         "依赖语义分 REQUIRED / SUPPORTING / OPTIONAL，REQUIRED 上游失效会 fail-closed 阻断下游。"
@@ -126,7 +126,7 @@ def render() -> None:
         ]
     )
 
-    st.markdown("#### ① 结论清单（按状态）")
+    _shared.sechead("① 结论清单（按状态）")
     claim_rows = list(payload.get("claim_rows") or ())
     if claim_rows:
         st.dataframe(
@@ -156,7 +156,7 @@ def render() -> None:
     else:
         st.info("该文档未产出任何 claim。")
 
-    st.markdown("#### ② 逐层展开（点一条结论看它靠什么站着）")
+    _shared.sechead("② 逐层展开（点一条结论看它靠什么站着）")
     selectable = [row["claim_id"] for row in claim_rows]
     if selectable:
         chosen = st.selectbox("选择结论", selectable, key="demo_graph_claim")

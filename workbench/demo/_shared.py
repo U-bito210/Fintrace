@@ -34,6 +34,30 @@ _TONE_NEUTRAL = (
 _JUMP_KEY = "demo_jump_target"
 
 
+def page_head(eyebrow: str, title: str, tag: str = "") -> None:
+    """D 稿页头节奏（眉题 → 衬线标题 → 右对齐 tag）。
+
+    与 ``workbench.page_head`` 同一套标记和全局 CSS（``.eyebrow`` /
+    ``.pagetitle``），但在这里自包含 —— demo 模块反向 import workbench 会造成
+    循环加载。三个参数都是页面写死的字面量，与 workbench 版本同契约。
+    """
+    tag_html = f'<span class="tag">{tag}</span>' if tag else ""
+    st.markdown(
+        f'<div class="eyebrow">{eyebrow}</div>'
+        f'<div class="pagetitle"><h2>{title}</h2>{tag_html}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def sechead(title: str, tag: str = "") -> None:
+    """D 稿区块标题（细墨底线 + 右侧小 tag），替代 demo 页的裸 ``####``。"""
+    tag_html = f'<span class="tag">{tag}</span>' if tag else ""
+    st.markdown(
+        f'<div class="sechead"><h4>{title}</h4>{tag_html}</div>',
+        unsafe_allow_html=True,
+    )
+
+
 def tone(status: object) -> str:
     """把任意引擎状态映射到一种呈现语气。"""
     text = str(status or "").strip().lower()
@@ -259,7 +283,9 @@ __all__ = [
     "draft_picker",
     "honesty",
     "jump_button",
+    "page_head",
     "render_jump_panel",
+    "sechead",
     "stat_row",
     "tone",
     "unavailable",

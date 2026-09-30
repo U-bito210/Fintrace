@@ -102,7 +102,7 @@ def _violation_view(violation: Dict[str, Any], index: Dict[str, Any], position: 
 
 
 def render() -> None:
-    st.subheader("ACME 约束 · Accounting-Constrained Multimodal Evidence")
+    _shared.page_head("案例演示 · 离线演示材料", "ACME 约束", "Accounting-Constrained Multimodal Evidence")
     st.caption(
         "DEMO_FLOW 步骤 4b（创新展示一）。六类会计约束族对**解析质量**自检 —— "
         "「不可能成立」的解析结果当场报警，而不是默默信任。零模型、纯确定性规则。"
@@ -136,7 +136,7 @@ def render() -> None:
         )
     index = _ref_index(violations)
 
-    st.markdown("#### ① 约束违反清单（含 passed，不筛选）")
+    _shared.sechead("① 约束违反清单（含 passed，不筛选）")
     if not violations:
         st.info("本次未产出任何约束结果。")
     for position, violation in enumerate(violations):
@@ -152,7 +152,7 @@ def render() -> None:
             with st.expander(label, expanded=False):
                 _violation_view(violation, index, position)
 
-    st.markdown("#### ② 约束族覆盖情况（哪些规则真的跑了）")
+    _shared.sechead("② 约束族覆盖情况（哪些规则真的跑了）")
     available = list(payload.get("constraints_not_available") or ())
     if available:
         # 逐字段原样呈现，不给它另起一套列名 —— 缺输入的原因就是引擎的原话。
