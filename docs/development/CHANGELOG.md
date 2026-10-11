@@ -1,6 +1,36 @@
 # CHANGELOG.md — 开发文档体系变更记录
 
-> 版本：v2.0 → v3.0 → v3.1 → v3.2 → **v3.3 提交冻结版** ｜ 变更日期：2026-09-27
+> 版本：v2.0 → v3.0 → v3.1 → v3.2 → v3.3 → **v3.3.1 台账同步** ｜ 变更日期：2026-10-08
+
+---
+
+## v3.3.1 台账同步（2026-10-08）—— 状态行纠偏 + 测试临时目录固定
+
+不改任何业务代码，只修两处「文档与事实不一致」和一处「平台复现差异」。
+
+### 一、`pytest.ini` 固定 basetemp
+
+现象：按 `AGENTS.md` / `RUN_GUIDE.md` 原命令在本机直跑离线套件，得到 `1434 passed / 319 errors`。
+
+根因：`tmp_path` 默认落在 `%TEMP%\pytest-of-LENOVO`，被 ACL 拒绝（`PermissionError: [WinError 5]`），全部发生在 `pytest_asyncio` 的 fixture 装配阶段，**不是测试失败，也不是代码缺陷**。加 `--basetemp` 后同一批文件立刻全绿。
+
+处置：`addopts = --basetemp=tmp/pytest-tmp`（`tmp/` 已 gitignore；用专用叶子目录，避免 pytest 每次运行前清空整棵 `tmp/`）。CLI 传 `--basetemp` 仍可覆盖。`docs/RUN_GUIDE.md` §6 同步写明原因与基线数字。
+
+复核：全量离线 **1753 passed / 0 failed / 3 deselected**（台账原写的 1531 为 2026-09-20 游标，其后新增测试所致）。
+
+### 二、CARD 状态行纠偏（5 张）
+
+CARD-01 / 02 / 04 / 05 / 06 的表头「状态」行仍写「受 Tushare 快照阻塞」「待快照重建」，并把套件数字停在收尾当刻的 `691 passed / 23 failed`、`710 passed / 23 failed`——而**同一张卡的 §15 已注明阻塞于 2026-09-20 解除、§16 有当日记录**，两处自相矛盾。已全部改为 ✅，并在各卡 §16 追加 2026-10-08 记录行。
+
+保留为真实尾巴、未粉饰的项：CARD-02 §14 规范化页面（归 CARD-15）、CARD-05 §13 真实研报改造集（依赖 CARD-11 Real 级材料）、CARD-06 §13 recall@k 目标值待 baseline。
+
+### 三、发现一个解析缺陷，登记不修
+
+`LIMITATIONS.md` 新增一条：`parsers/base.py` 的 `NUMERIC_RE` 首位分支 `[\d,]{1,3}` 不要求后跟 `,ddd`，导致**数字嵌在散文中**的表格单元格被截断为前 3 位（`'107,294股…'` → `107`）。真实年报实测 7,281 条带数值事实中 808 条（11.1%）与原文任一数字不符，样例以年份表头/电话/日期这类本不该成数的标签格为主；干净数值格走 `fullmatch` 不受影响。根因、实测规模与"为何不在 freeze 窗口内修"记于 `CARD-01` §16。
+
+### 四、明确未动的漂移
+
+`COMPETITION_REQUIREMENTS_MATRIX.md` 仍有 19 处 `待建`，其中若干行对应模块**已在仓库运行**（Retrieval、Document Intelligence、Checker、Memo、Passport、Fragility、Temporal、FinFuzz 等）。逐行改判需要先核对每行的代码与测试落点，本轮**未动**，留待单独一次带核验的同步。
 
 ---
 

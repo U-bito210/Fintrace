@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>效果图 D · 方案B × Ghostfolio 排版</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root {
+    --paper:#faf8f3; --card:#ffffff; --ink:#191610; --muted:#7a7264; --faint:#a49b8a;
+    --line:#e7e0d2; --line2:#efe9dc; --accent:#2b4a8b;
+    --up:#c53a3a; --down:#1f8a5d; --ok:#1f8a5d; --warn:#b07818; --ai:#6b4fa8;
+    --serif:Georgia,"Source Han Serif SC","Noto Serif SC","宋体",serif;
+    --sans:"Segoe UI","Microsoft YaHei",-apple-system,"PingFang SC",sans-serif;
+    --mono:"Cascadia Code",Consolas,"SF Mono",monospace;
+  }
+  body { background:var(--paper); color:var(--ink); font-family:var(--sans); font-size:14px; -webkit-font-smoothing:antialiased;
+    font-variant-numeric: tabular-nums; }
+  .app { display:grid; grid-template-columns:230px 1fr; min-height:1500px; }
+
+  aside { border-right:1px solid var(--line); padding:26px 18px; background:#f6f2e9; }
+  .logo { font-family:var(--serif); font-size:19px; font-weight:700; padding:0 8px 22px; }
+  .logo span { color:var(--accent); }
+  .navgrp { margin-top:20px; }
+  .navgrp h5 { font-size:10.5px; color:var(--faint); letter-spacing:.22em; padding:0 10px 8px; font-weight:600; }
+  .navitem { padding:6.5px 10px; font-size:13px; color:var(--muted); border-radius:6px; margin-bottom:1px; }
+  .navitem.active { color:var(--ink); font-weight:700; background:#fff; box-shadow:inset 3px 0 0 var(--accent); }
+
+  main { display:flex; flex-direction:column; }
+  .topbar { height:56px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:14px; padding:0 40px; }
+  .crumb { font-size:12.5px; color:var(--muted); }
+  .crumb b { color:var(--ink); font-weight:700; }
+  .spacer { flex:1; }
+  .rangewrap { display:flex; border:1px solid var(--line); background:#fff; border-radius:99px; padding:2.5px; }
+  .rpill { font-size:11.5px; color:var(--muted); padding:4px 12px; border-radius:99px; }
+  .rpill.active { background:var(--ink); color:var(--paper); font-weight:600; }
+  .okdot { font-size:12.5px; color:var(--ok); font-weight:600; }
+  .user { font-size:12.5px; color:var(--muted); font-family:var(--serif); font-style:italic; }
+
+  .content { padding:32px 44px 90px; max-width:1280px; }
+  .eyebrow { font-size:10.5px; letter-spacing:.28em; color:var(--faint); font-weight:700; margin-bottom:10px; }
+  .stockhead { display:flex; align-items:baseline; gap:14px; }
+  h1 { font-family:var(--serif); font-size:36px; font-weight:700; }
+  .code { font-family:var(--mono); color:var(--muted); font-size:14px; }
+  .meta { display:flex; gap:14px; margin-top:10px; flex-wrap:wrap; font-size:12px; color:var(--muted); }
+  .meta span::before { content:"·"; margin-right:6px; color:var(--faint); }
+  .meta .okb { color:var(--ok); font-weight:600; }
+
+  /* ── Ghostfolio 式 Hero：大数字 + 走势 + 配置环 ── */
+  .hero { display:grid; grid-template-columns:300px 1fr 340px; gap:28px; align-items:stretch;
+    background:var(--card); border:1px solid var(--line); border-radius:4px; padding:26px 30px; margin-top:26px; }
+  .hero .lab { font-size:10.5px; letter-spacing:.18em; color:var(--faint); font-weight:600; margin-bottom:10px; display:flex; gap:8px; align-items:baseline; }
+  .ev { font-family:var(--mono); font-size:10px; color:var(--faint); letter-spacing:0; }
+  .bignum { font-family:var(--serif); font-size:46px; font-weight:700; letter-spacing:-.01em; line-height:1; }
+  .bignum small { font-size:18px; color:var(--muted); font-weight:400; }
+  .chip { display:inline-block; font-size:12px; font-weight:700; padding:3px 10px; border-radius:99px; margin-top:12px; }
+  .chip.up { color:var(--up); background:rgba(197,58,58,.08); }
+  .herosub { font-size:11.5px; color:var(--muted); margin-top:10px; line-height:1.7; }
+  .chart { align-self:center; }
+  .donutwrap { border-left:1px solid var(--line2); padding-left:26px; display:flex; flex-direction:column; }
+  .donut { display:flex; gap:18px; align-items:center; }
+  .legend { font-size:11.5px; color:var(--muted); }
+  .legend .row { display:flex; align-items:center; gap:7px; padding:2.5px 0; }
+  .legend .sw { width:9px; height:9px; border-radius:2.5px; flex:none; }
+  .legend .pct { margin-left:auto; font-family:var(--mono); color:var(--ink); padding-left:14px; }
+
+  /* ── KPI 磁贴 ── */
+  .tiles { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-top:14px; }
+  .tile { background:var(--card); border:1px solid var(--line); border-radius:4px; padding:15px 18px; }
+  .tile .lab { font-size:10.5px; letter-spacing:.16em; color:var(--faint); font-weight:600; margin-bottom:9px; display:flex; justify-content:space-between; }
+  .tile .val { font-family:var(--serif); font-size:24px; font-weight:700; }
+  .tile .val small { font-size:13px; color:var(--muted); font-weight:400; }
+  .tile .sub { font-size:11px; color:var(--muted); margin-top:6px; }
+  .tile .sub.up { color:var(--up); font-weight:600; }
+  .tile .sub.down { color:var(--down); font-weight:600; }
+
+  .route { margin:24px 0 6px; font-size:12.5px; color:var(--faint); }
+  .route b { color:var(--ink); font-weight:700; }
+  .route i { color:var(--accent); font-style:normal; font-weight:600; }
+
+  /* ── 双栏：事实 / AI 叙事 ── */
+  .grid2 { display:grid; grid-template-columns:1.15fr .85fr; gap:34px; margin:26px 0 34px; }
+  .sechead { display:flex; align-items:baseline; gap:10px; border-bottom:1px solid var(--ink); padding-bottom:8px; margin-bottom:4px; }
+  .sechead h4 { font-size:12px; letter-spacing:.2em; font-weight:700; }
+  .sechead .tag { font-size:10.5px; letter-spacing:.12em; color:var(--faint); margin-left:auto; }
+  .sechead .tag.ai { color:var(--ai); }
+  .factrow { display:flex; justify-content:space-between; align-items:baseline; padding:11px 0; border-bottom:1px solid var(--line2); font-size:13.5px; }
+  .factrow .k { color:var(--muted); }
+  .factrow .v { font-family:var(--serif); font-weight:700; font-size:16px; }
+  .factrow .v.up { color:var(--up); }
+  .narr { border-left:2px solid var(--ai); padding:2px 0 2px 18px; }
+  .narr p { font-family:var(--serif); font-size:14.5px; line-height:1.95; color:#33302a; }
+  .cite { font-family:var(--mono); font-size:10.5px; color:var(--ai); }
+  .narrnote { margin-top:12px; font-size:11px; color:var(--ai); letter-spacing:.1em; }
+
+  /* ── Ghostfolio 式密排表 ── */
+  .section { margin-top:30px; }
+  table.tbl { width:100%; border-collapse:collapse; font-size:13px; background:var(--card); border:1px solid var(--line); }
+  .tbl th { text-align:left; font-size:10.5px; letter-spacing:.16em; color:var(--faint); font-weight:600; padding:10px 16px; border-bottom:1px solid var(--ink); background:#fff; }
+  .tbl th.num, .tbl td.num { text-align:right; }
+  .tbl td { padding:11px 16px; border-bottom:1px solid var(--line2); }
+  .tbl tr:last-child td { border-bottom:0; }
+  .tbl .name { font-weight:700; font-family:var(--serif); font-size:14px; }
+  .tbl .name small { font-family:var(--mono); font-size:11px; color:var(--faint); font-weight:400; margin-left:8px; }
+  .tbl td.num { font-family:var(--mono); font-size:12.5px; }
+  .tbl tr.hl td { background:#f4f1e8; }
+  .mono { font-family:var(--mono); font-size:12px; color:var(--muted); }
+  .part { color:var(--warn); font-size:11.5px; }
+  .st { font-size:11px; letter-spacing:.06em; }
+  .st.ok { color:var(--ok); } .st.part { color:var(--warn); }
+
+  .trace { border-top:1px solid var(--ink); }
+  .tstep { display:flex; gap:14px; align-items:baseline; padding:11px 0; border-bottom:1px solid var(--line2); font-size:13.5px; }
+  .tstep .no { font-family:var(--mono); font-size:11px; color:var(--faint); width:26px; }
+  .tstep b { font-weight:700; }
+  .tstep .d { color:var(--muted); font-size:12.5px; }
+  .tstep .t { margin-left:auto; font-family:var(--mono); font-size:11px; color:var(--faint); }
+
+  .footnote { margin-top:34px; font-size:11.5px; color:var(--faint); line-height:1.9; border-top:1px solid var(--line); padding-top:16px; max-width:780px; }
+  .watermark { position:fixed; right:16px; bottom:14px; background:#fff; color:var(--warn);
+    border:1px solid var(--warn); font-size:11px; padding:5px 12px; border-radius:99px; z-index:99; letter-spacing:.06em; }
+</style>
+</head>
+<body>
+<div class="watermark">UI 效果图 D · 方案B × Ghostfolio 排版 · 数据均为示意，非真实快照</div>
+<div class="app">
+  <aside>
+    <div class="logo">FinTrace<span>·CN</span></div>
+    <div class="navgrp"><h5>研究工作台</h5>
+      <div class="navitem active">研究总览</div>
+      <div class="navitem">市场与行情</div>
+      <div class="navitem">财务表现</div>
+      <div class="navitem">财务分析</div>
+      <div class="navitem">同行估值</div>
+    </div>
+    <div class="navgrp"><h5>AI 研究</h5>
+      <div class="navitem">AI Agent 研究</div>
+      <div class="navitem">Agent 执行轨迹</div>
+    </div>
+    <div class="navgrp"><h5>证据与报告</h5>
+      <div class="navitem">证据与校验</div>
+      <div class="navitem">文档智能</div>
+      <div class="navitem">研究报告</div>
+    </div>
+    <div class="navgrp"><h5>任务中心</h5>
+      <div class="navitem">研究任务</div>
+      <div class="navitem">每日复盘</div>
+      <div class="navitem">评测与消融</div>
+    </div>
+    <div class="navgrp"><h5>演示与设置</h5>
+      <div class="navitem">案例演示</div>
+      <div class="navitem">结论护照 …</div>
+    </div>
+  </aside>
+
+  <main>
+    <div class="topbar">
+      <div class="crumb">研究工作台 / <b>研究总览</b></div>
+      <div class="spacer"></div>
+      <div class="rangewrap">
+        <span class="rpill active">2026-06-30</span><span class="rpill">2026-03-31</span><span class="rpill">2025-12-31</span>
+      </div>
+      <div class="okdot">● 校验通过 12/12</div>
+      <div class="user">只读 · U-bito210</div>
+    </div>
+
+    <div class="content">
+      <div class="eyebrow">研究总览 — A股研究志</div>
+      <div class="stockhead"><h1>贵州茅台</h1><span class="code">600519.SH</span></div>
+      <div class="meta">
+        <span>快照 2026-06-30</span><span>来源 东方财富 + 新浪财经</span><span>币种 CNY · 单位 元</span><span>期间 2025A / TTM</span><span class="okb">● 校验通过 12/12</span>
+      </div>
+
+      <div class="hero">
+        <div>
+          <div class="lab">收盘价 · RAW <span class="ev">EV-Q-001</span></div>
+          <div class="bignum">1,689<small>.00 元</small></div>
+          <span class="chip up">▲ +1.24% · 涨</span>
+          <div class="herosub">总市值 2.12 万亿 · RAW 价 × 总股本<br>快照时点 2026-06-30 15:00 · 东方财富</div>
+        </div>
+        <div class="chart">
+          <div class="lab">近 30 个交易日 · 收盘价</div>
+          <svg width="100%" height="150" viewBox="0 0 400 150" preserveAspectRatio="none">
+            <line x1="0" y1="30" x2="400" y2="30" stroke="#efe9dc" stroke-width="1"/>
+            <line x1="0" y1="70" x2="400" y2="70" stroke="#efe9dc" stroke-width="1"/>
+            <line x1="0" y1="110" x2="400" y2="110" stroke="#efe9dc" stroke-width="1"/>
+            <path d="M0,112 20,105 40,110 60,96 80,100 100,88 120,92 140,80 160,86 180,74 200,78 220,66 240,72 260,58 280,64 300,50 320,56 340,44 360,50 380,38 400,42 L400,150 0,150 Z"
+              fill="rgba(43,74,139,.06)"/>
+            <path d="M0,112 20,105 40,110 60,96 80,100 100,88 120,92 140,80 160,86 180,74 200,78 220,66 240,72 260,58 280,64 300,50 320,56 340,44 360,50 380,38 400,42"
+              fill="none" stroke="#2b4a8b" stroke-width="1.8"/>
+          </svg>
+        </div>
+        <div class="donutwrap">
+          <div class="lab">同业市值占比 <span class="ev">EV-P-014</span></div>
+          <div class="donut">
+            <svg width="118" height="118" viewBox="0 0 128 128" style="transform:rotate(-90deg)">
+              <g fill="none" stroke-width="15">
+                <circle cx="64" cy="64" r="54" stroke="#2b4a8b" stroke-dasharray="229 339.3" stroke-dashoffset="0"/>
+                <circle cx="64" cy="64" r="54" stroke="#6b4fa8" stroke-dasharray="52.6 339.3" stroke-dashoffset="-229"/>
+                <circle cx="64" cy="64" r="54" stroke="#8a7a5c" stroke-dasharray="23.1 339.3" stroke-dashoffset="-281.6"/>
+                <circle cx="64" cy="64" r="54" stroke="#a49b8a" stroke-dasharray="21.7 339.3" stroke-dashoffset="-304.7"/>
+                <circle cx="64" cy="64" r="54" stroke="#d4cab4" stroke-dasharray="12.9 339.3" stroke-dashoffset="-326.4"/>
+              </g>
+            </svg>
+            <div class="legend">
+              <div class="row"><span class="sw" style="background:#2b4a8b"></span>贵州茅台<span class="pct">67.5%</span></div>
+              <div class="row"><span class="sw" style="background:#6b4fa8"></span>五粮液<span class="pct">15.5%</span></div>
+              <div class="row"><span class="sw" style="background:#8a7a5c"></span>泸州老窖<span class="pct">6.8%</span></div>
+              <div class="row"><span class="sw" style="background:#a49b8a"></span>山西汾酒<span class="pct">6.4%</span></div>
+              <div class="row"><span class="sw" style="background:#d4cab4"></span>洋河股份<span class="pct">3.8%</span></div>
+            </div>
+          </div>
+          <div class="herosub" style="margin-top:12px;">同业合计 3.14 万亿 · 5 家兼容快照<br>古井贡酒已剔除（期间不匹配）</div>
+        </div>
+      </div>
+
+      <div class="tiles">
+        <div class="tile"><div class="lab">PE · TTM <span class="ev">EV-V-011</span></div>
+          <div class="val">24.6<small>×</small></div><div class="sub">同业中位 19.8× · 分位不足</div></div>
+        <div class="tile"><div class="lab">PB · MRQ <span class="ev">EV-V-012</span></div>
+          <div class="val">8.9<small>×</small></div><div class="sub">历史分位缺失 · 已标注</div></div>
+        <div class="tile"><div class="lab">营收变化 · 2025A <span class="ev">EV-F-007</span></div>
+          <div class="val">+15.7<small>%</small></div><div class="sub up">▲ 已披露 · 完整</div></div>
+        <div class="tile"><div class="lab">归母净利润变化 <span class="ev">EV-F-008</span></div>
+          <div class="val">+13.2<small>%</small></div><div class="sub up">▲ 已披露 · 完整</div></div>
+      </div>
+
+      <div class="route">研究路径：选择标的 → 拉取快照 → 校验证据 → 估值计算 → <i>AI 解读（当前）</i> → 生成报告　·　<b>下一步</b>：让 Agent 解读 →</div>
+
+      <div class="grid2">
+        <div>
+          <div class="sechead"><h4>关键研究摘要</h4><span class="tag">事实 · 服务层计算</span></div>
+          <div class="factrow"><span class="k">业绩状态（2025A）</span><span class="v">已披露 · 完整</span></div>
+          <div class="factrow"><span class="k">营收变化</span><span class="v up">+15.7%</span></div>
+          <div class="factrow"><span class="k">归母净利润变化</span><span class="v up">+13.2%</span></div>
+          <div class="factrow"><span class="k">下一次应验证</span><span class="v" style="font-size:13.5px;font-weight:400;font-family:var(--sans);">2026 中报 · 营收与净利是否延续</span></div>
+        </div>
+        <div>
+          <div class="sechead"><h4>AI 研究解读</h4><span class="tag ai">模型叙事 · 需人工复核</span></div>
+          <div class="narr">
+            <p>2025 年报口径下，营收与归母净利延续增长；以 RAW 价格计的 TTM 估值高于同业中位。但历史分位数据缺失 <span class="cite">[EV-V-012]</span>，不能仅凭 PE 判断贵贱。</p>
+            <p style="margin-top:10px;">下一步建议核对 2026 中报的毛利率与一次性损益；若净利增速背离营收，应先查成本结构再下结论……</p>
+          </div>
+          <div class="narrnote">叙事与事实分离呈现 · 不可作为事实引用</div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="sechead"><h4>同行估值摘要</h4><span class="tag">仅兼容本地快照 · RAW 价格</span></div>
+        <table class="tbl">
+          <tr><th>公司</th><th class="num">总市值</th><th class="num">PE · TTM</th><th class="num">PB</th><th class="num">口径</th></tr>
+          <tr class="hl"><td class="name">贵州茅台（本标的）<small>600519.SH</small></td><td class="num">2.12 万亿</td><td class="num">24.6×</td><td class="num">8.9×</td><td class="num">2025A / RAW</td></tr>
+          <tr><td class="name">五粮液<small>000858.SZ</small></td><td class="num">4,860 亿</td><td class="num">17.2×</td><td class="num">4.6×</td><td class="num">2025A / RAW</td></tr>
+          <tr><td class="name">泸州老窖<small>000568.SZ</small></td><td class="num">2,140 亿</td><td class="num">15.9×</td><td class="num">3.9×</td><td class="num">2025A / RAW</td></tr>
+          <tr><td class="name">山西汾酒<small>600809.SH</small></td><td class="num">2,010 亿</td><td class="num">21.4×</td><td class="num">6.1×</td><td class="num">2025A / RAW</td></tr>
+          <tr><td class="name">洋河股份<small>002304.SZ</small></td><td class="num">1,180 亿</td><td class="num">13.8×</td><td class="num">2.8×</td><td class="num">2025A / RAW</td></tr>
+          <tr><td class="name">古井贡酒<small>000596.SZ</small></td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num part">已剔除 · 期间不匹配</td></tr>
+        </table>
+      </div>
+
+      <div class="section">
+        <div class="sechead"><h4>证据台账</h4><span class="tag">EVIDENCE LEDGER · 12 条</span></div>
+        <table class="tbl">
+          <tr><th>证据 ID</th><th>类型</th><th>来源</th><th>期间</th><th>截止</th><th>校验</th></tr>
+          <tr><td class="mono">EV-Q-001</td><td>收盘价 · RAW</td><td>东方财富</td><td>2026-06-30</td><td class="mono">06-30 15:00</td><td class="st ok">● 通过</td></tr>
+          <tr><td class="mono">EV-C-003</td><td>总股本</td><td>新浪财经</td><td>2026Q1</td><td class="mono">06-30 15:00</td><td class="st ok">● 通过</td></tr>
+          <tr><td class="mono">EV-F-007</td><td>营收 · 归母净利</td><td>2025 年报</td><td>2025A</td><td class="mono">04-26</td><td class="st ok">● 通过</td></tr>
+          <tr><td class="mono">EV-V-011</td><td>PE · TTM 计算</td><td>服务层</td><td>TTM</td><td class="mono">06-30</td><td class="st ok">● 通过</td></tr>
+          <tr><td class="mono">EV-V-012</td><td>PB 历史分位</td><td>服务层</td><td>—</td><td class="mono">—</td><td class="st part">◐ 部分缺失</td></tr>
+          <tr><td class="mono">EV-P-014</td><td>同业快照 ×5</td><td>东方财富</td><td>2025A</td><td class="mono">06-30</td><td class="st ok">● 通过</td></tr>
+        </table>
+      </div>
+
+      <div class="section">
+        <div class="sechead"><h4>AI 分析过程</h4><span class="tag">TRACE · 可回放</span></div>
+        <div class="trace">
+          <div class="tstep"><span class="no">01</span><b>工具调用 · 拉取行情快照</b><span class="d">quote.fetch(600519) → RAW</span><span class="t">1.2s</span></div>
+          <div class="tstep"><span class="no">02</span><b>工具调用 · 财报提取</b><span class="d">filings.extract(2025A) → 结构化事实</span><span class="t">3.8s</span></div>
+          <div class="tstep"><span class="no">03</span><b>确定性计算 · 估值</b><span class="d">service.calc PE/PB（非模型生成）</span><span class="t">0.3s</span></div>
+          <div class="tstep"><span class="no">04</span><b>证据校验</b><span class="d">gate: 12/12 通过 · 1 项部分缺失已标注</span><span class="t">0.6s</span></div>
+          <div class="tstep"><span class="no">05</span><b>模型叙事生成</b><span class="d">narrative.draft → 待人工复核</span><span class="t">5.1s</span></div>
+        </div>
+      </div>
+
+      <div class="footnote">
+        本页仅展示固定版本快照，非实时行情，不构成交易或投资建议。所有计算在服务层完成，前端只读展示；
+        证据 ID、来源、期间、截止与校验状态来自后端 Evidence Ledger 与研究门控。
+      </div>
+    </div>
+  </main>
+</div>
+</body>
+</html>

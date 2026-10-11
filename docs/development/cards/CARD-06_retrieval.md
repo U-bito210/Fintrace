@@ -7,7 +7,7 @@
 | 对应赛题 | 竞赛任务链第一环"信息检索"；赛题6 引用素材 |
 | 依赖 | CARD-01（文档 chunk 来源） |
 | 实现复杂度 | 中（约 3–4 人日） |
-| 状态 | 🟡 代码+19 测试就绪（全量离线 **710 passed / 23 failed**，失败集合与 CARD-05 时逐条一致，均为缺失的 Tushare 快照；冒烟 14/14 clean）；向量重排按「降级标注」交付；「全部测试离线通过」待 Tushare 快照重建 |
+| 状态 | ✅ §15 验收项全部达成（2026-10-08 复核离线全绿 1753 passed）；向量重排按「降级标注」交付，§13 recall@k 目标值待真实语料 baseline 后冻结 |
 | Skill 要求 | 动手前加载 fintrace-card-flow |
 
 ## 1. 目标
@@ -133,3 +133,4 @@ CARD-01 文档 → 索引 → 检索 → CARD-10 备忘录引用 → ledger 只�
 | 2026-09-19 | **测试与基线**：新增 `tests/test_cn_retrieval.py` 19 项（BM25 手工算例/确定性/chunk-evidence 分离/三型校验/降级/空·无命中·多页/基准指标/工具集成）。全量离线 `710 passed / 23 failed`——失败集合与 CARD-05 时**逐条一致**（14 workbench_service + 6 workbench_api + 2 report + 1 report_cli），全部来自缺失的 Tushare 快照，**非本卡引入**；passed 净增 19 = 新测试数。冒烟 14/14 clean。 |
 | 2026-09-19 | **已知未闭合**：向量重排按卡设计是「可选增强」，当前无 `src/llms` embedding 接口，故 `mode` 恒为 `bm25`，reranker 失败回退 BM25 并标注——符合「降级而非假装等价」。待 embedding provider 接入后，实现 `rerank.py` 中的真实 `Reranker`（走 `src/llms`）即可升级 hybrid，无需改动 BM25/索引/引用层。 |
 | 2026-09-20 | **跨卡：tushare 快照真实重建**。用户填好 `.env` 的 `TUSHARE_TOKEN` 后，真实重建 9 个 `_tushare_v1` 快照（4 个标的 + 5 个白酒同业）→ 全量离线 **0 failed / 1531 passed / 0 skipped**。§15「全部测试离线通过」由 ☐ 转 ☑ —— 该条此前被 23 项快照缺失阻塞，与本卡代码无关。重建流程及三个坑（同业快照要一起建、bars 窗口不得越过研究时点、688836 上市日）见 `MEMORY.md`「快照重建」段。 |
+| 2026-10-08 | **状态行同步（修文档漂移）**：§15 验收项已全部 ☑，但表头「状态」行仍写「待 Tushare 快照重建」并停在 `710 passed / 23 failed` —— 那是本卡收尾时的游标快照，不是当前状态，与 2026-09-20 的记录矛盾。已改为 ✅，同日复核全量离线 **1753 passed / 0 failed**。另修一处平台差异：Windows 下按 `AGENTS.md` 原命令直跑会得到约 319 项 `PermissionError: pytest-of-<user>` 的 fixture 装配错误（非代码缺陷），已在 `pytest.ini` 固定 `--basetemp=tmp/pytest-tmp`。 |

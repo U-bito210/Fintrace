@@ -408,6 +408,14 @@ def check_corrections() -> Result:
         for code, kind, desc in PLANTED_ERROR_PLAN:
             if kind in not_fired:
                 lines.append(f"        {code} {kind} —— {desc}")
+        # 这一行读起来像漏检，但它通常只是「剧本设计名 ≠ checker 实现名」。
+        # 判据是上面的「逐条对齐」，不是这个 6/8。此处只指路、不改名、不改口径：
+        # 把清单类型名改成实现名来凑分，正是 DEMO_FLOW §2 明文禁止的做法。
+        lines.append(
+            "    ↑ 若「逐条对齐」已是 8/8，本行不代表漏检。设计名与实现名的差异已登记并"
+            "逐条论证，见 DEMO_FLOW.md §2（E2 为何是 numeric_error 而非 unit_error；"
+            "E5 为何是 wrong_page 而非 wrong_citation）。"
+        )
     if extra:
         lines.append(f"    · 剧本清单外还检出了：{extra}（不是错，如实记录）")
 

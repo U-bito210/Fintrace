@@ -116,7 +116,7 @@ def test_all_prices_are_non_negative():
 # ============================================================================
 # 7. 所有 provider 和 api_style 取值合法
 # ============================================================================
-_VALID_PROVIDERS = {"openai", "anthropic", "deepseek", "dashscope"}
+_VALID_PROVIDERS = {"openai", "anthropic", "deepseek", "dashscope", "zhipu"}
 _VALID_API_STYLES = {"openai", "anthropic"}
 
 
@@ -341,7 +341,7 @@ def test_model_info_is_frozen():
 def test_list_models_contains_all_expected():
     """All currently supported models are in the list."""
     models = list_models()
-    expected = {"gpt-4o-mini", "gpt-5.4-mini", "claude-3.5-sonnet", "claude-3.5-haiku", "claude-3-opus", "deepseek-v4-flash", "deepseek-v4-pro", "qwen3-max", "qwen-plus", "qwen-flash"}
+    expected = {"gpt-4o-mini", "gpt-5.4-mini", "claude-3.5-sonnet", "claude-3.5-haiku", "claude-3-opus", "deepseek-v4-flash", "deepseek-v4-pro", "qwen3-max", "qwen-plus", "qwen-flash", "glm-4.7-flash", "glm-5.3"}
     assert set(models) == expected
 
 
@@ -354,6 +354,7 @@ def test_model_info_accessible(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-ds-test")
     monkeypatch.setenv("DASHSCOPE_API_KEY", "sk-qwen-test")
+    monkeypatch.setenv("ZHIPU_API_KEY", "sk-glm-test")
 
     for model_name in MODEL_REGISTRY:
         provider = init_llm(model_name)
@@ -1465,3 +1466,206 @@ def test_logger_states_unknown_cost_instead_of_zero(tmp_path, monkeypatch):
 
     logger.llm_call("qwen-plus", 0.5, 12, currency="CNY")
     assert "¥0.500000" in messages[-1]
+
+
+# ============================================================================
+# Zhipu BigModel / 智谱 — sync client (Mock — zero real API calls)
+# ============================================================================
+
+def test_zhipu_models_are_callable_but_unpriced():
+    """智谱 models: usable, and honestly un-costed (DashScope precedent).
+
+    bigmodel.cn bills in CNY while this ledger's unit is USD, so no price is
+    registered — a converted or "reference" number would be laundered into the
+    cost column as fact.  glm-4.7-flash being a free tier does not change that:
+    the ledger reports "unknown", not 0.
+    """
+    for name in ("glm-4.7-flash", "glm-5.3"):
+        info = get_model_info(name)
+        assert info.provider == "zhipu", name
+        assert info.api_style == "openai", name
+        assert info.api_model_id == name, name
+        assert info.api_key_env == "ZHIPU_API_KEY", name
+        assert info.base_url_env == "ZHIPU_BASE_URL", name
+        assert info.default_base_url == "https://open.bigmodel.cn/api/paas/v4", name
+        assert info.priced is False, name
+        assert cost_currency(name) is None, name
+
+
+def test_zhipu_models_declare_tool_json_and_thinking_support():
+    """Capabilities sourced from docs.bigmodel.cn (checked 2026-09-30)."""
+    for name in ("glm-4.7-flash", "glm-5.3"):
+        info = get_model_info(name)
+        assert info.supports_tools is True, name
+        assert info.supports_json is True, name
+        assert info.supports_thinking is True, name
+
+
+def test_thinking_disable_flag_implies_capability_on_openai_wire():
+    """Only a thinking-capable OpenAI-wire model may declare the disable switch.
+
+    The switch is an OpenAI-wire ``extra_body`` field; a model that cannot
+    think, or that does not ride this wire, has no honest use for the flag.
+    """
+    for name, info in MODEL_REGISTRY.items():
+        if info.accepts_thinking_disable:
+            assert info.supports_thinking, name
+            assert info.api_style == "openai", name
+
+
+def test_deepseek_entries_carry_the_disable_flag():
+    """Generalising the client guard must not silently drop DeepSeek's switch."""
+    for name in ("deepseek-v4-flash", "deepseek-v4-pro"):
+        assert get_model_info(name).accepts_thinking_disable is True, name
+
+
+def test_glm_4_7_flash_disables_thinking_but_glm_5_3_cannot(monkeypatch):
+    """GLM-4.x hybrids accept the disable switch; GLM-5.x refuses it.
+
+    GLM-5.x can only ever think (docs.bigmodel.cn chat-completions API,
+    checked 2026-09-30), so sending ``{"thinking": {"type": "disabled"}}``
+    there is how a working call turns into a 400.  The split must live in
+    the registry data, not in a vendor name check.
+    """
+    monkeypatch.setenv("ZHIPU_API_KEY", "zhipu-mock")
+    monkeypatch.delenv("ZHIPU_BASE_URL", raising=False)
+
+    captured_kwargs = {}
+    create_calls = []
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            create_calls.append(kwargs)
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content="mock"))],
+                usage=SimpleNamespace(prompt_tokens=10, completion_tokens=20, total_tokens=30),
+            )
+
+    class FakeChat:
+        def __init__(self):
+            self.completions = FakeCompletions()
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            captured_kwargs.update(kwargs)
+            self.chat = FakeChat()
+
+    import llms.openai_compatible as oc_module
+    monkeypatch.setattr(oc_module, "OpenAI", FakeOpenAI)
+
+    from llms.openai_compatible import glm_4_7_flash, glm_5_3
+
+    glm_4_7_flash([{"role": "user", "content": "Hello"}])
+    assert create_calls[0]["model"] == "glm-4.7-flash"
+    assert create_calls[0]["extra_body"] == {"thinking": {"type": "disabled"}}
+
+    glm_5_3([{"role": "user", "content": "Hello"}])
+    assert create_calls[1]["model"] == "glm-5.3"
+    # CRITICAL: GLM-5.x cannot honour the switch — the bare call must survive.
+    assert "extra_body" not in create_calls[1]
+    assert "reasoning_effort" not in create_calls[1]
+
+
+def test_glm_client_uses_zhipu_key_and_endpoint(monkeypatch):
+    """The BigModel client is built from ZHIPU_API_KEY and the paas/v4 URL."""
+    monkeypatch.setenv("ZHIPU_API_KEY", "zhipu-key-mock")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai-should-not-be-used")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-deepseek-should-not-be-used")
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "sk-dashscope-should-not-be-used")
+    monkeypatch.delenv("ZHIPU_BASE_URL", raising=False)
+
+    captured_kwargs = {}
+    create_calls = []
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            create_calls.append(kwargs)
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content="mock"))],
+                usage=SimpleNamespace(prompt_tokens=10, completion_tokens=20, total_tokens=30),
+            )
+
+    class FakeChat:
+        def __init__(self):
+            self.completions = FakeCompletions()
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            captured_kwargs.update(kwargs)
+            self.chat = FakeChat()
+
+    import llms.openai_compatible as oc_module
+    monkeypatch.setattr(oc_module, "OpenAI", FakeOpenAI)
+
+    from llms.openai_compatible import glm_4_7_flash
+
+    text, _cost = glm_4_7_flash([{"role": "user", "content": "Hello"}])
+
+    assert text == "mock"
+    assert captured_kwargs["api_key"] == "zhipu-key-mock"
+    assert captured_kwargs["base_url"] == "https://open.bigmodel.cn/api/paas/v4"
+    assert create_calls[0]["model"] == "glm-4.7-flash"
+
+
+def test_glm_client_missing_key_raises(monkeypatch):
+    monkeypatch.delenv("ZHIPU_API_KEY", raising=False)
+    from llms.openai_compatible import glm_5_3
+    with pytest.raises(ValueError, match="ZHIPU_API_KEY"):
+        glm_5_3([{"role": "user", "content": "Test"}])
+
+
+def test_glm_models_are_in_sync_functions():
+    from llms.config import _SYNC_MODEL_FUNCTIONS
+    for name in ("glm-4.7-flash", "glm-5.3"):
+        assert callable(_SYNC_MODEL_FUNCTIONS[name]), name
+
+
+def test_glm_listed_as_available_with_zhipu_key(monkeypatch):
+    for info in MODEL_REGISTRY.values():
+        monkeypatch.delenv(info.api_key_env, raising=False)
+
+    assert list_available_models() == []
+
+    monkeypatch.setenv("ZHIPU_API_KEY", "zhipu-test")
+    available = list_available_models()
+    assert "glm-4.7-flash" in available
+    assert "glm-5.3" in available
+
+
+def test_init_llm_with_zhipu_key(monkeypatch):
+    monkeypatch.setenv("ZHIPU_API_KEY", "zhipu-test-mock")
+    provider = init_llm("glm-4.7-flash")
+    assert provider.current_model == "glm-4.7-flash"
+    assert provider.model_info.provider == "zhipu"
+    assert provider.model_info.api_style == "openai"
+    assert callable(provider.current_llm)
+
+
+@pytest.mark.asyncio
+async def test_async_glm_4_7_flash_disables_thinking_while_glm_5_3_rides_bare(monkeypatch):
+    """The async path must keep the same per-model thinking split as sync."""
+    monkeypatch.setenv("ZHIPU_API_KEY", "zhipu-async")
+    monkeypatch.delenv("ZHIPU_BASE_URL", raising=False)
+
+    import openai as openai_module
+    import llms.async_client as ac
+
+    monkeypatch.setattr(ac, "_async_compatible", None, raising=False)
+    monkeypatch.setattr(ac, "_async_compatible_model", None, raising=False)
+
+    captured_client, create_kwargs = {}, {}
+    monkeypatch.setattr(
+        openai_module, "AsyncOpenAI", _fake_async_openai(captured_client, create_kwargs)
+    )
+
+    provider = ac.AsyncLLMProvider("glm-4.7-flash")
+    await provider.call_with_tools([{"role": "user", "content": "hi"}], tools=[])
+
+    assert captured_client["base_url"] == "https://open.bigmodel.cn/api/paas/v4"
+    assert create_kwargs["extra_body"] == {"thinking": {"type": "disabled"}}
+
+    # GLM-5.x cannot disable thinking — the bare call must survive the refactor.
+    create_kwargs.clear()
+    provider = ac.AsyncLLMProvider("glm-5.3")
+    await provider.call_with_tools([{"role": "user", "content": "hi"}], tools=[])
+    assert "extra_body" not in create_kwargs

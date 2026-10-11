@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>效果图 D5 · 方案B × Ghostfolio 排版 — AI Agent 研究</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root {
+    --paper:#faf8f3; --card:#ffffff; --ink:#191610; --muted:#7a7264; --faint:#a49b8a;
+    --line:#e7e0d2; --line2:#efe9dc; --accent:#2b4a8b;
+    --up:#c53a3a; --down:#1f8a5d; --ok:#1f8a5d; --warn:#b07818; --ai:#6b4fa8;
+    --serif:Georgia,"Source Han Serif SC","Noto Serif SC","宋体",serif;
+    --sans:"Segoe UI","Microsoft YaHei",-apple-system,"PingFang SC",sans-serif;
+    --mono:"Cascadia Code",Consolas,"SF Mono",monospace;
+  }
+  body { background:var(--paper); color:var(--ink); font-family:var(--sans); font-size:14px; -webkit-font-smoothing:antialiased;
+    font-variant-numeric: tabular-nums; }
+  .app { display:grid; grid-template-columns:230px 1fr; min-height:1400px; }
+
+  aside { border-right:1px solid var(--line); padding:26px 18px; background:#f6f2e9; }
+  .logo { font-family:var(--serif); font-size:19px; font-weight:700; padding:0 8px 22px; }
+  .logo span { color:var(--accent); }
+  .navgrp { margin-top:20px; }
+  .navgrp h5 { font-size:10.5px; color:var(--faint); letter-spacing:.22em; padding:0 10px 8px; font-weight:600; }
+  .navitem { padding:6.5px 10px; font-size:13px; color:var(--muted); border-radius:6px; margin-bottom:1px; }
+  .navitem.active { color:var(--ink); font-weight:700; background:#fff; box-shadow:inset 3px 0 0 var(--accent); }
+
+  main { display:flex; flex-direction:column; }
+  .topbar { height:56px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:14px; padding:0 40px; }
+  .crumb { font-size:12.5px; color:var(--muted); }
+  .crumb b { color:var(--ink); font-weight:700; }
+  .spacer { flex:1; }
+  .rangewrap { display:flex; border:1px solid var(--line); background:#fff; border-radius:99px; padding:2.5px; }
+  .rpill { font-size:11.5px; color:var(--muted); padding:4px 12px; border-radius:99px; }
+  .rpill.active { background:var(--ink); color:var(--paper); font-weight:600; }
+  .okdot { font-size:12.5px; color:var(--ok); font-weight:600; }
+  .user { font-size:12.5px; color:var(--muted); font-family:var(--serif); font-style:italic; }
+
+  .content { padding:32px 44px 90px; max-width:1280px; }
+  .eyebrow { font-size:10.5px; letter-spacing:.28em; color:var(--faint); font-weight:700; margin-bottom:10px; }
+  .stockhead { display:flex; align-items:baseline; gap:14px; }
+  h1 { font-family:var(--serif); font-size:36px; font-weight:700; }
+  .code { font-family:var(--mono); color:var(--muted); font-size:14px; }
+  .meta { display:flex; gap:14px; margin-top:10px; flex-wrap:wrap; font-size:12px; color:var(--muted); }
+  .meta span::before { content:"·"; margin-right:6px; color:var(--faint); }
+  .meta .okb { color:var(--ok); font-weight:600; }
+  .ev { font-family:var(--mono); font-size:10px; color:var(--faint); letter-spacing:0; }
+
+  .route { margin:24px 0 6px; font-size:12.5px; color:var(--faint); }
+  .route b { color:var(--ink); font-weight:700; }
+  .route i { color:var(--accent); font-style:normal; font-weight:600; }
+
+  /* ── 会话双栏 ── */
+  .chatwrap { display:grid; grid-template-columns:1fr 300px; gap:26px; margin-top:20px; align-items:start; }
+
+  .turn { margin-bottom:18px; }
+  .turn.user { display:flex; justify-content:flex-end; }
+  .bubble-user { background:var(--ink); color:var(--paper); border-radius:10px 10px 3px 10px;
+    padding:12px 18px; max-width:72%; font-size:13.5px; line-height:1.8; }
+  .bubble-ai { background:var(--card); border:1px solid var(--line); border-radius:10px 10px 10px 3px;
+    padding:16px 20px 14px; max-width:92%; }
+  .aibanner { display:inline-block; font-size:10.5px; font-weight:700; letter-spacing:.08em; color:var(--ai);
+    background:rgba(107,79,168,.08); border-radius:99px; padding:3px 11px; margin-bottom:10px; }
+  .bubble-ai p { font-family:var(--serif); font-size:14px; line-height:1.95; color:#33302a; }
+  .bubble-ai p + p { margin-top:9px; }
+  .cite { font-family:var(--mono); font-size:10.5px; color:var(--ai); }
+
+  .tools { display:flex; flex-wrap:wrap; gap:7px; margin:11px 0 12px; }
+  .toolchip { font-family:var(--mono); font-size:10.5px; color:var(--muted); border:1px solid var(--line);
+    background:#faf8f3; border-radius:99px; padding:3.5px 11px; }
+  .toolchip b { color:var(--ok); font-weight:700; }
+  .toolchip.calc { border-style:dashed; color:var(--accent); }
+
+  table.mini { width:100%; border-collapse:collapse; font-size:12px; margin:12px 0 4px; border:1px solid var(--line); }
+  .mini th { text-align:left; font-size:10px; letter-spacing:.12em; color:var(--faint); font-weight:600; padding:7px 12px; border-bottom:1px solid var(--ink); }
+  .mini th.num, .mini td.num { text-align:right; font-family:var(--mono); }
+  .mini td { padding:7px 12px; border-bottom:1px solid var(--line2); }
+  .mini tr:last-child td { border-bottom:0; }
+  .mini tr.hl td { background:#f4f1e8; }
+
+  .limit { margin-top:11px; font-size:11.5px; color:var(--warn); line-height:1.75; border-top:1px dashed var(--line); padding-top:9px; }
+
+  .inputbar { display:flex; align-items:center; gap:10px; background:#fff; border:1px solid var(--line);
+    border-radius:99px; padding:7px 8px 7px 20px; margin-top:26px; }
+  .inputbar .ph { flex:1; font-size:13px; color:var(--faint); }
+  .send { background:var(--ink); color:var(--paper); font-size:12.5px; font-weight:600; border-radius:99px; padding:8px 22px; }
+  .inputnote { text-align:center; font-size:10.5px; color:var(--faint); margin-top:10px; letter-spacing:.06em; }
+
+  /* ── 右侧任务栏 ── */
+  .sidecard { background:var(--card); border:1px solid var(--line); border-radius:4px; padding:16px 18px; margin-bottom:12px; }
+  .sidecard h5 { font-size:10.5px; letter-spacing:.2em; color:var(--faint); font-weight:600; margin-bottom:4px; }
+  .srow { display:flex; justify-content:space-between; align-items:baseline; padding:7.5px 0; border-bottom:1px solid var(--line2); font-size:12.5px; }
+  .srow:last-child { border-bottom:0; }
+  .srow .k { color:var(--muted); }
+  .srow .v { font-weight:600; font-size:12.5px; }
+  .srow .v.mono { font-family:var(--mono); font-size:11.5px; }
+  .badge { display:inline-block; font-size:10.5px; font-weight:700; padding:2px 9px; border-radius:99px; letter-spacing:.04em; }
+  .badge.ok { color:var(--ok); background:rgba(31,138,93,.08); }
+  .badge.ai { color:var(--ai); background:rgba(107,79,168,.08); }
+  .citecol { font-family:var(--mono); font-size:11px; color:var(--accent); line-height:2.1; }
+  .sidenote { font-size:11px; color:var(--faint); line-height:1.8; margin-top:8px; }
+
+  .footnote { margin-top:34px; font-size:11.5px; color:var(--faint); line-height:1.9; border-top:1px solid var(--line); padding-top:16px; max-width:780px; }
+  .watermark { position:fixed; right:16px; bottom:14px; background:#fff; color:var(--warn);
+    border:1px solid var(--warn); font-size:11px; padding:5px 12px; border-radius:99px; z-index:99; letter-spacing:.06em; }
+</style>
+</head>
+<body>
+<div class="watermark">UI 效果图 D5 · 方案B × Ghostfolio 排版 · 数据均为示意，非真实快照</div>
+<div class="app">
+  <aside>
+    <div class="logo">FinTrace<span>·CN</span></div>
+    <div class="navgrp"><h5>研究工作台</h5>
+      <div class="navitem">研究总览</div>
+      <div class="navitem">市场与行情</div>
+      <div class="navitem">财务表现</div>
+      <div class="navitem">财务分析</div>
+      <div class="navitem">同行估值</div>
+    </div>
+    <div class="navgrp"><h5>AI 研究</h5>
+      <div class="navitem active">AI Agent 研究</div>
+      <div class="navitem">Agent 执行轨迹</div>
+    </div>
+    <div class="navgrp"><h5>证据与报告</h5>
+      <div class="navitem">证据与校验</div>
+      <div class="navitem">文档智能</div>
+      <div class="navitem">研究报告</div>
+    </div>
+    <div class="navgrp"><h5>任务中心</h5>
+      <div class="navitem">研究任务</div>
+      <div class="navitem">每日复盘</div>
+      <div class="navitem">评测与消融</div>
+    </div>
+    <div class="navgrp"><h5>演示与设置</h5>
+      <div class="navitem">案例演示</div>
+      <div class="navitem">结论护照 …</div>
+    </div>
+  </aside>
+
+  <main>
+    <div class="topbar">
+      <div class="crumb">AI 研究 / <b>AI Agent 研究</b></div>
+      <div class="spacer"></div>
+      <div class="rangewrap">
+        <span class="rpill active">2026-06-30</span><span class="rpill">2026-03-31</span><span class="rpill">2025-12-31</span>
+      </div>
+      <div class="okdot">● 校验通过 12/12</div>
+      <div class="user">只读 · U-bito210</div>
+    </div>
+
+    <div class="content">
+      <div class="eyebrow">AI Agent 研究 — 会话式解读</div>
+      <div class="stockhead"><h1>AI Agent 研究</h1><span class="code">task · agent-20260630-011</span></div>
+      <div class="meta">
+        <span>快照 2026-06-30（只读）</span><span>回答一律引用证据 ID</span><span class="okb">● 研究门控 12/12</span><span style="color:var(--ai);">◆ 模型输出需人工复核</span>
+      </div>
+
+      <div class="route">研究路径：选择标的 → 拉取快照 → 校验证据 → 估值计算 → <i>AI 解读（当前）</i> → 生成报告　·　<b>下一步</b>：生成研究报告 →</div>
+
+      <div class="chatwrap">
+        <div>
+          <div class="turn user">
+            <div class="bubble-user">茅台当前贵不贵？结合同业估值和最新年报帮我看一下。</div>
+          </div>
+
+          <div class="turn">
+            <div class="bubble-ai">
+              <span class="aibanner">◆ 以下为模型生成内容 · 已引用证据 · 需人工复核</span>
+              <div class="tools">
+                <span class="toolchip"><b>✓</b> quote.fetch(600519) · 1.2s</span>
+                <span class="toolchip"><b>✓</b> filings.extract(2025A) · 3.8s</span>
+                <span class="toolchip"><b>✓</b> peers.fetch(白酒×6) · 0.8s</span>
+                <span class="toolchip calc">ƒ valuation.calc · 服务层 · 0.3s</span>
+              </div>
+              <p>按 2026-06-30 快照，贵州茅台 RAW 收盘价 1,689.00 元 <span class="cite">[EV-Q-001]</span>，对应 PE·TTM 24.6×、PB 8.9×（服务层计算）<span class="cite">[EV-V-011]</span>，高于同业中位 17.2×。2025 年报营收 +15.7%、归母净利 +13.2% <span class="cite">[EV-F-007/008]</span>，增速与估值溢价方向一致。</p>
+              <table class="mini">
+                <tr><th>公司</th><th class="num">PE·TTM</th><th class="num">PB</th><th class="num">营收增速</th></tr>
+                <tr class="hl"><td>贵州茅台（本标的）</td><td class="num">24.6×</td><td class="num">8.9×</td><td class="num">+15.7%</td></tr>
+                <tr><td>山西汾酒</td><td class="num">21.4×</td><td class="num">6.1×</td><td class="num">+12.4%</td></tr>
+                <tr><td>五粮液</td><td class="num">17.2×</td><td class="num">4.6×</td><td class="num">+9.6%</td></tr>
+                <tr><td>洋河股份</td><td class="num">13.8×</td><td class="num">2.8×</td><td class="num">+4.1%</td></tr>
+              </table>
+              <p>同业口径为 2025A · RAW 价格，古井贡酒因期间不匹配已剔除 <span class="cite">[EV-P-014]</span>。若以增速消化估值看，茅台估值溢价有基本面支撑，但幅度是否合理取决于对增长持续性的判断。</p>
+              <div class="limit">⚠ 局限：PB 历史分位缺失 <span class="cite" style="color:var(--warn)">[EV-V-012]</span>，「处于历史低位/高位」类结论不可用；本回答不构成投资建议。</div>
+            </div>
+          </div>
+
+          <div class="turn user">
+            <div class="bubble-user">如果只看现金流，盈利质量怎么样？</div>
+          </div>
+
+          <div class="turn">
+            <div class="bubble-ai">
+              <span class="aibanner">◆ 以下为模型生成内容 · 已引用证据 · 需人工复核</span>
+              <div class="tools">
+                <span class="toolchip"><b>✓</b> filings.extract(2025A · 现金流) · 1.9s</span>
+                <span class="toolchip calc">ƒ quality.calc · 服务层 · 0.2s</span>
+              </div>
+              <p>2025A 经营现金流净额 1,012.4 亿，高于归母净利润 976.1 亿 <span class="cite">[EV-F-008/010]</span>，净现比 &gt; 1，盈利有真实现金流支撑；毛利率 91.8% <span class="cite">[EV-F-009]</span>，成本端未见异常波动。</p>
+              <div class="limit">⚠ 局限：2026Q1 现金流量表部分科目未披露，季度维度的盈利质量暂不可下结论。</div>
+            </div>
+          </div>
+
+          <div class="inputbar">
+            <span class="ph">继续追问，或输入新标的（回答将引用证据 ID…）</span>
+            <span class="send">发送 ↵</span>
+          </div>
+          <div class="inputnote">回答基于固定版本快照 · 模型叙事与事实分离 · 不构成投资建议</div>
+        </div>
+
+        <div>
+          <div class="sidecard">
+            <h5>任务状态</h5>
+            <div class="srow"><span class="k">任务 ID</span><span class="v mono">agent-20260630-011</span></div>
+            <div class="srow"><span class="k">状态</span><span class="v"><span class="badge ok">● 已完成</span></span></div>
+            <div class="srow"><span class="k">快照</span><span class="v">2026-06-30 · 只读</span></div>
+            <div class="srow"><span class="k">累计耗时</span><span class="v mono">38.4s</span></div>
+            <div class="srow"><span class="k">轮次</span><span class="v">2 问 2 答</span></div>
+          </div>
+          <div class="sidecard">
+            <h5>模型与用量</h5>
+            <div class="srow"><span class="k">模型</span><span class="v mono">glm-4.7 · 示意</span></div>
+            <div class="srow"><span class="k">输入 tokens</span><span class="v mono">6,214</span></div>
+            <div class="srow"><span class="k">输出 tokens</span><span class="v mono">1,382</span></div>
+            <div class="srow"><span class="k">工具调用</span><span class="v mono">5 次 · 全部成功</span></div>
+            <div class="srow"><span class="k">确定性计算</span><span class="v mono">3 次 · 服务层</span></div>
+          </div>
+          <div class="sidecard">
+            <h5>证据引用</h5>
+            <div class="citecol">EV-Q-001 · 收盘价 RAW<br>EV-F-007 · 营收<br>EV-F-008 · 归母净利<br>EV-F-009 · 毛利率<br>EV-F-010 · 经营现金流<br>EV-V-011 · PE/PB 计算<br>EV-P-014 · 同业快照 ×5</div>
+            <div class="sidenote">7 / 12 条证据被本次会话引用；点击 ID 可跳转「证据与校验」查看原文。</div>
+          </div>
+          <div class="sidecard">
+            <h5>校验</h5>
+            <div class="srow"><span class="k">研究门控</span><span class="v"><span class="badge ok">● 12/12 通过</span></span></div>
+            <div class="srow"><span class="k">叙事隔离</span><span class="v"><span class="badge ai">◆ 模型输出已隔离</span></span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="footnote">
+        会话回答由真实模型生成，基于固定版本快照与工具返回的事实；模型叙事与确定性计算分离呈现，
+        引用的证据 ID 可逐条回查。历史会话按任务归档于「研究任务」。
+      </div>
+    </div>
+  </main>
+</div>
+</body>
+</html>

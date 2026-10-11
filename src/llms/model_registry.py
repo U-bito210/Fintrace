@@ -8,10 +8,10 @@ Design rules
 * **Frozen dataclass.**  ``ModelInfo`` is immutable — all pricing, provider, and
   protocol metadata is set at registration time and never mutated at runtime.
 * **provider ≠ api_style.**  ``provider`` identifies the vendor (openai, anthropic,
-  deepseek, dashscope, …); ``api_style`` tells the Agent which *message format* to
+  deepseek, dashscope, zhipu, …); ``api_style`` tells the Agent which *message format* to
   use ("openai" or "anthropic").  DeepSeek uses ``provider="deepseek"`` with
   ``api_style="openai"`` because it speaks the OpenAI wire protocol; Alibaba's
-  百炼/DashScope works the same way.
+  百炼/DashScope and Zhipu's BigModel work the same way.
 * **api_model_id** is the concrete model string sent to the API.  For OpenAI this
   is usually the same as ``name``; for Anthropic it is the dated snapshot
   (e.g. ``"claude-3-5-sonnet-20241022"``).
@@ -81,6 +81,17 @@ class ModelInfo:
 
     supports_thinking: bool = False
     """Whether the model can emit a reasoning / thinking block."""
+
+    accepts_thinking_disable: bool = False
+    """Whether the vendor accepts ``extra_body={"thinking": {"type": "disabled"}}``.
+
+    DeepSeek (v4) and Zhipu's GLM-4.x hybrid models speak this exact shape and
+    honour the switch; GLM-5.x refuses it — its docs state thinking can only
+    be *enabled* (intensity via ``reasoning_effort``).  Sending a disable
+    switch to a vendor that does not know the field — or to a model that
+    cannot honour it — is how a working call turns into a 400, so the flag is
+    per-model data here, not a client-side vendor check.  v1 always disables
+    thinking where the flag allows it."""
 
     # -- Pricing (per 1M tokens, quoted in ``price_currency``) ------------------
     prompt_price_per_1m_usd: float = 0.0
@@ -210,6 +221,7 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
         supports_tools=True,
         supports_json=True,
         supports_thinking=True,
+        accepts_thinking_disable=True,
         prompt_price_per_1m_usd=0.14,
         completion_price_per_1m_usd=0.28,
         cache_hit_price_per_1m_usd=0.0028,
@@ -226,6 +238,7 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
         supports_tools=True,
         supports_json=True,
         supports_thinking=True,
+        accepts_thinking_disable=True,
         prompt_price_per_1m_usd=0.435,
         completion_price_per_1m_usd=0.87,
         cache_hit_price_per_1m_usd=0.003625,
@@ -278,6 +291,47 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
         supports_tools=True,
         supports_json=True,
         supports_thinking=True,
+        price_currency=None,
+    ),
+    # -- Zhipu AI (智谱 BigModel, OpenAI-compatible) -----------------------------
+    # Registered as UNPRICED following the DashScope precedent: bigmodel.cn
+    # bills in CNY while this ledger's unit is USD, so a price here would need
+    # an exchange rate we would have to invent (see the Qwen entries above).
+    # glm-4.7-flash is the free tier (charge-free per bigmodel.cn, checked
+    # 2026-09-30) — the ledger still reports its cost as unknown rather than
+    # 0: a free tier is a billing fact, not a priced entry.  Model IDs and
+    # capabilities sourced from docs.bigmodel.cn (model overview, chat
+    # completions API, OpenAI-compatibility guide) on 2026-09-30: both models
+    # support tools and response_format json_object; GLM-4.x hybrids accept
+    # {"thinking": {"type": "disabled"}} (default enabled), while GLM-5.x can
+    # only ever think — no disable switch exists, so accepts_thinking_disable
+    # stays False and the client sends the bare call.
+    "glm-4.7-flash": ModelInfo(
+        name="glm-4.7-flash",
+        provider="zhipu",
+        api_style="openai",
+        api_model_id="glm-4.7-flash",
+        api_key_env="ZHIPU_API_KEY",
+        base_url_env="ZHIPU_BASE_URL",
+        default_base_url="https://open.bigmodel.cn/api/paas/v4",
+        supports_tools=True,
+        supports_json=True,
+        supports_thinking=True,
+        accepts_thinking_disable=True,
+        price_currency=None,
+    ),
+    "glm-5.3": ModelInfo(
+        name="glm-5.3",
+        provider="zhipu",
+        api_style="openai",
+        api_model_id="glm-5.3",
+        api_key_env="ZHIPU_API_KEY",
+        base_url_env="ZHIPU_BASE_URL",
+        default_base_url="https://open.bigmodel.cn/api/paas/v4",
+        supports_tools=True,
+        supports_json=True,
+        supports_thinking=True,
+        accepts_thinking_disable=False,
         price_currency=None,
     ),
 }

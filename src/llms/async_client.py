@@ -30,8 +30,11 @@ Design guarantees
   ``_MODEL_TO_ANTHROPIC_ID`` and ``_OPENAI_MODELS`` have been removed.
 * **DeepSeek has an independent async client.** ``AsyncOpenAI`` with
   ``DEEPSEEK_API_KEY`` and ``DEEPSEEK_BASE_URL`` (default ``https://api.deepseek.com``).
-  Every DeepSeek request sends ``extra_body={"thinking": {"type": "disabled"}}``.
-  OpenAI and Anthropic paths never receive DeepSeek-specific parameters.
+  Every model whose registry entry sets ``accepts_thinking_disable``
+  (DeepSeek, Zhipu's GLM-4.x hybrids) sends
+  ``extra_body={"thinking": {"type": "disabled"}}``; GLM-5.x cannot disable
+  thinking, so it rides the bare call.  OpenAI and Anthropic paths never
+  receive vendor-specific parameters.
 * **Illegal tool arguments are NOT silently discarded.**  When JSON parsing of
   tool-call arguments fails, a ``ToolCall`` with ``parse_error`` is returned so
   the agent can report the error back to the model as a tool_result.
@@ -241,10 +244,11 @@ async def _call_compatible_async(
 ) -> Tuple[str, float]:
     """One plain-text turn against any OpenAI-wire vendor except OpenAI.
 
-    DeepSeek gets its thinking/reasoning block explicitly disabled via
-    ``extra_body``; every other vendor (DashScope/百炼 included) receives the
-    bare chat-completions call, because a vendor-specific field sent to a vendor
-    that does not know it is how a working call becomes a 400.
+    Models whose registry entry sets ``accepts_thinking_disable`` get their
+    thinking/reasoning block explicitly disabled via ``extra_body``; every
+    other model (DashScope/百炼 included) receives the bare chat-completions
+    call, because a vendor-specific field sent to a vendor that does not know
+    it is how a working call becomes a 400.
     """
     info = get_model_info(model_name)
     client = _get_async_compatible(model_name)
@@ -253,7 +257,7 @@ async def _call_compatible_async(
         "messages": messages,
         "temperature": temperature,
     }
-    if info.provider == "deepseek":
+    if info.accepts_thinking_disable:
         kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
     response = await client.chat.completions.create(**kwargs)
     cost = calculate_cost_openai(response, model_name)
@@ -437,8 +441,8 @@ async def _call_compatible_tools(model_name, messages, tools, temperature, tool_
     """One tool-calling turn against any OpenAI-wire vendor except OpenAI.
 
     Same client/key/base-URL resolution as ``_call_compatible_async``: registry
-    metadata, never OpenAI's client.  Only DeepSeek receives the vendor-specific
-    ``extra_body``.
+    metadata, never OpenAI's client.  Only models whose registry entry sets
+    ``accepts_thinking_disable`` receive the vendor-specific ``extra_body``.
 
     Same illegal-argument handling as ``_call_openai_tools``: parse failures
     become ``ToolCall.parse_error``, never silently ``{}``.
@@ -451,7 +455,7 @@ async def _call_compatible_tools(model_name, messages, tools, temperature, tool_
         "messages": messages,
         "temperature": temperature,
     }
-    if info.provider == "deepseek":
+    if info.accepts_thinking_disable:
         kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
     if tools:
         kwargs["tools"] = tools
@@ -512,7 +516,7 @@ class AsyncLLMProvider:
     **Provider routing** (from registry, not name prefix):
     * ``provider="openai"`` → ``_get_async_openai()`` / ``_call_openai_*``
     * ``provider="anthropic"`` → ``_get_async_anthropic()`` / ``_call_anthropic_*``
-    * any other OpenAI-wire vendor (``deepseek``, ``dashscope``, …) →
+    * any other OpenAI-wire vendor (``deepseek``, ``dashscope``, ``zhipu``, …) →
       ``_get_async_compatible()`` / ``_call_compatible_*``, each with its own
       client, API key and base URL
 

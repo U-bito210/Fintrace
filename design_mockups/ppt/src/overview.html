@@ -1,0 +1,214 @@
+<!doctype html><html lang="zh"><head><meta charset="utf-8"><style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{width:1440px;height:810px;overflow:hidden;background:#FAF8F3;color:#191610;
+  font-family:'Segoe UI','Microsoft YaHei','PingFang SC',sans-serif;display:flex;font-size:12px}
+.serif{font-family:Georgia,'Source Han Serif SC','SimSun',serif}
+.mono{font-family:Consolas,'SFMono-Regular',Menlo,monospace}
+.num{font-variant-numeric:tabular-nums}
+/* ---------- 侧栏 ---------- */
+.sidebar{width:318px;flex:none;background:#F6F2E9;border-right:1px solid #E7E0D2;
+  padding:24px 20px 16px;display:flex;flex-direction:column;overflow:hidden}
+.wordmark{font-family:Georgia,'SimSun',serif;font-size:16px;font-weight:700;letter-spacing:.06em}
+.wordmark .dia{color:#2B4A8B;font-size:12px;vertical-align:2px}
+.sub{font-size:8.5px;letter-spacing:.14em;color:#A49B8A;margin:5px 0 16px}
+.snapcard{background:#fff;border:1px solid #E7E0D2;border-radius:10px;padding:13px 13px 11px;margin-bottom:14px}
+.snapcard .ct{font-size:10.5px;color:#7A7264;margin-bottom:9px}
+.flab{font-size:9px;letter-spacing:.05em;color:#A49B8A;margin-bottom:4px}
+.fsel{background:#fff;border:1px solid #E7E0D2;border-radius:8px;padding:6px 9px;font-size:11.5px;
+  display:flex;justify-content:space-between;align-items:center;font-weight:600}
+.fsel .car{color:#A49B8A;font-size:9px}
+.fcap{font-size:9.5px;color:#A49B8A;line-height:1.5;margin:7px 0 9px}
+.sbtn{display:flex;align-items:center;justify-content:center;gap:5px;border:1px solid #E7E0D2;
+  background:#fff;border-radius:999px;padding:5.5px 0;font-size:10.5px;color:#191610;margin-top:6px}
+.sbtn.dark{background:#191610;color:#FAF8F3;border-color:#191610}
+.navgrp{font-size:8.5px;letter-spacing:.13em;color:#A49B8A;margin:10px 2px 4px}
+.navi{font-size:11.5px;color:#5C5546;padding:4.5px 9px;border-radius:8px;margin:1px 0}
+.navi.on{background:#fff;color:#191610;font-weight:600;border-left:2px solid #2B4A8B;border-radius:4px 8px 8px 4px}
+.navi.dim{color:#A49B8A}
+/* ---------- 主区 ---------- */
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.topbar{height:50px;flex:none;display:flex;align-items:center;justify-content:flex-end;gap:13px;padding:0 22px}
+.chip{background:#fff;border:1px solid #E7E0D2;border-radius:999px;padding:5px 13px;font-size:11px;font-weight:600}
+.chip .dot{color:#1F8A5D;font-size:8px;vertical-align:1px;margin-right:4px}
+.deploy{font-size:11px;color:#5C5546}
+.dots{color:#A49B8A;font-size:13px;letter-spacing:1px}
+.content{flex:1;padding:2px 26px 0;overflow:hidden}
+.crumb{display:flex;justify-content:space-between;align-items:center;font-size:10.5px;color:#A49B8A;margin-bottom:7px}
+.crumb .r{display:flex;gap:7px;align-items:center}
+.minichip{border:1px solid #E7E0D2;background:#fff;border-radius:999px;padding:2.5px 9px;font-size:9.5px;color:#5C5546}
+.minichip.ok{color:#1F8A5D;border-color:#CFE3D6;background:#F3F8F4}
+.eyebrow{font-size:9.5px;letter-spacing:.16em;color:#A49B8A;text-transform:uppercase;margin:3px 0 5px}
+.ptitlerow{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:1px solid #E7E0D2;padding-bottom:9px}
+h1.pt{font-family:Georgia,'SimSun',serif;font-size:25px;font-weight:600;letter-spacing:.01em}
+.ptag{font-size:10px;color:#A49B8A}
+.sechead{display:flex;justify-content:space-between;align-items:baseline;margin:13px 0 7px}
+.sechead .t{font-size:12.5px;font-weight:700}
+.sechead .s{font-size:9.5px;color:#A49B8A;letter-spacing:.04em}
+.badge{display:inline-block;border-radius:999px;padding:2px 9px;font-size:9.5px;font-weight:600}
+.badge.ok{background:#E9F3EC;color:#1F8A5D}
+.badge.warn{background:#F6EEDC;color:#9A6B14}
+.badge.bad{background:#F8E9E7;color:#B5544A}
+.badge.n{background:#F1EDE3;color:#5C5546}
+.badge.v{background:#EDE9F6;color:#6B4FA8}
+.tile{background:#fff;border:1px solid #E7E0D2;border-radius:10px;padding:10px 13px}
+.tile .lb{font-size:9px;letter-spacing:.1em;color:#A49B8A;text-transform:uppercase;display:flex;justify-content:space-between}
+.tile .lb .eid{font-family:Consolas,monospace;font-size:8.5px;letter-spacing:0;color:#B9B09E}
+.tile .v{font-family:Georgia,'SimSun',serif;font-size:27px;font-weight:600;margin:4px 0 2px}
+.tile .v small{font-size:13px;font-weight:400;color:#7A7264}
+.tile .sub2{font-size:9.5px;color:#7A7264}
+.up{color:#C53A3A}.dn{color:#1F8A5D}.mut{color:#7A7264}.blu{color:#2B4A8B}
+.route{display:flex;align-items:center;gap:0;font-size:10.5px;color:#A49B8A;flex-wrap:nowrap}
+.route .st{white-space:nowrap}
+.route .st.cur{color:#2B4A8B;font-weight:700;border-bottom:2px solid #2B4A8B;padding-bottom:1px}
+.route .st.done{color:#191610}
+.route .ar{margin:0 7px;color:#D8D0BF;font-size:9px}
+.wcard{background:#fff;border:1px solid #E7E0D2;border-radius:10px;padding:12px 15px}
+table.tb{width:100%;border-collapse:collapse;font-size:11px}
+table.tb th{font-size:9px;letter-spacing:.09em;color:#A49B8A;text-transform:uppercase;font-weight:600;
+  text-align:left;padding:5px 9px;border-bottom:1px solid #191610}
+table.tb td{padding:6.5px 9px;border-bottom:1px solid #EFE9DC;font-variant-numeric:tabular-nums}
+table.tb tr.hl td{background:#F6F1E4}
+table.tb .r{text-align:right}table.tb th.r{text-align:right}
+.narr{border-left:3px solid #6B4FA8;background:#fff;border-top:1px solid #E7E0D2;border-right:1px solid #E7E0D2;
+  border-bottom:1px solid #E7E0D2;border-radius:0 10px 10px 0;padding:11px 14px;font-size:11.5px;line-height:1.75}
+.narr .nt{display:flex;justify-content:space-between;font-size:9px;color:#A49B8A;letter-spacing:.08em;margin-bottom:5px}
+.narr .cite{font-family:Consolas,monospace;font-size:9.5px;color:#2B4A8B;background:#EFF2FA;border-radius:4px;padding:0 4px}
+.pagenote{font-size:9.5px;color:#A49B8A;line-height:1.6}
+.kv{display:flex;gap:22px;font-size:10.5px;color:#5C5546;margin-top:8px}
+.kv b{color:#191610;font-weight:600}
+.btn-dark{background:#191610;color:#FAF8F3;border-radius:999px;padding:7px 16px;font-size:11.5px;font-weight:600;display:inline-block}
+.chatme{display:flex;justify-content:flex-end;margin:2px 0 10px}
+.chatme .b{background:#EFF2FA;border:1px solid #DCE3F2;border-radius:12px 12px 2px 12px;padding:9px 13px;
+  font-size:12px;max-width:430px;line-height:1.6}
+.tstep{display:flex;align-items:center;gap:9px;padding:5.5px 2px;border-bottom:1px solid #EFE9DC;font-size:11px}
+.tstep .no{font-family:Consolas,monospace;font-size:9px;color:#A49B8A;width:16px}
+.tstep .kind{font-weight:700;font-size:10.5px}
+.tstep .det{color:#7A7264;font-size:10.5px}
+.tstep .ms{margin-left:auto;font-family:Consolas,monospace;font-size:9.5px;color:#A49B8A}
+.node{border:1px solid #E7E0D2;background:#fff;border-radius:8px;padding:5px 9px;font-size:9.5px;text-align:center}
+.node .eid{font-family:Consolas,monospace;font-size:8px;color:#2B4A8B;display:block}
+</style></head>
+<body>
+<aside class="sidebar">
+  <div class="wordmark"><span class="dia">◆</span> FINTRACE / CN</div>
+  <div class="sub">A-SHARE RESEARCH OS · LOCAL SNAPSHOTS</div>
+  <div class="snapcard">
+    <div class="ct">快照管理</div>
+    <div class="flab">当前研究版本</div>
+    <div class="fsel">贵州茅台 · 600519.SH <span class="car">▼</span></div>
+    <div class="fcap">当前：联网更新版本 · 收盘数据截至 2026-09-28 · 研究截至 2026-09-28</div>
+    <div class="sbtn">↻&nbsp; 切回本地基准</div>
+    <div class="sbtn dark">联网更新&nbsp;▼</div>
+    <div class="sbtn">◎&nbsp; 查看研究总览</div>
+  </div>
+  <div class="navgrp">研究工作台</div>
+<div class="navi on">研究总览</div>
+<div class="navi">市场与行情</div>
+<div class="navi">财务表现</div>
+<div class="navi">财务分析</div>
+<div class="navi">同行估值</div>
+<div class="navgrp">AI 研究</div>
+<div class="navi">AI Agent 研究</div>
+<div class="navi">Agent 执行轨迹</div>
+<div class="navgrp">证据与报告</div>
+<div class="navi">证据与校验</div>
+<div class="navi">文档智能</div>
+<div class="navi">研究报告</div>
+<div class="navgrp">任务中心</div>
+<div class="navi">研究任务</div>
+<div class="navi">每日复盘</div>
+<div class="navi">评测与消融</div>
+<div class="navgrp">演示与设置</div>
+<div class="navi">案例演示</div>
+</aside><div class="main">
+<header class="topbar">
+  <div class="chip"><span class="dot">●</span>本地账号 · demo</div>
+  <div class="deploy">Deploy</div>
+  <div class="dots">⋮</div>
+</header><div class="content">
+
+<div class="crumb"><div>研究工作台 / 研究总览</div>
+<div class="r"><span class="minichip ok num">● 校验通过 12/12</span><span class="minichip num">快照 2026-09-28</span></div></div>
+<div class="eyebrow">研究总览 — A 股研究快照</div>
+<div class="ptitlerow"><h1 class="pt serif">贵州茅台 <span style="font-size:14px;color:#A49B8A" class="mono">600519.SH</span></h1>
+<div style="font-size:10.5px;color:#7A7264">快照 2026-09-28 · 来源 tushare · 币种 CNY · 单位 元 · 期间 2026H1 / TTM · <span class="badge ok">● 校验通过 12/12</span></div></div>
+
+<div class="wcard" style="margin-top:11px;display:flex;gap:22px;align-items:stretch">
+  <div style="width:225px">
+    <div style="font-size:9px;letter-spacing:.1em;color:#A49B8A">收盘价 · RAW &nbsp;<span class="mono" style="color:#B9B09E">EV-Q-0129</span></div>
+    <div class="serif num" style="font-size:44px;font-weight:600;margin:2px 0 1px">1,243<span style="font-size:20px;color:#7A7264">.88 元</span></div>
+    <div class="num up" style="font-size:11px;font-weight:700">▲ +0.56% <span style="font-weight:400;color:#7A7264">当日 · 收盘对比前收</span></div>
+    <div style="font-size:9.5px;color:#7A7264;margin-top:7px;line-height:1.6">总市值 1.56 万亿 · RAW 收盘 × 总股本<br>截至 2026-09-28 15:00 · tushare</div>
+  </div>
+  <div style="flex:1;border-left:1px solid #EFE9DC;padding:4px 0 0 20px">
+    <div style="font-size:9px;letter-spacing:.1em;color:#A49B8A;margin-bottom:6px">近 30 个交易日 · 收盘价（快照内 bars[]）</div>
+    <svg width="470" height="62" viewBox="0 0 470 62">
+      <polyline points="3.0,3.0 18.5,29.1 33.9,26.5 49.4,21.2 64.9,29.9 80.3,39.9 95.8,22.9 111.3,23.3 126.7,23.9 142.2,29.5 157.7,26.8 173.1,25.7 188.6,25.6 204.1,26.7 219.5,26.0 235.0,9.4 250.5,16.9 265.9,20.4 281.4,30.3 296.9,33.3 312.3,38.6 327.8,37.2 343.3,39.9 358.7,47.8 374.2,43.0 389.7,48.3 405.1,50.7 420.6,50.0 436.1,51.4 451.5,59.0 467.0,55.3" fill="none" stroke="#2B4A8B" stroke-width="1.6"/>
+      <line x1="452" y1="4" x2="452" y2="58" stroke="#A49B8A" stroke-dasharray="2 3" stroke-width="1"/>
+    </svg>
+    <div style="font-size:9px;color:#A49B8A;margin-top:4px">…… 09-28（虚线为研究时点）</div>
+  </div>
+  <div style="width:236px;border-left:1px solid #EFE9DC;padding-left:20px">
+    <div style="font-size:9px;letter-spacing:.1em;color:#A49B8A;margin-bottom:8px">研究路径</div>
+    <div class="route" style="flex-direction:column;align-items:flex-start;gap:7px;font-size:11px">
+      <span class="st done">✓ 选择标的 → 拉取快照</span><span class="st done">✓ 校验证据 → 估值计算</span>
+      <span class="st cur">AI 解读（当前）</span><span class="st">生成报告</span>
+    </div>
+  </div>
+</div>
+
+<div style="display:flex;gap:10px;margin-top:10px">
+  <div class="tile" style="flex:1"><div class="lb"><span>PE · TTM</span><span class="eid">EV-V-011</span></div>
+    <div class="v num">19.2<small>x</small></div><div class="sub2">同业 Q3 上方 · 未触发 IQR 剔除</div></div>
+  <div class="tile" style="flex:1"><div class="lb"><span>PB · MRQ</span><span class="eid">EV-V-012</span></div>
+    <div class="v num">6.8<small>x</small></div><div class="sub2">历史分位缺失 · 已标注</div></div>
+  <div class="tile" style="flex:1"><div class="lb"><span>营收变化 · 2026H1</span><span class="eid">EV-F-007</span></div>
+    <div class="v num">+1.5<small>%</small></div><div class="sub2"><span class="up">▲ 已披露 · 完整</span></div></div>
+  <div class="tile" style="flex:1"><div class="lb"><span>归母净利变化 · 2026H1</span><span class="eid">EV-F-008</span></div>
+    <div class="v num">−2.0<small>%</small></div><div class="sub2"><span class="dn">▼ 已披露 · 完整</span></div></div>
+</div>
+
+<div style="display:flex;gap:14px;margin-top:12px">
+  <div style="flex:1.05">
+    <div class="sechead"><div class="t">关键研究摘要</div><div class="s">事实 · 规则可计算</div></div>
+    <div class="wcard" style="padding:4px 15px">
+      <table class="tb">
+        <tr><td style="border-bottom:1px solid #EFE9DC">业绩状态（2026H1）</td><td class="r" style="border-bottom:1px solid #EFE9DC"><b>已披露 · 完整</b></td></tr>
+        <tr><td style="border-bottom:1px solid #EFE9DC">营收变化</td><td class="r up num" style="border-bottom:1px solid #EFE9DC">+1.5%</td></tr>
+        <tr><td style="border-bottom:1px solid #EFE9DC">归母净利变化</td><td class="r dn num" style="border-bottom:1px solid #EFE9DC">−2.0%</td></tr>
+        <tr><td>下一次应验证</td><td class="r">2026 三季报 · 营收与净利是否企稳</td></tr>
+      </table>
+    </div>
+  </div>
+  <div style="flex:1">
+    <div class="sechead"><div class="t">AI 研究解读</div><div class="s">模型叙事 · 需人工复核</div></div>
+    <div class="narr">2026 年中报已出：营收微增、归母净利同比 −2.0%，增长阶段性承压。以 RAW 收盘价计算的 TTM 估值 <span class="cite">EV-V-011</span> 处于同业 Q3 上方，但 PB 历史分位数据缺失 <span class="cite">EV-V-012</span>，不能仅凭 PE 判断贵贱。
+      <div style="margin-top:5px;color:#5C5546">下一步建议核对 2026 三季报的毛利率与一致性提验；若净利增速继续回落，应先完成成本结构再下结论……</div>
+      <div class="nt" style="margin:6px 0 0"><span>叙事与事实分离 · 开启</span><span>不作为事实引用</span></div>
+    </div>
+  </div>
+</div>
+
+<div style="display:flex;gap:14px;margin-top:12px">
+  <div style="flex:1.35">
+<div class="sechead"><div class="t">同行估值摘要</div><div class="s">仅现有本地图谱 · RAW 价格 · 口径 2025A / TTM</div></div>
+<table class="tb"><tr><th>公司</th><th class="r">总市值</th><th class="r">PE · TTM</th><th class="r">PB</th><th class="r">口径</th></tr>
+<tr class="hl"><td><b>贵州茅台（本标的）</b>&nbsp;<span class="mut mono">600519.SH</span></td><td class="r">1.56 万亿</td><td class="r num">19.2x</td><td class="r num">6.8x</td><td class="r">2026H1 / RAW</td></tr>
+<tr><td>五粮液&nbsp;<span class="mut mono">000858.SZ</span></td><td class="r">4,620 亿</td><td class="r num">15.1x</td><td class="r num">3.6x</td><td class="r">2025A / RAW</td></tr>
+<tr><td>山西汾酒&nbsp;<span class="mut mono">600809.SH</span></td><td class="r">2,010 亿</td><td class="r num">18.4x</td><td class="r num">4.6x</td><td class="r">2025A / RAW</td></tr>
+<tr><td>泸州老窖&nbsp;<span class="mut mono">000568.SZ</span></td><td class="r">1,905 亿</td><td class="r num">13.2x</td><td class="r num">2.9x</td><td class="r">2025A / RAW</td></tr>
+<tr><td>洋河股份&nbsp;<span class="mut mono">002304.SZ</span></td><td class="r">1,064 亿</td><td class="r num">16.9x</td><td class="r num">2.0x</td><td class="r">2025A / RAW</td></tr>
+<tr><td class="mut">古井贡酒&nbsp;<span class="mono">000596.SZ</span></td><td class="r mut">—</td><td class="r mut">—</td><td class="r mut">—</td><td class="r"><span class="badge warn">已剔除 · 期间不匹配</span></td></tr>
+</table></div>
+  <div style="flex:1">
+<div class="sechead"><div class="t">证据台账</div><div class="s">EVIDENCE LEDGER · 12 条 · 显示前 5</div></div>
+<table class="tb"><tr><th>证据 ID</th><th>类型</th><th>来源</th><th>期间</th><th>截止</th><th class="r">校验</th></tr>
+<tr><td class="mono blu">EV-Q-0129</td><td>收盘价 · RAW</td><td>tushare</td><td>2026-09-28</td><td>09-28 15:00</td><td class="r"><span class="badge ok">● 通过</span></td></tr>
+<tr><td class="mono blu">EV-F-007</td><td>营收 · 归母净利</td><td>2025 年报 + 2026 中报</td><td>2026H1</td><td>08-15</td><td class="r"><span class="badge ok">● 通过</span></td></tr>
+<tr><td class="mono blu">EV-S-003</td><td>总股本</td><td>公司公告</td><td>2025A</td><td>03-28</td><td class="r"><span class="badge ok">● 通过</span></td></tr>
+<tr><td class="mono blu">EV-V-011</td><td>PE · TTM 计算</td><td>服务层（非模型）</td><td>TTM</td><td>09-28</td><td class="r"><span class="badge ok">● 通过</span></td></tr>
+<tr><td class="mono blu">EV-V-012</td><td>PB 历史分位</td><td>服务层</td><td>—</td><td>—</td><td class="r"><span class="badge warn">◑ 部分缺失</span></td></tr>
+</table></div>
+</div>
+<div class="pagenote" style="margin-top:8px">本页仅展示固定版本快照，非实时行情，不构成投资建议。所有计算与显示结论与状态都来自 Evidence Ledger 与研究校验。</div>
+</div></div></body></html>

@@ -74,6 +74,9 @@ config/secrets.yml
 /runs/
 .streamlit/secrets.toml
 
+# JavaScript dependencies are restored from package-lock.json.
+node_modules/
+
 # 本地源码目录快照（transfer/carry 用的 *.zip）。
 # 没有任何交付物是 zip 形态：Evidence Pack 由 `src/cn/evidence_pack.py` 现场导出到
 # output/（已忽略），不靠仓库里的压缩包。少一条规则就会让 `git add -A` 把几 MB

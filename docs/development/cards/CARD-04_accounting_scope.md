@@ -7,7 +7,7 @@
 | 对应赛题 | 赛题2（会计口径变化识别）/ 赛题5（scope_error） |
 | 依赖 | CARD-01（文档解析）、CARD-02（version 标注） |
 | 实现复杂度 | 中（约 3 人日） |
-| 状态 | 🟡 代码+63 测试就绪；信号检测／三态决策／Validator 三条规则／§14 横幅全部打通；「全部测试离线通过」受 CARD-01 的 Tushare 快照阻塞（见 §16） |
+| 状态 | ✅ §15 验收项全部达成（信号检测／三态决策／Validator 三条规则／§14 横幅全部打通；「全部测试离线通过」的快照阻塞已于 2026-09-20 解除，2026-10-08 复核离线全绿 1753 passed） |
 | Skill 要求 | 动手前加载 financial-data-provenance |
 
 ## 1. 目标
@@ -137,3 +137,4 @@ Scope Accuracy 指标接入 CARD-11（合成集 planted 信号识别率）。
 | 2026-09-17 | **未完成（下一步）**：① §13 的 Scope Accuracy（合成集 planted 信号识别率）未接入 CARD-11 —— 目前由本卡 64 项测试覆盖，但未产出可入库的基准分数；② §8 edge case 1 的**跨文档**关联（更正公告 ↔ 原报告）依赖 CARD-13，本卡只做到"公告自身能出信号且证据可定位"；③ 可比性决策目前只经 Agent 工具与工作台暴露，`api.py` 的 `/api/documents/*` 尚无 analysis 路由（该路由族属 CARD-01 的契约，未在本卡擅自扩面）；④ §9 的种子关键词表未在真实披露语料上拟合，表外措辞不产生信号。 |
 | 2026-09-18 | **补齐两项**：① 财务层基准现包含合成集 scope signal detection accuracy；② 新增 `GET /api/documents/{document_id}/analysis`，复用 `document_service.document_analysis()`，统一返回 CARD-02/03/04 的分析、证据回链和校验状态。跨文档更正公告关联仍留给 CARD-13，真实语料词表拟合仍未完成。 |
 | 2026-09-20 | **跨卡：tushare 快照真实重建**。用户填好 `.env` 的 `TUSHARE_TOKEN` 后，真实重建 9 个 `_tushare_v1` 快照（4 个标的 + 5 个白酒同业）→ 全量离线 **0 failed / 1531 passed / 0 skipped**。§15「全部测试离线通过」由 ☐ 转 ☑ —— 该条此前被 23 项快照缺失阻塞，与本卡代码无关。重建流程及三个坑（同业快照要一起建、bars 窗口不得越过研究时点、688836 上市日）见 `MEMORY.md`「快照重建」段。 |
+| 2026-10-08 | **状态行同步（修文档漂移）**：§15 验收项已全部 ☑，但表头「状态」行仍写「受 CARD-01 的 Tushare 快照阻塞」，与本行 2026-09-20 的记录自相矛盾，已改为 ✅。同日复核全量离线 **1753 passed / 0 failed**。另修一处平台差异：Windows 下按 `AGENTS.md` 原命令直跑会得到约 319 项 `PermissionError: pytest-of-<user>` 的 fixture 装配错误（非代码缺陷），已在 `pytest.ini` 固定 `--basetemp=tmp/pytest-tmp`。 |

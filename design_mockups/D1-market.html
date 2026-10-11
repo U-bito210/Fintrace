@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>效果图 D1 · 方案B × Ghostfolio 排版 — 市场与行情</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root {
+    --paper:#faf8f3; --card:#ffffff; --ink:#191610; --muted:#7a7264; --faint:#a49b8a;
+    --line:#e7e0d2; --line2:#efe9dc; --accent:#2b4a8b;
+    --up:#c53a3a; --down:#1f8a5d; --ok:#1f8a5d; --warn:#b07818; --ai:#6b4fa8;
+    --serif:Georgia,"Source Han Serif SC","Noto Serif SC","宋体",serif;
+    --sans:"Segoe UI","Microsoft YaHei",-apple-system,"PingFang SC",sans-serif;
+    --mono:"Cascadia Code",Consolas,"SF Mono",monospace;
+  }
+  body { background:var(--paper); color:var(--ink); font-family:var(--sans); font-size:14px; -webkit-font-smoothing:antialiased;
+    font-variant-numeric: tabular-nums; }
+  .app { display:grid; grid-template-columns:230px 1fr; min-height:1500px; }
+
+  aside { border-right:1px solid var(--line); padding:26px 18px; background:#f6f2e9; }
+  .logo { font-family:var(--serif); font-size:19px; font-weight:700; padding:0 8px 22px; }
+  .logo span { color:var(--accent); }
+  .navgrp { margin-top:20px; }
+  .navgrp h5 { font-size:10.5px; color:var(--faint); letter-spacing:.22em; padding:0 10px 8px; font-weight:600; }
+  .navitem { padding:6.5px 10px; font-size:13px; color:var(--muted); border-radius:6px; margin-bottom:1px; }
+  .navitem.active { color:var(--ink); font-weight:700; background:#fff; box-shadow:inset 3px 0 0 var(--accent); }
+
+  main { display:flex; flex-direction:column; }
+  .topbar { height:56px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:14px; padding:0 40px; }
+  .crumb { font-size:12.5px; color:var(--muted); }
+  .crumb b { color:var(--ink); font-weight:700; }
+  .spacer { flex:1; }
+  .rangewrap { display:flex; border:1px solid var(--line); background:#fff; border-radius:99px; padding:2.5px; }
+  .rpill { font-size:11.5px; color:var(--muted); padding:4px 12px; border-radius:99px; }
+  .rpill.active { background:var(--ink); color:var(--paper); font-weight:600; }
+  .okdot { font-size:12.5px; color:var(--ok); font-weight:600; }
+  .user { font-size:12.5px; color:var(--muted); font-family:var(--serif); font-style:italic; }
+
+  .content { padding:32px 44px 90px; max-width:1280px; }
+  .eyebrow { font-size:10.5px; letter-spacing:.28em; color:var(--faint); font-weight:700; margin-bottom:10px; }
+  .stockhead { display:flex; align-items:baseline; gap:14px; }
+  h1 { font-family:var(--serif); font-size:36px; font-weight:700; }
+  .code { font-family:var(--mono); color:var(--muted); font-size:14px; }
+  .meta { display:flex; gap:14px; margin-top:10px; flex-wrap:wrap; font-size:12px; color:var(--muted); }
+  .meta span::before { content:"·"; margin-right:6px; color:var(--faint); }
+  .meta .okb { color:var(--ok); font-weight:600; }
+
+  /* ── 复权口径 ── */
+  .adjwrap { display:flex; align-items:center; gap:8px; margin-top:22px; }
+  .adjlab { font-size:10.5px; letter-spacing:.18em; color:var(--faint); font-weight:600; margin-right:6px; }
+  .adjpill { font-size:12px; color:var(--muted); border:1px solid var(--line); background:#fff; padding:4.5px 14px; border-radius:99px; }
+  .adjpill.active { background:var(--ink); border-color:var(--ink); color:var(--paper); font-weight:600; }
+  .adjpill.part { color:var(--warn); border-style:dashed; }
+  .adjnote { font-size:11.5px; color:var(--faint); margin-left:6px; }
+
+  /* ── 行情 Hero ── */
+  .hero { display:grid; grid-template-columns:250px 1fr 205px; gap:28px; align-items:stretch;
+    background:var(--card); border:1px solid var(--line); border-radius:4px; padding:24px 28px; margin-top:14px; }
+  .hero .lab { font-size:10.5px; letter-spacing:.18em; color:var(--faint); font-weight:600; margin-bottom:10px; display:flex; gap:8px; align-items:baseline; }
+  .ev { font-family:var(--mono); font-size:10px; color:var(--faint); letter-spacing:0; }
+  .bignum { font-family:var(--serif); font-size:46px; font-weight:700; letter-spacing:-.01em; line-height:1; }
+  .bignum small { font-size:18px; color:var(--muted); font-weight:400; }
+  .chip { display:inline-block; font-size:12px; font-weight:700; padding:3px 10px; border-radius:99px; margin-top:12px; }
+  .chip.up { color:var(--up); background:rgba(197,58,58,.08); }
+  .herosub { font-size:11.5px; color:var(--muted); margin-top:12px; line-height:1.8; }
+  .ival { padding-top:4px; }
+  .ival .row { display:flex; justify-content:space-between; align-items:baseline; padding:8px 0; border-bottom:1px solid var(--line2); font-size:12.5px; }
+  .ival .row:last-child { border-bottom:0; }
+  .ival .k { color:var(--muted); }
+  .ival .v { font-family:var(--serif); font-weight:700; font-size:14.5px; }
+
+  /* ── 成交额副图 ── */
+  .subcharts { display:grid; grid-template-columns:1fr 340px; gap:12px; margin-top:12px; }
+  .subcard { background:var(--card); border:1px solid var(--line); border-radius:4px; padding:16px 20px 12px; }
+  .subcard .lab { font-size:10.5px; letter-spacing:.16em; color:var(--faint); font-weight:600; margin-bottom:8px; display:flex; justify-content:space-between; }
+
+  /* ── KPI 磁贴 ── */
+  .tiles { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-top:14px; }
+  .tile { background:var(--card); border:1px solid var(--line); border-radius:4px; padding:15px 18px; }
+  .tile .lab { font-size:10.5px; letter-spacing:.16em; color:var(--faint); font-weight:600; margin-bottom:9px; display:flex; justify-content:space-between; }
+  .tile .val { font-family:var(--serif); font-size:24px; font-weight:700; }
+  .tile .val small { font-size:13px; color:var(--muted); font-weight:400; }
+  .tile .sub { font-size:11px; color:var(--muted); margin-top:6px; }
+
+  /* ── 当日盘口 ── */
+  .quotegrid { display:grid; grid-template-columns:repeat(3,1fr); background:var(--card); border:1px solid var(--line); border-radius:4px; overflow:hidden; }
+  .qcell { padding:14px 20px 12px; border-right:1px solid var(--line2); border-bottom:1px solid var(--line2); }
+  .qcell:nth-child(3n) { border-right:0; }
+  .qcell:nth-child(n+7) { border-bottom:0; }
+  .qcell .k { font-size:10.5px; letter-spacing:.16em; color:var(--faint); font-weight:600; }
+  .qcell .v { font-family:var(--serif); font-size:20px; font-weight:700; margin-top:5px; }
+  .qcell .v small { font-size:12px; color:var(--muted); font-weight:400; margin-left:3px; }
+  .qcell .v.up { color:var(--up); }
+
+  /* ── 缺失标注 ── */
+  .warnpanel { margin-top:12px; border:1px dashed var(--warn); background:rgba(176,120,24,.05); border-radius:4px;
+    padding:13px 18px; font-size:12.5px; color:var(--warn); display:flex; gap:10px; align-items:baseline; }
+  .warnpanel b { font-weight:700; }
+  .warnpanel .d { color:var(--muted); }
+
+  .route { margin:24px 0 6px; font-size:12.5px; color:var(--faint); }
+  .route b { color:var(--ink); font-weight:700; }
+  .route i { color:var(--accent); font-style:normal; font-weight:600; }
+
+  .section { margin-top:26px; }
+  .sechead { display:flex; align-items:baseline; gap:10px; border-bottom:1px solid var(--ink); padding-bottom:8px; margin-bottom:4px; }
+  .sechead h4 { font-size:12px; letter-spacing:.2em; font-weight:700; }
+  .sechead .tag { font-size:10.5px; letter-spacing:.12em; color:var(--faint); margin-left:auto; }
+  table.tbl { width:100%; border-collapse:collapse; font-size:13px; background:var(--card); border:1px solid var(--line); }
+  .tbl th { text-align:left; font-size:10.5px; letter-spacing:.16em; color:var(--faint); font-weight:600; padding:10px 16px; border-bottom:1px solid var(--ink); background:#fff; }
+  .tbl th.num, .tbl td.num { text-align:right; }
+  .tbl td { padding:11px 16px; border-bottom:1px solid var(--line2); }
+  .tbl tr:last-child td { border-bottom:0; }
+  .tbl td.num { font-family:var(--mono); font-size:12.5px; }
+  .mono { font-family:var(--mono); font-size:12px; color:var(--muted); }
+  .badge { display:inline-block; font-size:11px; font-weight:700; padding:2.5px 10px; border-radius:99px; letter-spacing:.04em; }
+  .badge.ok { color:var(--ok); background:rgba(31,138,93,.08); }
+  .badge.up { color:var(--up); background:rgba(197,58,58,.08); }
+
+  .footnote { margin-top:34px; font-size:11.5px; color:var(--faint); line-height:1.9; border-top:1px solid var(--line); padding-top:16px; max-width:780px; }
+  .watermark { position:fixed; right:16px; bottom:14px; background:#fff; color:var(--warn);
+    border:1px solid var(--warn); font-size:11px; padding:5px 12px; border-radius:99px; z-index:99; letter-spacing:.06em; }
+</style>
+</head>
+<body>
+<div class="watermark">UI 效果图 D1 · 方案B × Ghostfolio 排版 · 数据均为示意，非真实快照</div>
+<div class="app">
+  <aside>
+    <div class="logo">FinTrace<span>·CN</span></div>
+    <div class="navgrp"><h5>研究工作台</h5>
+      <div class="navitem">研究总览</div>
+      <div class="navitem active">市场与行情</div>
+      <div class="navitem">财务表现</div>
+      <div class="navitem">财务分析</div>
+      <div class="navitem">同行估值</div>
+    </div>
+    <div class="navgrp"><h5>AI 研究</h5>
+      <div class="navitem">AI Agent 研究</div>
+      <div class="navitem">Agent 执行轨迹</div>
+    </div>
+    <div class="navgrp"><h5>证据与报告</h5>
+      <div class="navitem">证据与校验</div>
+      <div class="navitem">文档智能</div>
+      <div class="navitem">研究报告</div>
+    </div>
+    <div class="navgrp"><h5>任务中心</h5>
+      <div class="navitem">研究任务</div>
+      <div class="navitem">每日复盘</div>
+      <div class="navitem">评测与消融</div>
+    </div>
+    <div class="navgrp"><h5>演示与设置</h5>
+      <div class="navitem">案例演示</div>
+      <div class="navitem">结论护照 …</div>
+    </div>
+  </aside>
+
+  <main>
+    <div class="topbar">
+      <div class="crumb">研究工作台 / <b>市场与行情</b></div>
+      <div class="spacer"></div>
+      <div class="rangewrap">
+        <span class="rpill active">2026-06-30</span><span class="rpill">2026-03-31</span><span class="rpill">2025-12-31</span>
+      </div>
+      <div class="okdot">● 校验通过 12/12</div>
+      <div class="user">只读 · U-bito210</div>
+    </div>
+
+    <div class="content">
+      <div class="eyebrow">市场与行情 — 行情快照</div>
+      <div class="stockhead"><h1>贵州茅台</h1><span class="code">600519.SH</span></div>
+      <div class="meta">
+        <span>快照 2026-06-30</span><span>来源 东方财富 + 新浪财经</span><span>币种 CNY · 单位 元</span><span>价格口径 RAW · 未复权</span><span class="okb">● 校验通过 12/12</span>
+      </div>
+
+      <div class="adjwrap">
+        <span class="adjlab">复权口径</span>
+        <span class="adjpill active">RAW · 未复权</span>
+        <span class="adjpill part">◐ 前复权 · 未提供</span>
+        <span class="adjpill">后复权</span>
+        <span class="adjnote">估值与同业比较一律使用 RAW 价</span>
+      </div>
+
+      <div class="hero">
+        <div>
+          <div class="lab">收盘价 · RAW <span class="ev">EV-Q-001</span></div>
+          <div class="bignum">1,689<small>.00 元</small></div>
+          <span class="chip up">▲ +1.24% · 涨</span>
+          <div class="herosub">总市值 2.12 万亿 · RAW 价 × 总股本<br>快照时点 2026-06-30 15:00 · 东方财富</div>
+        </div>
+        <div>
+          <div class="lab">近 120 个交易日 · RAW 收盘价 <span class="ev">EV-Q-001 序列</span></div>
+          <svg width="100%" height="240" viewBox="0 0 760 250" preserveAspectRatio="none">
+            <line x1="0" y1="52" x2="760" y2="52" stroke="#efe9dc" stroke-width="1"/>
+            <line x1="0" y1="122" x2="760" y2="122" stroke="#efe9dc" stroke-width="1"/>
+            <line x1="0" y1="192" x2="760" y2="192" stroke="#efe9dc" stroke-width="1"/>
+            <text x="762" y="56" font-size="9" fill="#a49b8a" font-family="Consolas" text-anchor="start">1,700</text>
+            <text x="762" y="126" font-size="9" fill="#a49b8a" font-family="Consolas" text-anchor="start">1,600</text>
+            <text x="762" y="196" font-size="9" fill="#a49b8a" font-family="Consolas" text-anchor="start">1,500</text>
+            <path d="M0,196 28,186 56,199 84,181 112,170 140,177 168,156 196,146 224,160 252,138 280,144 308,126 336,134 364,112 392,122 420,102 448,110 476,90 504,100 532,78 560,88 588,68 616,76 644,58 672,66 700,52 728,60 760,46 L760,230 0,230 Z"
+              fill="rgba(43,74,139,.06)"/>
+            <path d="M0,196 28,186 56,199 84,181 112,170 140,177 168,156 196,146 224,160 252,138 280,144 308,126 336,134 364,112 392,122 420,102 448,110 476,90 504,100 532,78 560,88 588,68 616,76 644,58 672,66 700,52 728,60 760,46"
+              fill="none" stroke="#2b4a8b" stroke-width="1.8"/>
+            <circle cx="760" cy="46" r="3.5" fill="#2b4a8b"/>
+            <text x="748" y="34" font-size="10" fill="#191610" font-family="Consolas" font-weight="700" text-anchor="end">1,689</text>
+            <text x="2" y="246" font-size="9" fill="#a49b8a" font-family="Consolas">01-05</text>
+            <text x="230" y="246" font-size="9" fill="#a49b8a" font-family="Consolas">02-27</text>
+            <text x="430" y="246" font-size="9" fill="#a49b8a" font-family="Consolas">04-20</text>
+            <text x="620" y="246" font-size="9" fill="#a49b8a" font-family="Consolas">05-28</text>
+            <text x="726" y="246" font-size="9" fill="#a49b8a" font-family="Consolas">06-30</text>
+          </svg>
+        </div>
+        <div class="ival">
+          <div class="row"><span class="k">120日最高</span><span class="v">1,712.00</span></div>
+          <div class="row"><span class="k">120日最低</span><span class="v">1,432.50</span></div>
+          <div class="row"><span class="k">区间振幅</span><span class="v">19.5%</span></div>
+          <div class="row"><span class="k">区间均额</span><span class="v">38.6 亿</span></div>
+        </div>
+      </div>
+
+      <div class="subcharts">
+        <div class="subcard">
+          <div class="lab">近 30 个交易日 · 成交额（亿元） <span class="ev">EV-Q-002</span></div>
+          <svg width="100%" height="92" viewBox="0 0 372 96" preserveAspectRatio="none">
+            <line x1="0" y1="80" x2="372" y2="80" stroke="#e7e0d2" stroke-width="1"/>
+            <rect x="4"   y="46" width="9" height="34" fill="#d8d0be"/>
+            <rect x="16"  y="38" width="9" height="42" fill="#d8d0be"/>
+            <rect x="28"  y="52" width="9" height="28" fill="#d8d0be"/>
+            <rect x="40"  y="25" width="9" height="55" fill="#d8d0be"/>
+            <rect x="52"  y="42" width="9" height="38" fill="#d8d0be"/>
+            <rect x="64"  y="54" width="9" height="26" fill="#d8d0be"/>
+            <rect x="76"  y="49" width="9" height="31" fill="#d8d0be"/>
+            <rect x="88"  y="32" width="9" height="48" fill="#d8d0be"/>
+            <rect x="100" y="44" width="9" height="36" fill="#d8d0be"/>
+            <rect x="112" y="51" width="9" height="29" fill="#d8d0be"/>
+            <rect x="124" y="36" width="9" height="44" fill="#d8d0be"/>
+            <rect x="136" y="47" width="9" height="33" fill="#d8d0be"/>
+            <rect x="148" y="22" width="9" height="58" fill="#d8d0be"/>
+            <rect x="160" y="49" width="9" height="31" fill="#d8d0be"/>
+            <rect x="172" y="53" width="9" height="27" fill="#d8d0be"/>
+            <rect x="184" y="40" width="9" height="40" fill="#d8d0be"/>
+            <rect x="196" y="28" width="9" height="52" fill="#d8d0be"/>
+            <rect x="208" y="45" width="9" height="35" fill="#d8d0be"/>
+            <rect x="220" y="50" width="9" height="30" fill="#d8d0be"/>
+            <rect x="232" y="34" width="9" height="46" fill="#d8d0be"/>
+            <rect x="244" y="42" width="9" height="38" fill="#d8d0be"/>
+            <rect x="256" y="20" width="9" height="60" fill="#d8d0be"/>
+            <rect x="268" y="47" width="9" height="33" fill="#d8d0be"/>
+            <rect x="280" y="51" width="9" height="29" fill="#d8d0be"/>
+            <rect x="292" y="39" width="9" height="41" fill="#d8d0be"/>
+            <rect x="304" y="25" width="9" height="55" fill="#d8d0be"/>
+            <rect x="316" y="44" width="9" height="36" fill="#d8d0be"/>
+            <rect x="328" y="49" width="9" height="31" fill="#d8d0be"/>
+            <rect x="340" y="33" width="9" height="47" fill="#d8d0be"/>
+            <rect x="352" y="18" width="9" height="62" fill="#2b4a8b"/>
+          </svg>
+        </div>
+        <div class="subcard">
+          <div class="lab">口径说明 <span class="ev">SNAPSHOT</span></div>
+          <div class="herosub" style="margin-top:2px;">
+            价格为 RAW（未复权），与财报、股本同快照对齐；<br>
+            复权序列属派生数据，由服务层另行生成，<br>
+            前端不自行计算。
+          </div>
+        </div>
+      </div>
+
+      <div class="tiles">
+        <div class="tile"><div class="lab">总股本 <span class="ev">EV-C-003</span></div>
+          <div class="val">12.56<small> 亿股</small></div><div class="sub">新浪财经 · 2026Q1</div></div>
+        <div class="tile"><div class="lab">总市值 <span class="ev">EV-V-010</span></div>
+          <div class="val">2.12<small> 万亿</small></div><div class="sub">RAW 价 × 总股本 · 服务层</div></div>
+        <div class="tile"><div class="lab">当日成交额 <span class="ev">EV-Q-002</span></div>
+          <div class="val">46.2<small> 亿</small></div><div class="sub">2026-06-30 收盘</div></div>
+        <div class="tile"><div class="lab">当日振幅 <span class="ev">EV-Q-003</span></div>
+          <div class="val">2.01<small>%</small></div><div class="sub">服务层确定性计算</div></div>
+      </div>
+
+      <div class="route">研究路径：选择标的 → <i>拉取快照（当前）</i> → 校验证据 → 估值计算 → AI 解读 → 生成报告　·　<b>下一步</b>：查看 RAW 价格证据 →</div>
+
+      <div class="section">
+        <div class="sechead"><h4>当日盘口</h4><span class="tag">RAW · 单位 元 · 金额为亿元</span></div>
+        <div class="quotegrid">
+          <div class="qcell"><div class="k">开盘</div><div class="v">1,671.00</div></div>
+          <div class="qcell"><div class="k">最高</div><div class="v">1,698.80</div></div>
+          <div class="qcell"><div class="k">最低</div><div class="v">1,665.20</div></div>
+          <div class="qcell"><div class="k">收盘 <span class="ev">EV-Q-001</span></div><div class="v">1,689.00</div></div>
+          <div class="qcell"><div class="k">前收盘</div><div class="v">1,668.30</div></div>
+          <div class="qcell"><div class="k">涨跌幅</div><div class="v up">+1.24%</div></div>
+          <div class="qcell"><div class="k">成交量</div><div class="v">27,358<small> 手</small></div></div>
+          <div class="qcell"><div class="k">成交额</div><div class="v">46.2<small> 亿</small></div></div>
+          <div class="qcell"><div class="k">振幅</div><div class="v">2.01<small>%</small></div></div>
+        </div>
+      </div>
+
+      <div class="warnpanel">
+        <span><b>◐ 前复权收盘序列 · 本快照未提供</b></span>
+        <span class="d">—— 估值、市值与同业比较一律使用 RAW 价；如需复权口径，请在服务层生成新快照后刷新本页。</span>
+      </div>
+
+      <div class="section">
+        <div class="sechead"><h4>行情证据</h4><span class="tag">EVIDENCE · 3 条</span></div>
+        <table class="tbl">
+          <tr><th>证据 ID</th><th>类型</th><th>来源</th><th>期间</th><th>截止</th><th>校验</th></tr>
+          <tr><td class="mono">EV-Q-001</td><td>收盘价 · RAW</td><td>东方财富</td><td>2026-06-30</td><td class="mono">06-30 15:00</td><td><span class="badge ok">● 通过</span></td></tr>
+          <tr><td class="mono">EV-Q-002</td><td>成交额 · 当日</td><td>东方财富</td><td>2026-06-30</td><td class="mono">06-30 15:00</td><td><span class="badge ok">● 通过</span></td></tr>
+          <tr><td class="mono">EV-C-003</td><td>总股本</td><td>新浪财经</td><td>2026Q1</td><td class="mono">06-30 15:00</td><td><span class="badge ok">● 通过</span></td></tr>
+        </table>
+      </div>
+
+      <div class="footnote">
+        本页仅展示固定版本快照，非实时行情，不构成交易或投资建议。所有计算（总市值、振幅等）在服务层完成，前端只读展示；
+        证据 ID、来源、期间、截止与校验状态来自后端 Evidence Ledger 与研究门控。
+      </div>
+    </div>
+  </main>
+</div>
+</body>
+</html>

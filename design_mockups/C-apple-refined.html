@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>效果图 C · Apple 风精修版（现有主题升级）</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root {
+    --canvas:#fbfbfd; --card:#ffffff; --parchment:#f5f5f7; --ink:#1d1d1f; --muted:#6e6e73;
+    --faint:#a1a1a6; --line:#e8e8ed; --divider:#d2d2d7;
+    --primary:#0066cc; --ev:#5856d6;
+    --up:#e02f2f; --down:#1d9a6c; --ok:#34c759; --warn:#ff9500;
+    --mono:"Cascadia Code","SF Mono",Consolas,monospace;
+  }
+  body { background:var(--canvas); color:var(--ink);
+    font-family:"Segoe UI","Microsoft YaHei",-apple-system,"SF Pro Text","PingFang SC",sans-serif;
+    font-size:14px; -webkit-font-smoothing:antialiased; }
+  .app { display:grid; grid-template-columns:244px 1fr; min-height:1400px; }
+
+  aside { background:var(--parchment); border-right:1px solid var(--line); padding:20px 14px; }
+  .logo { display:flex; align-items:center; gap:9px; padding:0 8px 18px; font-weight:700; font-size:15px; letter-spacing:-.01em; }
+  .logo .mark { color:var(--primary); font-size:17px; }
+  .navgrp { margin-top:16px; }
+  .navgrp h5 { font-size:10.5px; color:var(--faint); letter-spacing:.14em; padding:0 10px 6px; font-weight:700; text-transform:uppercase; }
+  .navitem { display:flex; align-items:center; gap:9px; padding:7px 11px; border-radius:9px; color:var(--muted); font-size:13.5px; margin-bottom:1px; }
+  .navitem.active { background:#fff; color:var(--primary); font-weight:600; box-shadow:0 1px 3px rgba(0,0,0,.06), 0 0 0 1px rgba(0,0,0,.03); }
+  .navitem:hover { background:rgba(0,102,204,.06); }
+
+  main { display:flex; flex-direction:column; }
+  .topbar { height:54px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:14px; padding:0 30px; background:rgba(251,251,253,.85); }
+  .snapselect { display:flex; align-items:center; gap:8px; background:#fff; border:1px solid var(--divider); border-radius:9px; padding:6px 13px; font-size:12.5px; color:var(--muted); box-shadow:0 1px 2px rgba(0,0,0,.03); }
+  .snapselect b { color:var(--ink); font-weight:600; }
+  .okpill { font-size:12.5px; color:#1d7f3d; display:flex; align-items:center; gap:6px; font-weight:600; }
+  .spacer { flex:1; }
+  .user { font-size:12.5px; color:var(--muted); display:flex; align-items:center; gap:8px; }
+  .avatar { width:27px;height:27px;border-radius:50%;background:var(--parchment);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--primary); font-weight:600; }
+
+  .content { padding:28px 36px 90px; max-width:1300px; }
+  .eyebrow { font-size:11px; letter-spacing:.16em; color:var(--faint); font-weight:700; margin-bottom:8px; text-transform:uppercase; }
+  .stockhead { display:flex; align-items:baseline; gap:14px; }
+  h1 { font-size:32px; font-weight:700; letter-spacing:-.025em; }
+  .code { font-family:var(--mono); color:var(--muted); font-size:14.5px; }
+  .badges { display:flex; gap:8px; margin-top:13px; flex-wrap:wrap; }
+  .badge { font-size:11.5px; padding:3.5px 11px; border-radius:99px; border:1px solid var(--line); color:var(--muted); background:#fff; }
+  .badge.ok { color:#1d7f3d; border-color:#b7e3c4; background:#f0faf3; }
+
+  .kpis { display:grid; grid-template-columns:repeat(4,1fr); gap:13px; margin:22px 0 22px; }
+  .kpi { background:var(--card); border-radius:14px; padding:15px 17px; position:relative; box-shadow:0 1px 3px rgba(0,0,0,.04), 0 0 0 1px rgba(0,0,0,.02); }
+  .kpi .lab { font-size:11.5px; color:var(--muted); letter-spacing:.04em; margin-bottom:7px; display:flex; align-items:center; gap:6px; }
+  .kpi .ev { margin-left:auto; font-family:var(--mono); font-size:10px; color:var(--faint); border:1px solid var(--line); border-radius:5px; padding:1px 6px; }
+  .kpi .val { font-size:25px; font-weight:700; font-family:var(--mono); letter-spacing:-.02em; }
+  .kpi .sub { font-size:11.5px; margin-top:5px; color:var(--muted); }
+  .up { color:var(--up); } .down { color:var(--down); }
+
+  .route { display:flex; align-items:center; background:#fff; border-radius:14px; padding:13px 18px; margin-bottom:22px; box-shadow:0 1px 3px rgba(0,0,0,.04), 0 0 0 1px rgba(0,0,0,.02); }
+  .step { display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--faint); }
+  .step .n { width:20px;height:20px;border-radius:50%;border:1.5px solid var(--divider);display:flex;align-items:center;justify-content:center;font-size:10.5px;font-family:var(--mono); }
+  .step.done { color:var(--muted); } .step.done .n { border-color:var(--ok); color:#1d7f3d; }
+  .step.cur { color:var(--primary); font-weight:600; } .step.cur .n { border-color:var(--primary); background:rgba(0,102,204,.1); color:var(--primary); }
+  .arrow { flex:1; height:1.5px; background:var(--line); margin:0 12px; min-width:20px; }
+  .next { font-size:12px; color:var(--primary); font-weight:600; white-space:nowrap; }
+
+  .grid { display:grid; grid-template-columns:1.2fr 1fr; gap:13px; margin-bottom:13px; }
+  .card { background:var(--card); border-radius:14px; padding:18px 20px; box-shadow:0 1px 3px rgba(0,0,0,.04), 0 0 0 1px rgba(0,0,0,.02); }
+  .card h4 { font-size:13.5px; font-weight:700; margin-bottom:4px; display:flex; align-items:center; gap:8px; }
+  .card .sub { font-size:11.5px; color:var(--faint); margin-bottom:12px; }
+  .pill { font-size:10.5px; padding:2px 9px; border-radius:99px; margin-left:auto; font-weight:600; letter-spacing:.03em; }
+  .pill.fact { background:var(--parchment); color:var(--muted); }
+  .pill.ai { background:#efeefe; color:var(--ev); }
+  .factrow { display:flex; justify-content:space-between; padding:9.5px 0; border-bottom:1px solid var(--line); font-size:13.5px; }
+  .factrow:last-child { border-bottom:0; }
+  .factrow .k { color:var(--muted); }
+  .factrow .v { font-family:var(--mono); font-weight:600; }
+  .narr p { font-size:13.5px; line-height:1.8; color:#3c3c43; }
+  .cite { font-family:var(--mono); font-size:10.5px; color:var(--ev); background:#efeefe; border-radius:4px; padding:1px 5px; }
+  .narrnote { margin-top:12px; font-size:10.5px; color:var(--ev); letter-spacing:.06em; font-weight:600; }
+
+  .peers { grid-column:1 / -1; }
+  table.peertbl { width:100%; border-collapse:collapse; font-size:13px; }
+  .peertbl th { text-align:left; color:var(--faint); font-weight:600; font-size:11px; letter-spacing:.06em; padding:7px 14px 7px 0; border-bottom:1px solid var(--divider); }
+  .peertbl td { padding:9px 14px 9px 0; border-bottom:1px solid var(--line); }
+  .peertbl tr:last-child td { border-bottom:0; }
+  .peertbl .num { font-family:var(--mono); text-align:right; }
+  .peertbl tr.hl td { background:rgba(0,102,204,.05); }
+  .mono { font-family:var(--mono); font-size:12px; color:var(--muted); }
+  .part { color:var(--warn); font-size:11.5px; }
+
+  .section { margin-top:24px; }
+  .sechead { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+  .sechead h3 { font-size:15.5px; font-weight:700; letter-spacing:-.01em; }
+  .sechead .cnt { font-family:var(--mono); font-size:11px; color:var(--faint); border:1px solid var(--line); background:#fff; padding:2px 9px; border-radius:99px; }
+  table.ledger { width:100%; border-collapse:collapse; background:#fff; border-radius:14px; overflow:hidden; font-size:13px; box-shadow:0 1px 3px rgba(0,0,0,.04), 0 0 0 1px rgba(0,0,0,.02); }
+  .ledger th { text-align:left; font-size:11px; color:var(--faint); letter-spacing:.06em; font-weight:600; padding:11px 16px; background:var(--parchment); border-bottom:1px solid var(--line); }
+  .ledger td { padding:10.5px 16px; border-bottom:1px solid var(--line); }
+  .ledger tr:last-child td { border-bottom:0; }
+  .st { font-size:11.5px; padding:2.5px 10px; border-radius:99px; font-weight:600; }
+  .st.ok { color:#1d7f3d; background:#f0faf3; } .st.part { color:#9a6b00; background:#fff7e8; }
+
+  .trace { background:#fff; border-radius:14px; padding:16px 20px; box-shadow:0 1px 3px rgba(0,0,0,.04), 0 0 0 1px rgba(0,0,0,.02); }
+  .tstep { display:flex; gap:12px; align-items:baseline; padding:9px 0; border-bottom:1px solid var(--line); font-size:13.5px; }
+  .tstep:last-child { border-bottom:0; }
+  .tstep .dot { width:8px;height:8px;border-radius:50%;background:var(--ok); flex:none; align-self:center; }
+  .tstep b { font-weight:600; }
+  .tstep .d { color:var(--muted); font-size:12.5px; }
+  .tstep .t { margin-left:auto; font-family:var(--mono); font-size:11px; color:var(--faint); }
+
+  .footnote { margin-top:26px; font-size:11.5px; color:var(--faint); line-height:1.8; border-top:1px solid var(--line); padding-top:14px; max-width:800px; }
+  .watermark { position:fixed; right:16px; bottom:14px; background:#fff; color:#9a6b00;
+    border:1px solid var(--warn); font-size:11px; padding:5px 12px; border-radius:99px; z-index:99; }
+</style>
+</head>
+<body>
+<div class="watermark">UI 效果图 C · Apple 风精修 · 数据均为示意，非真实快照</div>
+<div class="app">
+  <aside>
+    <div class="logo"><span class="mark">◈</span>FinTrace-CN</div>
+    <div class="navgrp"><h5>研究工作台</h5>
+      <div class="navitem active">研究总览</div>
+      <div class="navitem">市场与行情</div>
+      <div class="navitem">财务表现</div>
+      <div class="navitem">财务分析</div>
+      <div class="navitem">同行估值</div>
+    </div>
+    <div class="navgrp"><h5>AI 研究</h5>
+      <div class="navitem">AI Agent 研究</div>
+      <div class="navitem">Agent 执行轨迹</div>
+    </div>
+    <div class="navgrp"><h5>证据与报告</h5>
+      <div class="navitem">证据与校验</div>
+      <div class="navitem">文档智能</div>
+      <div class="navitem">研究报告</div>
+    </div>
+    <div class="navgrp"><h5>任务中心</h5>
+      <div class="navitem">研究任务</div>
+      <div class="navitem">每日复盘</div>
+      <div class="navitem">评测与消融</div>
+    </div>
+    <div class="navgrp"><h5>演示与设置</h5>
+      <div class="navitem">案例演示</div>
+      <div class="navitem">结论护照 …</div>
+    </div>
+  </aside>
+
+  <main>
+    <div class="topbar">
+      <div class="snapselect">快照 <b>2026-06-30 · 年报口径</b> ▾</div>
+      <div class="okpill">● 校验通过 12/12</div>
+      <div class="badge" style="font-size:11.5px;">只读 · 无前端派生计算</div>
+      <div class="spacer"></div>
+      <div class="user"><span class="avatar">U</span>U-bito210</div>
+    </div>
+
+    <div class="content">
+      <div class="eyebrow">研究总览 · Snapshot 2026-06-30</div>
+      <div class="stockhead"><h1>贵州茅台</h1><span class="code">600519.SH</span></div>
+      <div class="badges">
+        <span class="badge">快照 2026-06-30</span>
+        <span class="badge">来源 东方财富 + 新浪财经</span>
+        <span class="badge">币种 CNY · 单位 元</span>
+        <span class="badge ok">● 校验通过 12/12</span>
+        <span class="badge">期间 2025A / TTM</span>
+      </div>
+
+      <div class="kpis">
+        <div class="kpi"><div class="lab">收盘价（RAW）<span class="ev">EV-Q-001</span></div><div class="val">1,689.00</div>
+          <div class="sub up">▲ +1.24% · 涨</div></div>
+        <div class="kpi"><div class="lab">总市值<span class="ev">EV-C-003</span></div><div class="val">2.12<span style="font-size:13px;color:var(--muted)"> 万亿</span></div>
+          <div class="sub">RAW 价 × 总股本</div></div>
+        <div class="kpi"><div class="lab">PE · TTM<span class="ev">EV-V-011</span></div><div class="val">24.6<span style="font-size:13px;color:var(--muted)">×</span></div>
+          <div class="sub">同业中位 19.8× · 分位不足</div></div>
+        <div class="kpi"><div class="lab">PB · MRQ<span class="ev">EV-V-012</span></div><div class="val">8.9<span style="font-size:13px;color:var(--muted)">×</span></div>
+          <div class="sub">历史分位数据缺失 · 已标注</div></div>
+      </div>
+
+      <div class="route">
+        <div class="step done"><span class="n">✓</span>选择标的</div><div class="arrow"></div>
+        <div class="step done"><span class="n">✓</span>拉取快照</div><div class="arrow"></div>
+        <div class="step done"><span class="n">✓</span>校验证据</div><div class="arrow"></div>
+        <div class="step done"><span class="n">✓</span>估值计算</div><div class="arrow"></div>
+        <div class="step cur"><span class="n">5</span>AI 解读</div><div class="arrow"></div>
+        <div class="step"><span class="n">6</span>生成报告</div>
+        <div class="spacer"></div>
+        <span class="next">下一步：让 Agent 解读 →</span>
+      </div>
+
+      <div class="grid">
+        <div class="card">
+          <h4>关键研究摘要 <span class="pill fact">事实 · 服务层计算</span></h4>
+          <div class="sub">来自固定版本快照，未经前端加工</div>
+          <div class="factrow"><span class="k">业绩状态（2025A）</span><span class="v">已披露 · 完整</span></div>
+          <div class="factrow"><span class="k">营收变化</span><span class="v up">+15.7%</span></div>
+          <div class="factrow"><span class="k">归母净利润变化</span><span class="v up">+13.2%</span></div>
+          <div class="factrow"><span class="k">下一次应验证</span><span class="v" style="font-family:inherit;font-weight:500;font-size:12.5px;">2026 中报 · 营收与净利是否延续</span></div>
+        </div>
+        <div class="card">
+          <h4>AI 研究解读 <span class="pill ai">AI 生成 · 需人工复核</span></h4>
+          <div class="sub">模型叙事与事实分离呈现，不可作为事实引用</div>
+          <p>2025 年报口径下营收与净利延续增长，RAW 价格对应的 TTM 估值高于同业中位。但历史分位数据缺失 <span class="cite">EV-V-012</span>，不能仅凭 PE 判断贵贱；建议下一步核对 2026 中报的毛利率与一次性损益……</p>
+        </div>
+        <div class="card peers">
+          <h4>同行估值摘要 <span class="pill fact">仅兼容本地快照</span></h4>
+          <div class="sub">混合期间/单位不兼容的同业会被自动剔除</div>
+          <table class="peertbl">
+            <tr><th>公司</th><th>代码</th><th class="num">总市值</th><th class="num">PE · TTM</th><th class="num">PB</th><th>口径</th></tr>
+            <tr class="hl"><td><b>贵州茅台</b>（本标的）</td><td class="mono">600519.SH</td><td class="num">2.12 万亿</td><td class="num">24.6×</td><td class="num">8.9×</td><td>2025A / RAW</td></tr>
+            <tr><td>五粮液</td><td class="mono">000858.SZ</td><td class="num">4,860 亿</td><td class="num">17.2×</td><td class="num">4.6×</td><td>2025A / RAW</td></tr>
+            <tr><td>泸州老窖</td><td class="mono">000568.SZ</td><td class="num">2,140 亿</td><td class="num">15.9×</td><td class="num">3.9×</td><td>2025A / RAW</td></tr>
+            <tr><td>山西汾酒</td><td class="mono">600809.SH</td><td class="num">2,010 亿</td><td class="num">21.4×</td><td class="num">6.1×</td><td>2025A / RAW</td></tr>
+            <tr><td>洋河股份</td><td class="mono">002304.SZ</td><td class="num">1,180 亿</td><td class="num">13.8×</td><td class="num">2.8×</td><td>2025A / RAW</td></tr>
+            <tr><td>古井贡酒</td><td class="mono">000596.SZ</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td><span class="part">已剔除 · 期间不匹配</span></td></tr>
+          </table>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="sechead"><h3>证据台账</h3><span class="cnt">12 条 · Evidence Ledger</span></div>
+        <table class="ledger">
+          <tr><th>证据 ID</th><th>类型</th><th>来源</th><th>期间</th><th>截止</th><th>校验</th></tr>
+          <tr><td class="mono">EV-Q-001</td><td>收盘价 · RAW</td><td>东方财富</td><td>2026-06-30</td><td class="mono">06-30 15:00</td><td><span class="st ok">✓ 通过</span></td></tr>
+          <tr><td class="mono">EV-C-003</td><td>总股本</td><td>新浪财经</td><td>2026Q1</td><td class="mono">06-30 15:00</td><td><span class="st ok">✓ 通过</span></td></tr>
+          <tr><td class="mono">EV-F-007</td><td>营收 · 归母净利</td><td>2025 年报</td><td>2025A</td><td class="mono">04-26</td><td><span class="st ok">✓ 通过</span></td></tr>
+          <tr><td class="mono">EV-V-011</td><td>PE · TTM 计算</td><td>服务层</td><td>TTM</td><td class="mono">06-30</td><td><span class="st ok">✓ 通过</span></td></tr>
+          <tr><td class="mono">EV-V-012</td><td>PB 历史分位</td><td>服务层</td><td>—</td><td class="mono">—</td><td><span class="st part">◐ 部分缺失</span></td></tr>
+          <tr><td class="mono">EV-P-014</td><td>同业快照 ×5</td><td>东方财富</td><td>2025A</td><td class="mono">06-30</td><td><span class="st ok">✓ 通过</span></td></tr>
+        </table>
+      </div>
+
+      <div class="section">
+        <div class="sechead"><h3>AI 分析过程</h3><span class="cnt">trace · 全程可回放</span></div>
+        <div class="trace">
+          <div class="tstep"><span class="dot"></span><b>工具调用 · 拉取行情快照</b> <span class="d">quote.fetch(600519) → RAW</span><span class="t">1.2s</span></div>
+          <div class="tstep"><span class="dot"></span><b>工具调用 · 财报提取</b> <span class="d">filings.extract(2025A) → 结构化事实</span><span class="t">3.8s</span></div>
+          <div class="tstep"><span class="dot"></span><b>确定性计算 · 估值</b> <span class="d">service.calc PE/PB（非模型生成）</span><span class="t">0.3s</span></div>
+          <div class="tstep"><span class="dot"></span><b>证据校验</b> <span class="d">gate: 12/12 通过 · 1 项部分缺失已标注</span><span class="t">0.6s</span></div>
+          <div class="tstep"><span class="dot" style="background:var(--primary);"></span><b>模型叙事生成</b> <span class="d">narrative.draft → 待人工复核</span><span class="t">5.1s</span></div>
+        </div>
+      </div>
+
+      <div class="footnote">
+        本页仅展示固定版本快照，非实时行情，不构成交易或投资建议。所有计算在服务层完成，前端只读展示；
+        证据 ID、来源、期间、截止时间与校验状态来自后端 Evidence Ledger 与研究门控。
+      </div>
+    </div>
+  </main>
+</div>
+</body>
+</html>

@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>效果图 D3 · 方案B × Ghostfolio 排版 — 同行估值</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root {
+    --paper:#faf8f3; --card:#ffffff; --ink:#191610; --muted:#7a7264; --faint:#a49b8a;
+    --line:#e7e0d2; --line2:#efe9dc; --accent:#2b4a8b;
+    --up:#c53a3a; --down:#1f8a5d; --ok:#1f8a5d; --warn:#b07818; --ai:#6b4fa8;
+    --serif:Georgia,"Source Han Serif SC","Noto Serif SC","宋体",serif;
+    --sans:"Segoe UI","Microsoft YaHei",-apple-system,"PingFang SC",sans-serif;
+    --mono:"Cascadia Code",Consolas,"SF Mono",monospace;
+  }
+  body { background:var(--paper); color:var(--ink); font-family:var(--sans); font-size:14px; -webkit-font-smoothing:antialiased;
+    font-variant-numeric: tabular-nums; }
+  .app { display:grid; grid-template-columns:230px 1fr; min-height:1560px; }
+
+  aside { border-right:1px solid var(--line); padding:26px 18px; background:#f6f2e9; }
+  .logo { font-family:var(--serif); font-size:19px; font-weight:700; padding:0 8px 22px; }
+  .logo span { color:var(--accent); }
+  .navgrp { margin-top:20px; }
+  .navgrp h5 { font-size:10.5px; color:var(--faint); letter-spacing:.22em; padding:0 10px 8px; font-weight:600; }
+  .navitem { padding:6.5px 10px; font-size:13px; color:var(--muted); border-radius:6px; margin-bottom:1px; }
+  .navitem.active { color:var(--ink); font-weight:700; background:#fff; box-shadow:inset 3px 0 0 var(--accent); }
+
+  main { display:flex; flex-direction:column; }
+  .topbar { height:56px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:14px; padding:0 40px; }
+  .crumb { font-size:12.5px; color:var(--muted); }
+  .crumb b { color:var(--ink); font-weight:700; }
+  .spacer { flex:1; }
+  .rangewrap { display:flex; border:1px solid var(--line); background:#fff; border-radius:99px; padding:2.5px; }
+  .rpill { font-size:11.5px; color:var(--muted); padding:4px 12px; border-radius:99px; }
+  .rpill.active { background:var(--ink); color:var(--paper); font-weight:600; }
+  .okdot { font-size:12.5px; color:var(--ok); font-weight:600; }
+  .user { font-size:12.5px; color:var(--muted); font-family:var(--serif); font-style:italic; }
+
+  .content { padding:32px 44px 90px; max-width:1280px; }
+  .eyebrow { font-size:10.5px; letter-spacing:.28em; color:var(--faint); font-weight:700; margin-bottom:10px; }
+  .stockhead { display:flex; align-items:baseline; gap:14px; }
+  h1 { font-family:var(--serif); font-size:36px; font-weight:700; }
+  .code { font-family:var(--mono); color:var(--muted); font-size:14px; }
+  .meta { display:flex; gap:14px; margin-top:10px; flex-wrap:wrap; font-size:12px; color:var(--muted); }
+  .meta span::before { content:"·"; margin-right:6px; color:var(--faint); }
+  .meta .okb { color:var(--ok); font-weight:600; }
+  .ev { font-family:var(--mono); font-size:10px; color:var(--faint); letter-spacing:0; }
+
+  /* ── 估值 Hero ── */
+  .hero { display:grid; grid-template-columns:250px 1fr; gap:28px; align-items:stretch;
+    background:var(--card); border:1px solid var(--line); border-radius:4px; padding:24px 28px; margin-top:26px; }
+  .hero .lab { font-size:10.5px; letter-spacing:.18em; color:var(--faint); font-weight:600; margin-bottom:10px; display:flex; gap:8px; align-items:baseline; }
+  .bignum { font-family:var(--serif); font-size:46px; font-weight:700; letter-spacing:-.01em; line-height:1; }
+  .bignum small { font-size:18px; color:var(--muted); font-weight:400; }
+  .chip { display:inline-block; font-size:12px; font-weight:700; padding:3px 10px; border-radius:99px; margin-top:12px; }
+  .chip.up { color:var(--up); background:rgba(197,58,58,.08); }
+  .chip.warn { color:var(--warn); background:rgba(176,120,24,.10); }
+  .herosub { font-size:11.5px; color:var(--muted); margin-top:12px; line-height:1.8; }
+
+  /* ── 图表双卡 ── */
+  .charts { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:12px; }
+  .chartcard { background:var(--card); border:1px solid var(--line); border-radius:4px; padding:18px 22px 12px; }
+  .chartcard .lab { font-size:10.5px; letter-spacing:.16em; color:var(--faint); font-weight:600; margin-bottom:12px; display:flex; justify-content:space-between; }
+  .bl { font-size:11px; fill:#7a7264; font-family:var(--sans); }
+  .bv { font-size:10.5px; fill:#191610; font-family:var(--mono); font-weight:700; }
+
+  /* ── 估值公式 ── */
+  .formula { background:#f6f2e9; border:1px solid var(--line); border-radius:4px; padding:16px 22px;
+    font-family:var(--mono); font-size:12.5px; color:#4a4436; line-height:2.1; margin-top:12px; }
+  .formula b { color:var(--ink); }
+  .formula .cap { font-family:var(--sans); font-size:10.5px; letter-spacing:.16em; color:var(--faint); font-weight:600; display:block; margin-bottom:4px; }
+
+  .route { margin:24px 0 6px; font-size:12.5px; color:var(--faint); }
+  .route b { color:var(--ink); font-weight:700; }
+  .route i { color:var(--accent); font-style:normal; font-weight:600; }
+
+  .section { margin-top:28px; }
+  .sechead { display:flex; align-items:baseline; gap:10px; border-bottom:1px solid var(--ink); padding-bottom:8px; margin-bottom:4px; }
+  .sechead h4 { font-size:12px; letter-spacing:.2em; font-weight:700; }
+  .sechead .tag { font-size:10.5px; letter-spacing:.12em; color:var(--faint); margin-left:auto; }
+  table.tbl { width:100%; border-collapse:collapse; font-size:13px; background:var(--card); border:1px solid var(--line); }
+  .tbl th { text-align:left; font-size:10.5px; letter-spacing:.16em; color:var(--faint); font-weight:600; padding:10px 16px; border-bottom:1px solid var(--ink); background:#fff; }
+  .tbl th.num, .tbl td.num { text-align:right; }
+  .tbl td { padding:11px 16px; border-bottom:1px solid var(--line2); }
+  .tbl tr:last-child td { border-bottom:0; }
+  .tbl .name { font-weight:700; font-family:var(--serif); font-size:14px; }
+  .tbl .name small { font-family:var(--mono); font-size:11px; color:var(--faint); font-weight:400; margin-left:8px; }
+  .tbl td.num { font-family:var(--mono); font-size:12.5px; }
+  .tbl tr.hl td { background:#f4f1e8; }
+  .part { color:var(--warn); font-size:11.5px; }
+  .badge { display:inline-block; font-size:11px; font-weight:700; padding:2.5px 10px; border-radius:99px; letter-spacing:.04em; }
+  .badge.ok { color:var(--ok); background:rgba(31,138,93,.08); }
+  .badge.drop { color:var(--muted); background:rgba(122,114,100,.10); }
+
+  .panel { background:var(--card); border:1px solid var(--line); border-radius:4px; padding:16px 20px; margin-top:12px; }
+  .panel .row { display:flex; gap:12px; align-items:baseline; padding:7px 0; border-bottom:1px solid var(--line2); font-size:13px; }
+  .panel .row:last-child { border-bottom:0; }
+  .panel .who { font-family:var(--serif); font-weight:700; min-width:180px; }
+  .panel .who small { font-family:var(--mono); font-size:11px; color:var(--faint); font-weight:400; margin-left:8px; }
+  .panel .why { color:var(--muted); font-size:12.5px; }
+
+  .footnote { margin-top:34px; font-size:11.5px; color:var(--faint); line-height:1.9; border-top:1px solid var(--line); padding-top:16px; max-width:780px; }
+  .watermark { position:fixed; right:16px; bottom:14px; background:#fff; color:var(--warn);
+    border:1px solid var(--warn); font-size:11px; padding:5px 12px; border-radius:99px; z-index:99; letter-spacing:.06em; }
+</style>
+</head>
+<body>
+<div class="watermark">UI 效果图 D3 · 方案B × Ghostfolio 排版 · 数据均为示意，非真实快照</div>
+<div class="app">
+  <aside>
+    <div class="logo">FinTrace<span>·CN</span></div>
+    <div class="navgrp"><h5>研究工作台</h5>
+      <div class="navitem">研究总览</div>
+      <div class="navitem">市场与行情</div>
+      <div class="navitem">财务表现</div>
+      <div class="navitem">财务分析</div>
+      <div class="navitem active">同行估值</div>
+    </div>
+    <div class="navgrp"><h5>AI 研究</h5>
+      <div class="navitem">AI Agent 研究</div>
+      <div class="navitem">Agent 执行轨迹</div>
+    </div>
+    <div class="navgrp"><h5>证据与报告</h5>
+      <div class="navitem">证据与校验</div>
+      <div class="navitem">文档智能</div>
+      <div class="navitem">研究报告</div>
+    </div>
+    <div class="navgrp"><h5>任务中心</h5>
+      <div class="navitem">研究任务</div>
+      <div class="navitem">每日复盘</div>
+      <div class="navitem">评测与消融</div>
+    </div>
+    <div class="navgrp"><h5>演示与设置</h5>
+      <div class="navitem">案例演示</div>
+      <div class="navitem">结论护照 …</div>
+    </div>
+  </aside>
+
+  <main>
+    <div class="topbar">
+      <div class="crumb">研究工作台 / <b>同行估值</b></div>
+      <div class="spacer"></div>
+      <div class="rangewrap">
+        <span class="rpill active">2026-06-30</span><span class="rpill">2026-03-31</span><span class="rpill">2025-12-31</span>
+      </div>
+      <div class="okdot">● 校验通过 12/12</div>
+      <div class="user">只读 · U-bito210</div>
+    </div>
+
+    <div class="content">
+      <div class="eyebrow">同行估值 — 白酒行业 · RAW 口径</div>
+      <div class="stockhead"><h1>同行估值</h1><span class="code">600519.SH × 5 家可比</span></div>
+      <div class="meta">
+        <span>快照 2026-06-30</span><span>来源 东方财富 + 新浪财经</span><span>币种 CNY</span><span>价格 RAW · 未复权</span><span class="okb">● 校验通过 12/12</span>
+      </div>
+
+      <div class="hero">
+        <div>
+          <div class="lab">PE · TTM <span class="ev">EV-V-011</span></div>
+          <div class="bignum">24.6<small>×</small></div>
+          <span class="chip warn">高于同业中位</span>
+          <div class="herosub">同业中位 17.2×（含本标的 · 五家）<br>剔除本标的 16.6×（四家）<br>PB 历史分位缺失 <span class="ev" style="color:var(--warn)">[EV-V-012]</span> · 已标注</div>
+        </div>
+        <div>
+          <div class="lab">PE · TTM 对比（倍） <span class="ev">EV-P-014 · RAW 价格口径</span></div>
+          <svg width="100%" height="196" viewBox="0 0 560 196" preserveAspectRatio="none">
+            <text x="118" y="32"  class="bl" text-anchor="end">贵州茅台</text>
+            <rect x="130" y="20"  width="284" height="16" rx="2" fill="#2b4a8b"/>
+            <text x="422" y="32"  class="bv">24.6×</text>
+            <text x="118" y="67"  class="bl" text-anchor="end">山西汾酒</text>
+            <rect x="130" y="55"  width="247" height="16" rx="2" fill="#c9bfa8"/>
+            <text x="385" y="67"  class="bv" fill="#7a7264">21.4×</text>
+            <text x="118" y="102" class="bl" text-anchor="end">五粮液</text>
+            <rect x="130" y="90"  width="198" height="16" rx="2" fill="#c9bfa8"/>
+            <text x="336" y="102" class="bv" fill="#7a7264">17.2×</text>
+            <text x="118" y="137" class="bl" text-anchor="end">泸州老窖</text>
+            <rect x="130" y="125" width="183" height="16" rx="2" fill="#c9bfa8"/>
+            <text x="321" y="137" class="bv" fill="#7a7264">15.9×</text>
+            <text x="118" y="172" class="bl" text-anchor="end">洋河股份</text>
+            <rect x="130" y="160" width="159" height="16" rx="2" fill="#c9bfa8"/>
+            <text x="297" y="172" class="bv" fill="#7a7264">13.8×</text>
+            <line x1="319" y1="12" x2="319" y2="184" stroke="#b07818" stroke-width="1" stroke-dasharray="4 4"/>
+            <text x="319" y="8" font-size="9.5" fill="#b07818" font-family="Consolas" text-anchor="middle">中位 17.2×</text>
+          </svg>
+        </div>
+      </div>
+
+      <div class="charts">
+        <div class="chartcard">
+          <div class="lab">PB · MRQ 对比（倍） <span class="ev">EV-V-012</span></div>
+          <svg width="100%" height="176" viewBox="0 0 560 176" preserveAspectRatio="none">
+            <line x1="130" y1="12" x2="130" y2="152" stroke="#e7e0d2" stroke-width="1"/>
+            <line x1="240" y1="12" x2="240" y2="152" stroke="#efe9dc" stroke-width="1"/>
+            <line x1="350" y1="12" x2="350" y2="152" stroke="#efe9dc" stroke-width="1"/>
+            <line x1="460" y1="12" x2="460" y2="152" stroke="#efe9dc" stroke-width="1"/>
+            <text x="130" y="168" font-size="9" fill="#a49b8a" font-family="Consolas" text-anchor="middle">0</text>
+            <text x="240" y="168" font-size="9" fill="#a49b8a" font-family="Consolas" text-anchor="middle">2.5</text>
+            <text x="350" y="168" font-size="9" fill="#a49b8a" font-family="Consolas" text-anchor="middle">5.0</text>
+            <text x="460" y="168" font-size="9" fill="#a49b8a" font-family="Consolas" text-anchor="middle">7.5</text>
+            <text x="510" y="168" font-size="9" fill="#a49b8a" font-family="Consolas" text-anchor="middle">10×</text>
+            <rect x="130" y="18"  width="269" height="14" rx="2" fill="#2b4a8b"/>
+            <text x="406" y="29"  class="bv">8.9× 贵州茅台</text>
+            <rect x="130" y="50"  width="146" height="14" rx="2" fill="#c9bfa8"/>
+            <text x="284" y="61"  class="bv" fill="#7a7264">6.1× 山西汾酒</text>
+            <rect x="130" y="82"  width="110" height="14" rx="2" fill="#c9bfa8"/>
+            <text x="248" y="93"  class="bv" fill="#7a7264">4.6× 五粮液</text>
+            <rect x="130" y="114" width="93"  height="14" rx="2" fill="#c9bfa8"/>
+            <text x="231" y="125" class="bv" fill="#7a7264">3.9× 泸州老窖</text>
+            <rect x="130" y="146" width="67"  height="14" rx="2" fill="#c9bfa8"/>
+            <text x="205" y="157" class="bv" fill="#7a7264">2.8× 洋河股份</text>
+          </svg>
+        </div>
+        <div class="chartcard">
+          <div class="lab">PB × 营收增速（气泡 = 总市值） <span class="ev">EV-P-014</span></div>
+          <svg width="100%" height="176" viewBox="0 0 560 176" preserveAspectRatio="none">
+            <line x1="44" y1="14" x2="44" y2="148" stroke="#e7e0d2" stroke-width="1"/>
+            <line x1="44" y1="148" x2="540" y2="148" stroke="#e7e0d2" stroke-width="1"/>
+            <text x="38" y="56"  font-size="9" fill="#a49b8a" font-family="Consolas" text-anchor="end">8×</text>
+            <text x="38" y="102" font-size="9" fill="#a49b8a" font-family="Consolas" text-anchor="end">5×</text>
+            <text x="38" y="147" font-size="9" fill="#a49b8a" font-family="Consolas" text-anchor="end">2×</text>
+            <text x="60"  y="162" font-size="9" fill="#a49b8a" font-family="Consolas">+4%</text>
+            <text x="245" y="162" font-size="9" fill="#a49b8a" font-family="Consolas">+8%</text>
+            <text x="430" y="162" font-size="9" fill="#a49b8a" font-family="Consolas">+12%</text>
+            <line x1="300" y1="14" x2="300" y2="148" stroke="#b07818" stroke-width="1" stroke-dasharray="4 4"/>
+            <text x="300" y="10" font-size="9" fill="#b07818" font-family="Consolas" text-anchor="middle">本标的 +15.7%</text>
+            <circle cx="485" cy="30"  r="15" fill="#2b4a8b" opacity=".92"/>
+            <text x="485" y="34" font-size="9" fill="#faf8f3" font-family="sans-serif" text-anchor="middle">茅台</text>
+            <circle cx="364" cy="78"  r="8"  fill="#c9bfa8"/>
+            <circle cx="298" cy="100" r="7"  fill="#c9bfa8"/>
+            <circle cx="364" cy="78"  r="0"  fill="none"/>
+            <circle cx="215" cy="122" r="7.5" fill="#c9bfa8"/>
+            <circle cx="64"  cy="138" r="6"  fill="#c9bfa8"/>
+            <text x="505" y="18"  class="bv" fill="#2b4a8b">8.9×</text>
+            <text x="376" y="72"  class="bv" fill="#7a7264">汾酒 6.1×</text>
+            <text x="308" y="94"  class="bv" fill="#7a7264">五粮液 4.6×</text>
+            <text x="225" y="116" class="bv" fill="#7a7264">泸州老窖 3.9×</text>
+            <text x="74"  y="132" class="bv" fill="#7a7264">洋河 2.8×</text>
+          </svg>
+        </div>
+      </div>
+
+      <div class="formula">
+        <span class="cap">估值公式 · 服务层确定性计算</span>
+        总市值 = <b>RAW 收盘价</b> × 总股本　　PE·TTM = 总市值 ÷ 归母净利润（TTM）　　PB = 总市值 ÷ 归母净资产（MRQ）
+      </div>
+
+      <div class="route">研究路径：选择标的 → 拉取快照 → 校验证据 → <i>估值计算（当前）</i> → AI 解读 → 生成报告　·　<b>下一步</b>：查看研究报告 →</div>
+
+      <div class="section">
+        <div class="sechead"><h4>同行估值摘要</h4><span class="tag">仅兼容本地快照 · RAW 价格 · 单位 亿元</span></div>
+        <table class="tbl">
+          <tr><th>公司</th><th class="num">总市值</th><th class="num">PE · TTM</th><th class="num">PB · MRQ</th><th class="num">营收增速</th><th class="num">口径</th><th class="num">状态</th></tr>
+          <tr class="hl"><td class="name">贵州茅台（本标的）<small>600519.SH</small></td><td class="num">2.12 万亿</td><td class="num">24.6×</td><td class="num">8.9×</td><td class="num">+15.7%</td><td class="num">2025A / RAW</td><td class="num"><span class="badge ok">纳入</span></td></tr>
+          <tr><td class="name">五粮液<small>000858.SZ</small></td><td class="num">4,860 亿</td><td class="num">17.2×</td><td class="num">4.6×</td><td class="num">+9.6%</td><td class="num">2025A / RAW</td><td class="num"><span class="badge ok">纳入</span></td></tr>
+          <tr><td class="name">泸州老窖<small>000568.SZ</small></td><td class="num">2,140 亿</td><td class="num">15.9×</td><td class="num">3.9×</td><td class="num">+8.2%</td><td class="num">2025A / RAW</td><td class="num"><span class="badge ok">纳入</span></td></tr>
+          <tr><td class="name">山西汾酒<small>600809.SH</small></td><td class="num">2,010 亿</td><td class="num">21.4×</td><td class="num">6.1×</td><td class="num">+12.4%</td><td class="num">2025A / RAW</td><td class="num"><span class="badge ok">纳入</span></td></tr>
+          <tr><td class="name">洋河股份<small>002304.SZ</small></td><td class="num">1,180 亿</td><td class="num">13.8×</td><td class="num">2.8×</td><td class="num">+4.1%</td><td class="num">2025A / RAW</td><td class="num"><span class="badge ok">纳入</span></td></tr>
+          <tr><td class="name">古井贡酒<small>000596.SZ</small></td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num part">2025H1 / RAW</td><td class="num"><span class="badge drop">剔除 · 期间不匹配</span></td></tr>
+        </table>
+      </div>
+
+      <div class="section">
+        <div class="sechead"><h4>同行纳入与剔除</h4><span class="tag">兼容性门控 · 服务层判定</span></div>
+        <div class="panel">
+          <div class="row"><span class="who">纳入 5 家<small>PE / PB 参与计算</small></span><span class="why">财务期间同为 2025A、币种 CNY、单位一致、快照日期兼容（2026-06-30 ±0 天）。</span></div>
+          <div class="row"><span class="who">剔除 古井贡酒<small>000596.SZ</small></span><span class="why">本地快照为 2025H1 期间，与本标的 2025A 不匹配；不参与均值与中位数，仅保留剔除记录。</span></div>
+          <div class="row"><span class="who">PB 历史分位<small>EV-V-012</small></span><span class="why">本快照未提供 10 年分位序列，相关结论降级为「不足」，页面明示标注，不虚构分位。</span></div>
+        </div>
+      </div>
+
+      <div class="footnote">
+        本页仅展示固定版本快照，非实时行情，不构成交易或投资建议。全部估值指标基于 RAW 价格在服务层计算；
+        同行仅纳入期间、币种、单位兼容的本地快照，被剔除公司保留原因记录，不参与任何统计量。
+      </div>
+    </div>
+  </main>
+</div>
+</body>
+</html>

@@ -10,9 +10,12 @@ Key design decisions
 --------------------
 * **No import from openai.py.**  This module is self-contained and does not
   share any logic with the native OpenAI client.
-* **Thinking is explicitly disabled for DeepSeek, and only for DeepSeek.**
-  Every DeepSeek request sends ``extra_body={"thinking": {"type": "disabled"}}``.
-  Non-DeepSeek providers do NOT receive this parameter.
+* **Thinking is explicitly disabled where the registry says it can be.**
+  Models with ``accepts_thinking_disable=True`` (DeepSeek, Zhipu's GLM-4.x
+  hybrids) send ``extra_body={"thinking": {"type": "disabled"}}``; every other
+  model receives the bare call.  GLM-5.x cannot disable thinking at all, so
+  its entries keep the flag ``False`` — the guard is per-model registry data,
+  not a vendor name check.
 * **Cost is sourced from the registry.**  ``_calculate_cost`` reads per-token
   prices from ``model_registry.get_model_info()`` and accounts for
   ``prompt_cache_hit_tokens`` / ``prompt_cache_miss_tokens`` when available.
@@ -133,18 +136,19 @@ def _call_openai_compatible(
         try:
             client = OpenAI(**client_kwargs)
 
-            # Build create kwargs.  Only DeepSeek receives extra_body.
+            # Build create kwargs.  Only models whose registry entry says the
+            # vendor honours a disable switch receive extra_body.
             create_kwargs: Dict = {
                 "model": info.api_model_id,
                 "messages": messages,
                 "temperature": temperature,
                 "timeout": 60,
             }
-            # DeepSeek is the ONLY vendor here that receives a vendor-specific
-            # field.  Sending ``thinking`` to a vendor that does not know it is
-            # how a working call turns into a 400, so every other OpenAI-wire
-            # vendor (DashScope/百炼 included) gets the bare call.
-            if info.provider == "deepseek":
+            # Sending ``thinking`` to a vendor that does not know the field —
+            # or to a model that cannot honour it (GLM-5.x can only think) —
+            # is how a working call turns into a 400, so every other
+            # OpenAI-wire model gets the bare call.
+            if info.accepts_thinking_disable:
                 create_kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
 
             response = client.chat.completions.create(**create_kwargs)
@@ -264,3 +268,27 @@ def qwen_flash(
 ) -> Tuple[str, float]:
     """Call Qwen-Flash through Alibaba Cloud Model Studio (百炼 / DashScope)."""
     return _call_openai_compatible("qwen-flash", messages, temperature)
+
+
+def glm_4_7_flash(
+    messages: List[Dict], temperature: float = 0.3
+) -> Tuple[str, float]:
+    """Call GLM-4.7-Flash through Zhipu BigModel (free tier).
+
+    Thinking is force-disabled via ``extra_body`` (the model is a hybrid and
+    defaults to enabled).  The returned cost is **not money you can add up**:
+    the tier is charge-free, but the ledger registers no price — use
+    ``model_registry.cost_currency()`` to find out whether a cost is quotable.
+    """
+    return _call_openai_compatible("glm-4.7-flash", messages, temperature)
+
+
+def glm_5_3(
+    messages: List[Dict], temperature: float = 0.3
+) -> Tuple[str, float]:
+    """Call GLM-5.3 through Zhipu BigModel (flagship tier).
+
+    GLM-5.x can only ever think — the disable switch does not exist for it,
+    so the bare call is sent and the model reasons by default.
+    """
+    return _call_openai_compatible("glm-5.3", messages, temperature)

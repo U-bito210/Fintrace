@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>效果图 D2 · 方案B × Ghostfolio 排版 — 财务表现</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root {
+    --paper:#faf8f3; --card:#ffffff; --ink:#191610; --muted:#7a7264; --faint:#a49b8a;
+    --line:#e7e0d2; --line2:#efe9dc; --accent:#2b4a8b;
+    --up:#c53a3a; --down:#1f8a5d; --ok:#1f8a5d; --warn:#b07818; --ai:#6b4fa8;
+    --serif:Georgia,"Source Han Serif SC","Noto Serif SC","宋体",serif;
+    --sans:"Segoe UI","Microsoft YaHei",-apple-system,"PingFang SC",sans-serif;
+    --mono:"Cascadia Code",Consolas,"SF Mono",monospace;
+  }
+  body { background:var(--paper); color:var(--ink); font-family:var(--sans); font-size:14px; -webkit-font-smoothing:antialiased;
+    font-variant-numeric: tabular-nums; }
+  .app { display:grid; grid-template-columns:230px 1fr; min-height:1500px; }
+
+  aside { border-right:1px solid var(--line); padding:26px 18px; background:#f6f2e9; }
+  .logo { font-family:var(--serif); font-size:19px; font-weight:700; padding:0 8px 22px; }
+  .logo span { color:var(--accent); }
+  .navgrp { margin-top:20px; }
+  .navgrp h5 { font-size:10.5px; color:var(--faint); letter-spacing:.22em; padding:0 10px 8px; font-weight:600; }
+  .navitem { padding:6.5px 10px; font-size:13px; color:var(--muted); border-radius:6px; margin-bottom:1px; }
+  .navitem.active { color:var(--ink); font-weight:700; background:#fff; box-shadow:inset 3px 0 0 var(--accent); }
+
+  main { display:flex; flex-direction:column; }
+  .topbar { height:56px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:14px; padding:0 40px; }
+  .crumb { font-size:12.5px; color:var(--muted); }
+  .crumb b { color:var(--ink); font-weight:700; }
+  .spacer { flex:1; }
+  .rangewrap { display:flex; border:1px solid var(--line); background:#fff; border-radius:99px; padding:2.5px; }
+  .rpill { font-size:11.5px; color:var(--muted); padding:4px 12px; border-radius:99px; }
+  .rpill.active { background:var(--ink); color:var(--paper); font-weight:600; }
+  .okdot { font-size:12.5px; color:var(--ok); font-weight:600; }
+  .user { font-size:12.5px; color:var(--muted); font-family:var(--serif); font-style:italic; }
+
+  .content { padding:32px 44px 90px; max-width:1280px; }
+  .eyebrow { font-size:10.5px; letter-spacing:.28em; color:var(--faint); font-weight:700; margin-bottom:10px; }
+  .stockhead { display:flex; align-items:baseline; gap:14px; }
+  h1 { font-family:var(--serif); font-size:36px; font-weight:700; }
+  .code { font-family:var(--mono); color:var(--muted); font-size:14px; }
+  .meta { display:flex; gap:14px; margin-top:10px; flex-wrap:wrap; font-size:12px; color:var(--muted); }
+  .meta span::before { content:"·"; margin-right:6px; color:var(--faint); }
+  .meta .okb { color:var(--ok); font-weight:600; }
+
+  .periods { display:flex; align-items:center; gap:8px; margin-top:22px; }
+  .plab { font-size:10.5px; letter-spacing:.18em; color:var(--faint); font-weight:600; margin-right:6px; }
+  .ppill { font-size:12px; color:var(--muted); border:1px solid var(--line); background:#fff; padding:4.5px 14px; border-radius:99px; }
+  .ppill.active { background:var(--ink); border-color:var(--ink); color:var(--paper); font-weight:600; }
+
+  .tiles { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-top:14px; }
+  .tile { background:var(--card); border:1px solid var(--line); border-radius:4px; padding:15px 18px; }
+  .tile .lab { font-size:10.5px; letter-spacing:.16em; color:var(--faint); font-weight:600; margin-bottom:9px; display:flex; justify-content:space-between; }
+  .tile .val { font-family:var(--serif); font-size:24px; font-weight:700; }
+  .tile .val small { font-size:13px; color:var(--muted); font-weight:400; }
+  .tile .sub { font-size:11px; color:var(--muted); margin-top:6px; }
+  .tile .sub.up { color:var(--up); font-weight:600; }
+  .ev { font-family:var(--mono); font-size:10px; color:var(--faint); letter-spacing:0; }
+
+  .charts { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:12px; }
+  .chartcard { background:var(--card); border:1px solid var(--line); border-radius:4px; padding:18px 22px 10px; }
+  .chartcard .lab { font-size:10.5px; letter-spacing:.16em; color:var(--faint); font-weight:600; margin-bottom:12px; display:flex; justify-content:space-between; }
+  .lg { display:flex; gap:16px; font-size:11px; color:var(--muted); }
+  .lg i { display:inline-block; width:9px; height:9px; border-radius:2.5px; margin-right:5px; }
+
+  .route { margin:24px 0 6px; font-size:12.5px; color:var(--faint); }
+  .route b { color:var(--ink); font-weight:700; }
+  .route i { color:var(--accent); font-style:normal; font-weight:600; }
+
+  .section { margin-top:28px; }
+  .sechead { display:flex; align-items:baseline; gap:10px; border-bottom:1px solid var(--ink); padding-bottom:8px; margin-bottom:4px; }
+  .sechead h4 { font-size:12px; letter-spacing:.2em; font-weight:700; }
+  .sechead .tag { font-size:10.5px; letter-spacing:.12em; color:var(--faint); margin-left:auto; }
+  .sechead .tag.ai { color:var(--ai); }
+  table.tbl { width:100%; border-collapse:collapse; font-size:13px; background:var(--card); border:1px solid var(--line); }
+  .tbl th { text-align:left; font-size:10.5px; letter-spacing:.16em; color:var(--faint); font-weight:600; padding:10px 16px; border-bottom:1px solid var(--ink); background:#fff; }
+  .tbl th.num, .tbl td.num { text-align:right; }
+  .tbl td { padding:11px 16px; border-bottom:1px solid var(--line2); }
+  .tbl tr:last-child td { border-bottom:0; }
+  .tbl .name { font-weight:700; font-family:var(--serif); font-size:14px; }
+  .tbl td.num { font-family:var(--mono); font-size:12.5px; }
+  .tbl td.num.up { color:var(--up); font-weight:700; }
+  .mono { font-family:var(--mono); font-size:12px; color:var(--muted); }
+  .badge { display:inline-block; font-size:11px; font-weight:700; padding:2.5px 10px; border-radius:99px; letter-spacing:.04em; }
+  .badge.ok { color:var(--ok); background:rgba(31,138,93,.08); }
+  .badge.warn { color:var(--warn); background:rgba(176,120,24,.10); }
+
+  .grid2 { display:grid; grid-template-columns:1.15fr .85fr; gap:34px; margin:26px 0 10px; }
+  .factrow { display:flex; justify-content:space-between; align-items:baseline; padding:11px 0; border-bottom:1px solid var(--line2); font-size:13.5px; }
+  .factrow .k { color:var(--muted); }
+  .factrow .v { font-family:var(--serif); font-weight:700; font-size:16px; }
+  .factrow .v.up { color:var(--up); }
+  .narr { border-left:2px solid var(--ai); padding:2px 0 2px 18px; }
+  .narr p { font-family:var(--serif); font-size:14.5px; line-height:1.95; color:#33302a; }
+  .cite { font-family:var(--mono); font-size:10.5px; color:var(--ai); }
+  .narrnote { margin-top:12px; font-size:11px; color:var(--ai); letter-spacing:.1em; }
+
+  .warnpanel { margin-top:12px; border:1px dashed var(--warn); background:rgba(176,120,24,.05); border-radius:4px;
+    padding:13px 18px; font-size:12.5px; color:var(--warn); display:flex; gap:10px; align-items:baseline; }
+  .warnpanel b { font-weight:700; }
+  .warnpanel .d { color:var(--muted); }
+
+  .footnote { margin-top:34px; font-size:11.5px; color:var(--faint); line-height:1.9; border-top:1px solid var(--line); padding-top:16px; max-width:780px; }
+  .watermark { position:fixed; right:16px; bottom:14px; background:#fff; color:var(--warn);
+    border:1px solid var(--warn); font-size:11px; padding:5px 12px; border-radius:99px; z-index:99; letter-spacing:.06em; }
+</style>
+</head>
+<body>
+<div class="watermark">UI 效果图 D2 · 方案B × Ghostfolio 排版 · 数据均为示意，非真实快照</div>
+<div class="app">
+  <aside>
+    <div class="logo">FinTrace<span>·CN</span></div>
+    <div class="navgrp"><h5>研究工作台</h5>
+      <div class="navitem">研究总览</div>
+      <div class="navitem">市场与行情</div>
+      <div class="navitem active">财务表现</div>
+      <div class="navitem">财务分析</div>
+      <div class="navitem">同行估值</div>
+    </div>
+    <div class="navgrp"><h5>AI 研究</h5>
+      <div class="navitem">AI Agent 研究</div>
+      <div class="navitem">Agent 执行轨迹</div>
+    </div>
+    <div class="navgrp"><h5>证据与报告</h5>
+      <div class="navitem">证据与校验</div>
+      <div class="navitem">文档智能</div>
+      <div class="navitem">研究报告</div>
+    </div>
+    <div class="navgrp"><h5>任务中心</h5>
+      <div class="navitem">研究任务</div>
+      <div class="navitem">每日复盘</div>
+      <div class="navitem">评测与消融</div>
+    </div>
+    <div class="navgrp"><h5>演示与设置</h5>
+      <div class="navitem">案例演示</div>
+      <div class="navitem">结论护照 …</div>
+    </div>
+  </aside>
+
+  <main>
+    <div class="topbar">
+      <div class="crumb">研究工作台 / <b>财务表现</b></div>
+      <div class="spacer"></div>
+      <div class="rangewrap">
+        <span class="rpill active">2026-06-30</span><span class="rpill">2026-03-31</span><span class="rpill">2025-12-31</span>
+      </div>
+      <div class="okdot">● 校验通过 12/12</div>
+      <div class="user">只读 · U-bito210</div>
+    </div>
+
+    <div class="content">
+      <div class="eyebrow">财务表现 — 年报与季报</div>
+      <div class="stockhead"><h1>贵州茅台 · 财务表现</h1><span class="code">600519.SH</span></div>
+      <div class="meta">
+        <span>快照 2026-06-30</span><span>来源 巨潮资讯网年报 + 新浪财经</span><span>币种 CNY · 表内单位 亿元</span><span>期间 2025A 年报</span><span class="okb">● 校验通过 12/12</span>
+      </div>
+
+      <div class="periods">
+        <span class="plab">报告期</span>
+        <span class="ppill active">2025A</span>
+        <span class="ppill">2024A</span>
+        <span class="ppill">2023A</span>
+        <span class="ppill">TTM</span>
+        <span class="ppill" style="color:var(--warn); border-style:dashed;">◐ 2026Q1 · 部分</span>
+      </div>
+
+      <div class="tiles">
+        <div class="tile"><div class="lab">营业总收入 <span class="ev">EV-F-007</span></div>
+          <div class="val">2,015<small> 亿</small></div><div class="sub up">▲ 同比 +15.7%</div></div>
+        <div class="tile"><div class="lab">归母净利润 <span class="ev">EV-F-008</span></div>
+          <div class="val">976.1<small> 亿</small></div><div class="sub up">▲ 同比 +13.2%</div></div>
+        <div class="tile"><div class="lab">毛利率 <span class="ev">EV-F-009</span></div>
+          <div class="val">91.8<small>%</small></div><div class="sub">服务层计算 · 2025A</div></div>
+        <div class="tile"><div class="lab">摊薄 ROE <span class="ev">EV-F-012</span></div>
+          <div class="val">34.2<small>%</small></div><div class="sub">服务层计算 · 2025A</div></div>
+      </div>
+
+      <div class="charts">
+        <div class="chartcard">
+          <div class="lab">营业总收入与归母净利润（亿元 · 2021–2025） <span class="ev">EV-F-007/008</span>
+            <span class="lg"><span><i style="background:#2b4a8b"></i>营收</span><span><i style="background:#8a7a5c"></i>归母净利</span></span></div>
+          <svg width="100%" height="190" viewBox="0 0 420 190" preserveAspectRatio="none">
+            <line x1="24" y1="160" x2="410" y2="160" stroke="#e7e0d2" stroke-width="1"/>
+            <g>
+              <rect x="34"  y="86"  width="26" height="74"  fill="#2b4a8b" opacity=".82"/>
+              <rect x="66"  y="124" width="26" height="36"  fill="#8a7a5c"/>
+              <rect x="110" y="74"  width="26" height="86"  fill="#2b4a8b" opacity=".82"/>
+              <rect x="142" y="116" width="26" height="44"  fill="#8a7a5c"/>
+              <rect x="186" y="57"  width="26" height="103" fill="#2b4a8b" opacity=".82"/>
+              <rect x="218" y="108" width="26" height="52"  fill="#8a7a5c"/>
+              <rect x="262" y="39"  width="26" height="121" fill="#2b4a8b" opacity=".82"/>
+              <rect x="294" y="100" width="26" height="60"  fill="#8a7a5c"/>
+              <rect x="338" y="20"  width="26" height="140" fill="#2b4a8b"/>
+              <rect x="370" y="92"  width="26" height="68"  fill="#8a7a5c"/>
+            </g>
+            <text x="351" y="14" font-size="10" fill="#191610" font-family="Consolas" font-weight="700" text-anchor="middle">2,015</text>
+            <text x="383" y="86" font-size="10" fill="#191610" font-family="Consolas" font-weight="700" text-anchor="middle">976</text>
+            <text x="47"  y="178" font-size="10" fill="#a49b8a" font-family="Consolas" text-anchor="middle">2021</text>
+            <text x="123" y="178" font-size="10" fill="#a49b8a" font-family="Consolas" text-anchor="middle">2022</text>
+            <text x="199" y="178" font-size="10" fill="#a49b8a" font-family="Consolas" text-anchor="middle">2023</text>
+            <text x="275" y="178" font-size="10" fill="#a49b8a" font-family="Consolas" text-anchor="middle">2024</text>
+            <text x="351" y="178" font-size="10" fill="#a49b8a" font-family="Consolas" text-anchor="middle">2025</text>
+          </svg>
+        </div>
+        <div class="chartcard">
+          <div class="lab">同比增速（% · 2022–2025） <span class="ev">服务层计算</span>
+            <span class="lg"><span><i style="background:#2b4a8b"></i>营收增速</span><span><i style="background:#8a7a5c"></i>归母增速</span></span></div>
+          <svg width="100%" height="190" viewBox="0 0 420 190" preserveAspectRatio="none">
+            <line x1="40" y1="147" x2="404" y2="147" stroke="#efe9dc" stroke-width="1"/>
+            <line x1="40" y1="123" x2="404" y2="123" stroke="#efe9dc" stroke-width="1"/>
+            <line x1="40" y1="100" x2="404" y2="100" stroke="#efe9dc" stroke-width="1"/>
+            <line x1="40" y1="76"  x2="404" y2="76"  stroke="#efe9dc" stroke-width="1"/>
+            <line x1="40" y1="52"  x2="404" y2="52"  stroke="#efe9dc" stroke-width="1"/>
+            <text x="34" y="150" font-size="9" fill="#a49b8a" font-family="Consolas" text-anchor="end">12</text>
+            <text x="34" y="126" font-size="9" fill="#a49b8a" font-family="Consolas" text-anchor="end">14</text>
+            <text x="34" y="103" font-size="9" fill="#a49b8a" font-family="Consolas" text-anchor="end">16</text>
+            <text x="34" y="79"  font-size="9" fill="#a49b8a" font-family="Consolas" text-anchor="end">18</text>
+            <text x="34" y="55"  font-size="9" fill="#a49b8a" font-family="Consolas" text-anchor="end">20</text>
+            <path d="M76,136 187,113 298,123 404,150" fill="none" stroke="#2b4a8b" stroke-width="1.8"/>
+            <path d="M76,105 187,109 298,147 404,172" fill="none" stroke="#8a7a5c" stroke-width="1.8"/>
+            <circle cx="76"  cy="136" r="3" fill="#2b4a8b"/><circle cx="187" cy="113" r="3" fill="#2b4a8b"/>
+            <circle cx="298" cy="123" r="3" fill="#2b4a8b"/><circle cx="404" cy="150" r="3.5" fill="#2b4a8b"/>
+            <circle cx="76"  cy="105" r="3" fill="#8a7a5c"/><circle cx="187" cy="109" r="3" fill="#8a7a5c"/>
+            <circle cx="298" cy="147" r="3" fill="#8a7a5c"/><circle cx="404" cy="172" r="3.5" fill="#8a7a5c"/>
+            <text x="404" y="138" font-size="10" fill="#2b4a8b" font-family="Consolas" font-weight="700" text-anchor="middle">+15.7</text>
+            <text x="404" y="188" font-size="10" fill="#8a7a5c" font-family="Consolas" font-weight="700" text-anchor="middle">+13.2</text>
+            <text x="76"  y="182" font-size="10" fill="#a49b8a" font-family="Consolas" text-anchor="middle">2022</text>
+            <text x="187" y="182" font-size="10" fill="#a49b8a" font-family="Consolas" text-anchor="middle">2023</text>
+            <text x="298" y="182" font-size="10" fill="#a49b8a" font-family="Consolas" text-anchor="middle">2024</text>
+            <text x="404" y="182" font-size="0" fill="#a49b8a" font-family="Consolas" text-anchor="middle">2025</text>
+          </svg>
+        </div>
+      </div>
+
+      <div class="route">研究路径：选择标的 → <i>拉取快照（当前）</i> → 校验证据 → 估值计算 → AI 解读 → 生成报告　·　<b>下一步</b>：让 Agent 解读 →</div>
+
+      <div class="section">
+        <div class="sechead"><h4>利润表摘要</h4><span class="tag">2025A 年报 · 单位 亿元 · 合并口径</span></div>
+        <table class="tbl">
+          <tr><th>指标</th><th class="num">2025A</th><th class="num">2024A</th><th class="num">同比</th><th class="num">证据</th></tr>
+          <tr><td class="name">营业总收入</td><td class="num">2,015.3</td><td class="num">1,741.4</td><td class="num up">+15.7%</td><td class="num mono">EV-F-007</td></tr>
+          <tr><td class="name">营业成本</td><td class="num">165.8</td><td class="num">149.9</td><td class="num">+10.6%</td><td class="num mono">EV-F-007</td></tr>
+          <tr><td class="name">毛利率 <span class="mono">计算</span></td><td class="num">91.8%</td><td class="num">91.4%</td><td class="num">+0.4pp</td><td class="num mono">EV-F-009</td></tr>
+          <tr><td class="name">销售费用</td><td class="num">34.5</td><td class="num">32.1</td><td class="num">+7.5%</td><td class="num mono">EV-F-007</td></tr>
+          <tr><td class="name">管理费用</td><td class="num">78.2</td><td class="num">74.6</td><td class="num">+4.8%</td><td class="num mono">EV-F-007</td></tr>
+          <tr><td class="name">归母净利润</td><td class="num">976.1</td><td class="num">862.3</td><td class="num up">+13.2%</td><td class="num mono">EV-F-008</td></tr>
+          <tr><td class="name">扣非归母净利润</td><td class="num">962.4</td><td class="num">849.9</td><td class="num">+13.2%</td><td class="num mono">EV-F-008</td></tr>
+          <tr><td class="name">经营活动现金流净额</td><td class="num">1,012.4</td><td class="num">924.6</td><td class="num">+9.5%</td><td class="num mono">EV-F-010</td></tr>
+        </table>
+      </div>
+
+      <div class="warnpanel">
+        <span><b>◐ 2026Q1 季报 · 部分披露</b></span>
+        <span class="d">—— 现金流量表部分科目未披露，涉及 Q1 的现金流指标已标注「部分缺失」，不参与结论计算。</span>
+      </div>
+
+      <div class="grid2">
+        <div>
+          <div class="sechead"><h4>关键研究摘要</h4><span class="tag">事实 · 服务层计算</span></div>
+          <div class="factrow"><span class="k">业绩状态（2025A）</span><span class="v">已披露 · 完整</span></div>
+          <div class="factrow"><span class="k">营收变化</span><span class="v up">+15.7%</span></div>
+          <div class="factrow"><span class="k">归母净利润变化</span><span class="v up">+13.2%</span></div>
+          <div class="factrow"><span class="k">下一次应验证</span><span class="v" style="font-size:13.5px;font-weight:400;font-family:var(--sans);">2026 中报 · 营收与净利是否延续</span></div>
+        </div>
+        <div>
+          <div class="sechead"><h4>AI 研究解读</h4><span class="tag ai">模型叙事 · 需人工复核</span></div>
+          <div class="narr">
+            <p>2025 年报口径下营收与归母净利延续双位数增长，毛利率稳定在 91% 以上 <span class="cite">[EV-F-009]</span>；经营现金流与净利匹配，盈利质量未见异常信号。</p>
+            <p style="margin-top:10px;">需留意扣非与归母的差额变化，以及 2026Q1 现金流明细缺失 <span class="cite">[EV-F-010]</span> 对短期结论的影响……</p>
+          </div>
+          <div class="narrnote">叙事与事实分离呈现 · 不可作为事实引用</div>
+        </div>
+      </div>
+
+      <div class="footnote">
+        本页仅展示固定版本快照，非实时数据，不构成交易或投资建议。表内金额单位为亿元（人民币）；
+        毛利率、ROE 等派生指标由服务层确定性计算并挂证据 ID，前端不自行计算。
+      </div>
+    </div>
+  </main>
+</div>
+</body>
+</html>

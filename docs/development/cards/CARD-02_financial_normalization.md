@@ -7,7 +7,7 @@
 | 对应赛题 | 赛题2/5 的数据基础（全主链） |
 | 依赖 | CARD-01（ExtractedFact 输入）、**现有** `src/cn/periods.py`（FinancialPeriodEngine）、**现有** `src/cn/evidence.py`（Evidence Ledger 扩展）、**现有** `src/cn/domain.py`（FinancialStatement） |
 | 实现复杂度 | 中高（约 4–5 人日） |
-| 状态 | 🟡 实现完成 + 测试全绿（§15 最后一条受外部工件阻塞，见 §16） |
+| 状态 | ✅ §15 验收项全部达成（快照阻塞已于 2026-09-20 解除，2026-10-08 复核离线全绿 1753 passed）；唯 §14 规范化页面归 CARD-15，尚未接 |
 | Skill 要求 | 动手前加载 financial-data-provenance |
 
 ## 1. 目标
@@ -228,3 +228,4 @@ UI 展示"原始披露值 → 规范化值"对照表（含单位换算、YTD→�
 | 2026-09-17 | **增量纠偏：`_derive_metrics` 不得在期间语义未定的行上派生。** 「前期差错更正影响金额」这类附注表不在报表白名单内，其 `period_kind` 为 `None`，但报告期会被 `report_period` 盖成 `2025FY`，于是 `gross_profit = revenue - operating_cost` 会被派生出来并挂到一个语义不明的事实上（一个自信的错值）。已加 `if minuend.period_kind is None: continue` + `derive-undecided-period` 计数告警。 |
 | 2026-09-19 | **修一处真 bug（CARD-22 发现，跨卡改动）：更窄的小计冒充其父汇总。** `resolve_metric` 的「最长同义词胜出」把「**流动资产合计**」映射到 `total_assets`（其同义词表里含「资产合计」这类更短字面），于是在按 `(statement, period)` 投影时顶掉了文档实际印刷的「资产总计」—— 报表上明明印了汇总行，系统却拿它的子项顶上，且下游（CARD-03 比率、CARD-22 F1 恒等式）不会收到任何提示。新增 `_is_narrower_aggregate()` 守卫：候选标签若被另一条已匹配的更宽标签**包含**且自身更窄，一律拒绝映射并记 unknown，**绝不静默出值**。新增 `tests/test_cn_normalization.py::test_narrower_subtotals_never_impersonate_their_parent_total`（三个更窄小计被拒 + 「资产总计」存活），既有规范化测试全部不变。 |
 | 2026-09-20 | **跨卡：tushare 快照真实重建**。用户填好 `.env` 的 `TUSHARE_TOKEN` 后，真实重建 9 个 `_tushare_v1` 快照（4 个标的 + 5 个白酒同业）→ 全量离线 **0 failed / 1531 passed / 0 skipped**。§15「全部测试离线通过」由 ☐ 转 ☑ —— 该条此前被 23 项快照缺失阻塞，与本卡代码无关。重建流程及三个坑（同业快照要一起建、bars 窗口不得越过研究时点、688836 上市日）见 `MEMORY.md`「快照重建」段。 |
+| 2026-10-08 | **状态行同步（修文档漂移）**：§15 验收项已全部 ☑，但表头「状态」行仍写「受外部工件阻塞」，与本行 2026-09-20 的记录自相矛盾，已改为 ✅。同日复核全量离线 **1753 passed / 0 failed**。另修一处平台差异：Windows 下按 `AGENTS.md` 原命令直跑会得到约 319 项 `PermissionError: pytest-of-<user>` 的 fixture 装配错误（非代码缺陷），已在 `pytest.ini` 固定 `--basetemp=tmp/pytest-tmp`，评审环境复现不再依赖本机 ACL。 |

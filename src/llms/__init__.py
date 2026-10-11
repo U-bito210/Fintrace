@@ -36,13 +36,15 @@ from .claude import (
     calculate_cost as calculate_claude_cost
 )
 
-# OpenAI-compatible providers (DeepSeek, Alibaba Cloud Model Studio / 百炼, etc.)
+# OpenAI-compatible providers (DeepSeek, Alibaba Cloud Model Studio / 百炼, Zhipu BigModel, etc.)
 from .openai_compatible import (
     deepseek_v4_flash,
     deepseek_v4_pro,
     qwen3_max,
     qwen_plus,
     qwen_flash,
+    glm_4_7_flash,
+    glm_5_3,
 )
 
 # Configuration and utilities
@@ -77,6 +79,10 @@ __all__ = [
     'qwen3_max',
     'qwen_plus',
     'qwen_flash',
+
+    # Zhipu BigModel / 智谱 (OpenAI-compatible, unpriced)
+    'glm_4_7_flash',
+    'glm_5_3',
 
     # Configuration
     'init_llm',

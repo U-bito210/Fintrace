@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>效果图 D8 · 方案B × Ghostfolio 排版 — 每日复盘</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root {
+    --paper:#faf8f3; --card:#ffffff; --ink:#191610; --muted:#7a7264; --faint:#a49b8a;
+    --line:#e7e0d2; --line2:#efe9dc; --accent:#2b4a8b;
+    --up:#c53a3a; --down:#1f8a5d; --ok:#1f8a5d; --warn:#b07818; --ai:#6b4fa8;
+    --serif:Georgia,"Source Han Serif SC","Noto Serif SC","宋体",serif;
+    --sans:"Segoe UI","Microsoft YaHei",-apple-system,"PingFang SC",sans-serif;
+    --mono:"Cascadia Code",Consolas,"SF Mono",monospace;
+  }
+  body { background:var(--paper); color:var(--ink); font-family:var(--sans); font-size:14px; -webkit-font-smoothing:antialiased;
+    font-variant-numeric: tabular-nums; }
+  .app { display:grid; grid-template-columns:230px 1fr; min-height:1500px; }
+
+  aside { border-right:1px solid var(--line); padding:26px 18px; background:#f6f2e9; }
+  .logo { font-family:var(--serif); font-size:19px; font-weight:700; padding:0 8px 22px; }
+  .logo span { color:var(--accent); }
+  .navgrp { margin-top:20px; }
+  .navgrp h5 { font-size:10.5px; color:var(--faint); letter-spacing:.22em; padding:0 10px 8px; font-weight:600; }
+  .navitem { padding:6.5px 10px; font-size:13px; color:var(--muted); border-radius:6px; margin-bottom:1px; }
+  .navitem.active { color:var(--ink); font-weight:700; background:#fff; box-shadow:inset 3px 0 0 var(--accent); }
+
+  main { display:flex; flex-direction:column; }
+  .topbar { height:56px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:14px; padding:0 40px; }
+  .crumb { font-size:12.5px; color:var(--muted); }
+  .crumb b { color:var(--ink); font-weight:700; }
+  .spacer { flex:1; }
+  .rangewrap { display:flex; border:1px solid var(--line); background:#fff; border-radius:99px; padding:2.5px; }
+  .rpill { font-size:11.5px; color:var(--muted); padding:4px 12px; border-radius:99px; }
+  .rpill.active { background:var(--ink); color:var(--paper); font-weight:600; }
+  .okdot { font-size:12.5px; color:var(--ok); font-weight:600; }
+  .user { font-size:12.5px; color:var(--muted); font-family:var(--serif); font-style:italic; }
+
+  .content { padding:32px 44px 90px; max-width:1280px; }
+  .eyebrow { font-size:10.5px; letter-spacing:.28em; color:var(--faint); font-weight:700; margin-bottom:10px; }
+  .stockhead { display:flex; align-items:baseline; gap:14px; }
+  h1 { font-family:var(--serif); font-size:36px; font-weight:700; }
+  .code { font-family:var(--mono); color:var(--muted); font-size:14px; }
+  .meta { display:flex; gap:14px; margin-top:10px; flex-wrap:wrap; font-size:12px; color:var(--muted); }
+  .meta span::before { content:"·"; margin-right:6px; color:var(--faint); }
+  .meta .okb { color:var(--ok); font-weight:600; }
+  .ev { font-family:var(--mono); font-size:10px; color:var(--faint); letter-spacing:0; }
+  .badge { display:inline-block; font-size:11px; font-weight:700; padding:2.5px 10px; border-radius:99px; letter-spacing:.04em; }
+  .badge.up { color:var(--up); background:rgba(197,58,58,.08); }
+  .badge.down { color:var(--down); background:rgba(31,138,93,.08); }
+  .badge.ai { color:var(--ai); background:rgba(107,79,168,.08); }
+
+  /* ── 指数磁贴 ── */
+  .idx { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-top:24px; }
+  .idxtile { background:var(--card); border:1px solid var(--line); border-radius:4px; padding:16px 20px; }
+  .idxtile .lab { font-size:10.5px; letter-spacing:.16em; color:var(--faint); font-weight:600; margin-bottom:10px; display:flex; justify-content:space-between; }
+  .idxtile .num { font-family:var(--serif); font-size:27px; font-weight:700; line-height:1; }
+  .idxtile .chg { font-size:12px; font-weight:700; margin-top:8px; }
+  .idxtile .chg.up { color:var(--up); }
+  .idxtile .chg.down { color:var(--down); }
+  .idxtile svg { display:block; margin-top:10px; }
+
+  .grid2 { display:grid; grid-template-columns:1.2fr .8fr; gap:26px; margin-top:26px; }
+  .sechead { display:flex; align-items:baseline; gap:10px; border-bottom:1px solid var(--ink); padding-bottom:8px; margin-bottom:4px; }
+  .sechead h4 { font-size:12px; letter-spacing:.2em; font-weight:700; }
+  .sechead .tag { font-size:10.5px; letter-spacing:.12em; color:var(--faint); margin-left:auto; }
+  .sechead .tag.ai { color:var(--ai); }
+
+  table.tbl { width:100%; border-collapse:collapse; font-size:13px; background:var(--card); border:1px solid var(--line); }
+  .tbl th { text-align:left; font-size:10.5px; letter-spacing:.16em; color:var(--faint); font-weight:600; padding:10px 16px; border-bottom:1px solid var(--ink); background:#fff; }
+  .tbl th.num, .tbl td.num { text-align:right; }
+  .tbl td { padding:10.5px 16px; border-bottom:1px solid var(--line2); }
+  .tbl tr:last-child td { border-bottom:0; }
+  .tbl td.num { font-family:var(--mono); font-size:12.5px; }
+  .tbl td.num.up { color:var(--up); font-weight:700; }
+  .tbl td.num.down { color:var(--down); font-weight:700; }
+  .tbl .name { font-weight:700; font-family:var(--serif); font-size:13.5px; }
+
+  /* ── 板块涨跌条 ── */
+  .sector { background:var(--card); border:1px solid var(--line); border-radius:4px; padding:14px 20px 16px; }
+  .srow { display:grid; grid-template-columns:88px 1fr 56px; gap:12px; align-items:center; padding:6.5px 0; font-size:12.5px; }
+  .srow .nm { color:var(--ink); font-weight:600; }
+  .srow .bar { height:10px; border-radius:2px; }
+  .srow .pct { text-align:right; font-family:var(--mono); font-size:12px; font-weight:700; }
+  .srow .pct.up { color:var(--up); } .srow .pct.down { color:var(--down); }
+  .scap { font-size:10.5px; letter-spacing:.18em; color:var(--faint); font-weight:600; margin:8px 0 4px; }
+
+  /* ── 三分区：事实 / 计算 / 叙事 ── */
+  .tri { display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px; margin-top:26px; }
+  .tricard { background:var(--card); border:1px solid var(--line); border-radius:4px; padding:16px 18px; }
+  .tricard .cap { font-size:10.5px; letter-spacing:.18em; color:var(--faint); font-weight:700; margin-bottom:4px; }
+  .tricard .cap.ai { color:var(--ai); }
+  .frow { display:flex; justify-content:space-between; align-items:baseline; padding:8px 0; border-bottom:1px solid var(--line2); font-size:12.5px; }
+  .frow:last-child { border-bottom:0; }
+  .frow .k { color:var(--muted); }
+  .frow .v { font-family:var(--serif); font-weight:700; font-size:14px; }
+  .frow .v.up { color:var(--up); } .frow .v.down { color:var(--down); }
+  .calcbox { background:#f6f2e9; border:1px solid var(--line); border-radius:4px; padding:11px 13px;
+    font-family:var(--mono); font-size:10.5px; color:#4a4436; line-height:1.9; white-space:pre; overflow-x:auto; margin-top:8px; }
+  .narr { border-left:2px solid var(--ai); padding:2px 0 2px 15px; margin-top:6px; }
+  .narr p { font-family:var(--serif); font-size:13.5px; line-height:1.95; color:#33302a; }
+  .cite { font-family:var(--mono); font-size:10px; color:var(--ai); }
+  .narrnote { margin-top:10px; font-size:10.5px; color:var(--ai); letter-spacing:.08em; }
+
+  .footnote { margin-top:34px; font-size:11.5px; color:var(--faint); line-height:1.9; border-top:1px solid var(--line); padding-top:16px; max-width:780px; }
+  .watermark { position:fixed; right:16px; bottom:14px; background:#fff; color:var(--warn);
+    border:1px solid var(--warn); font-size:11px; padding:5px 12px; border-radius:99px; z-index:99; letter-spacing:.06em; }
+</style>
+</head>
+<body>
+<div class="watermark">UI 效果图 D8 · 方案B × Ghostfolio 排版 · 数据均为示意，非真实快照</div>
+<div class="app">
+  <aside>
+    <div class="logo">FinTrace<span>·CN</span></div>
+    <div class="navgrp"><h5>研究工作台</h5>
+      <div class="navitem">研究总览</div>
+      <div class="navitem">市场与行情</div>
+      <div class="navitem">财务表现</div>
+      <div class="navitem">财务分析</div>
+      <div class="navitem">同行估值</div>
+    </div>
+    <div class="navgrp"><h5>AI 研究</h5>
+      <div class="navitem">AI Agent 研究</div>
+      <div class="navitem">Agent 执行轨迹</div>
+    </div>
+    <div class="navgrp"><h5>证据与报告</h5>
+      <div class="navitem">证据与校验</div>
+      <div class="navitem">文档智能</div>
+      <div class="navitem">研究报告</div>
+    </div>
+    <div class="navgrp"><h5>任务中心</h5>
+      <div class="navitem">研究任务</div>
+      <div class="navitem active">每日复盘</div>
+      <div class="navitem">评测与消融</div>
+    </div>
+    <div class="navgrp"><h5>演示与设置</h5>
+      <div class="navitem">案例演示</div>
+      <div class="navitem">结论护照 …</div>
+    </div>
+  </aside>
+
+  <main>
+    <div class="topbar">
+      <div class="crumb">任务中心 / <b>每日复盘</b></div>
+      <div class="spacer"></div>
+      <div class="rangewrap">
+        <span class="rpill active">2026-09-30</span><span class="rpill">2026-09-29</span><span class="rpill">2026-09-28</span>
+      </div>
+      <div class="okdot">● 收盘快照已入库</div>
+      <div class="user">只读 · U-bito210</div>
+    </div>
+
+    <div class="content">
+      <div class="eyebrow">每日复盘 — 收盘快照 · 非实时</div>
+      <div class="stockhead"><h1>每日复盘</h1><span class="code">2026-09-30 · A股</span></div>
+      <div class="meta">
+        <span>复盘基于 15:00 收盘快照</span><span>来源 交易所收盘统计 + 东方财富</span><span>币种 CNY</span><span class="okb">● 收盘快照已入库</span>
+      </div>
+
+      <div class="idx">
+        <div class="idxtile">
+          <div class="lab">上证指数 <span class="ev">EV-D-101</span></div>
+          <div class="num">3,842.66</div>
+          <div class="chg up">▲ +16.02 · +0.42%</div>
+          <svg width="100%" height="26" viewBox="0 0 150 26" preserveAspectRatio="none">
+            <path d="M0,18 15,15 30,17 45,12 60,14 75,9 90,11 105,7 120,9 135,5 150,6" fill="none" stroke="#c53a3a" stroke-width="1.5"/>
+          </svg>
+        </div>
+        <div class="idxtile">
+          <div class="lab">深证成指 <span class="ev">EV-D-102</span></div>
+          <div class="num">12,468.30</div>
+          <div class="chg down">▼ -22.51 · -0.18%</div>
+          <svg width="100%" height="26" viewBox="0 0 150 26" preserveAspectRatio="none">
+            <path d="M0,8 15,11 30,9 45,13 60,11 75,15 90,13 105,17 120,15 135,19 150,17" fill="none" stroke="#1f8a5d" stroke-width="1.5"/>
+          </svg>
+        </div>
+        <div class="idxtile">
+          <div class="lab">创业板指 <span class="ev">EV-D-103</span></div>
+          <div class="num">2,684.15</div>
+          <div class="chg up">▲ +17.63 · +0.66%</div>
+          <svg width="100%" height="26" viewBox="0 0 150 26" preserveAspectRatio="none">
+            <path d="M0,20 15,16 30,18 45,14 60,16 75,10 90,12 105,8 120,10 135,6 150,7" fill="none" stroke="#c53a3a" stroke-width="1.5"/>
+          </svg>
+        </div>
+        <div class="idxtile">
+          <div class="lab">两市成交额 <span class="ev">EV-D-104</span></div>
+          <div class="num">1.42<small style="font-size:13px;color:var(--muted);font-weight:400;"> 万亿</small></div>
+          <div class="chg up">▲ 较昨日 +6.1%</div>
+          <svg width="100%" height="26" viewBox="0 0 150 26" preserveAspectRatio="none">
+            <path d="M0,10 15,14 30,12 45,16 60,13 75,17 90,14 105,18 120,15 135,19 150,16" fill="none" stroke="#8a7a5c" stroke-width="1.5"/>
+          </svg>
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div>
+          <div class="sechead"><h4>市场广度</h4><span class="tag">收盘统计 · 服务层汇总</span></div>
+          <table class="tbl">
+            <tr><th>指标</th><th class="num">数值</th><th class="num">较昨日</th><th class="num">证据</th></tr>
+            <tr><td class="name">上涨家数</td><td class="num">2,864</td><td class="num up">+214</td><td class="num mono">EV-D-105</td></tr>
+            <tr><td class="name">下跌家数</td><td class="num">2,310</td><td class="num down">-186</td><td class="num mono">EV-D-105</td></tr>
+            <tr><td class="name">平盘家数</td><td class="num">322</td><td class="num">-28</td><td class="num mono">EV-D-105</td></tr>
+            <tr><td class="name">涨停 / 跌停</td><td class="num">46 / 12</td><td class="num">+7 / -3</td><td class="num mono">EV-D-106</td></tr>
+            <tr><td class="name">沪深港通净买入</td><td class="num">+58.4 亿</td><td class="num up">+12.7 亿</td><td class="num mono">EV-D-107</td></tr>
+          </table>
+        </div>
+        <div>
+          <div class="sechead"><h4>行业涨跌</h4><span class="tag">申万一级 · 前四后四</span></div>
+          <div class="sector">
+            <div class="scap">领涨</div>
+            <div class="srow"><span class="nm">食品饮料</span><span class="bar" style="width:84%; background:rgba(197,58,58,.75);"></span><span class="pct up">+2.1%</span></div>
+            <div class="srow"><span class="nm">半导体</span><span class="bar" style="width:68%; background:rgba(197,58,58,.6);"></span><span class="pct up">+1.7%</span></div>
+            <div class="srow"><span class="nm">有色金属</span><span class="bar" style="width:56%; background:rgba(197,58,58,.5);"></span><span class="pct up">+1.4%</span></div>
+            <div class="srow"><span class="nm">医药生物</span><span class="bar" style="width:32%; background:rgba(197,58,58,.35);"></span><span class="pct up">+0.8%</span></div>
+            <div class="scap" style="margin-top:12px;">领跌</div>
+            <div class="srow"><span class="nm">光伏设备</span><span class="bar" style="width:76%; background:rgba(31,138,93,.65); margin-left:auto;"></span><span class="pct down">-1.9%</span></div>
+            <div class="srow"><span class="nm">房地产</span><span class="bar" style="width:56%; background:rgba(31,138,93,.5); margin-left:auto;"></span><span class="pct down">-1.4%</span></div>
+            <div class="srow"><span class="nm">证券</span><span class="bar" style="width:44%; background:rgba(31,138,93,.42); margin-left:auto;"></span><span class="pct down">-1.1%</span></div>
+            <div class="srow"><span class="nm">银行</span><span class="bar" style="width:20%; background:rgba(31,138,93,.3); margin-left:auto;"></span><span class="pct down">-0.5%</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="tri">
+        <div class="tricard">
+          <div class="cap">复盘事实</div>
+          <div class="frow"><span class="k">两市成交额</span><span class="v">1.42 万亿</span></div>
+          <div class="frow"><span class="k">涨跌停比</span><span class="v">46 : 12</span></div>
+          <div class="frow"><span class="k">北向净买入</span><span class="v up">+58.4 亿</span></div>
+          <div class="frow"><span class="k">食品饮料（申万）</span><span class="v up">+2.1%</span></div>
+          <div class="frow"><span class="k">光伏设备（申万）</span><span class="v down">-1.9%</span></div>
+        </div>
+        <div class="tricard">
+          <div class="cap">服务层计算</div>
+          <div class="calcbox">breadth.up      = 2,864
+breadth.down    = 2,310
+advance_ratio   = up / (up+down)
+                = 55.4%
+limit_ratio     = 46 / 12 = 3.8
+turnover_yoy    = +6.1%
+source: 收盘快照 · 逐项挂证据</div>
+        </div>
+        <div class="tricard">
+          <div class="cap ai">◆ 复盘叙事 · 需人工复核</div>
+          <div class="narr">
+            <p>市场放量上行，广度偏强：上涨家数占比 55.4% <span class="cite">[EV-D-105]</span>，涨跌停比 3.8，赚钱效应集中在食品饮料与半导体；光伏与地产拖累指数。北向净买入扩大，情绪中性偏暖。</p>
+          </div>
+          <div class="narrnote">叙事与事实分离 · 不可作为事实引用</div>
+        </div>
+      </div>
+
+      <div class="footnote">
+        每日复盘基于收盘后入库的固定快照生成，非实时行情；事实、计算与叙事三分区呈现，叙事由模型生成、需人工复核，
+        全部数值可回指证据台账。本页不构成交易或投资建议。
+      </div>
+    </div>
+  </main>
+</div>
+</body>
+</html>

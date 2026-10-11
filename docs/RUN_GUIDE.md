@@ -138,6 +138,10 @@ git status --short
 
 测试通过时，pytest 会显示通过数量，冒烟测试最后会显示类似 `N/N pages clean`。冒烟测试不需要先启动 Streamlit，它会自己加载工作台页面。
 
+当前基线：`1753 passed, 3 deselected`（2026-10-08 复核，零失败）。
+
+临时目录已在 `pytest.ini` 里固定为 `--basetemp=tmp/pytest-tmp`。这是为了让 Windows 上也能一键复现：不使用该固定值时，`tmp_path` 会落到 `%TEMP%\pytest-of-<用户名>`，在部分 Windows 机器上因 ACL 被拒，表现为成百上千条 `PermissionError` 的 **fixture 装配错误**（不是测试失败、也不是代码缺陷）。若你要改到别处，命令行传 `--basetemp=<目录>` 会覆盖仓库默认值；不要指向 `tmp/` 根目录，pytest 会在每次运行前清空它。
+
 ## 7. 配置真实数据或模型（可选）
 
 离线演示不需要密钥。若以后要测试真实 Provider 或 Agent：

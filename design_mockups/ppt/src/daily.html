@@ -1,0 +1,202 @@
+<!doctype html><html lang="zh"><head><meta charset="utf-8"><style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{width:1440px;height:810px;overflow:hidden;background:#FAF8F3;color:#191610;
+  font-family:'Segoe UI','Microsoft YaHei','PingFang SC',sans-serif;display:flex;font-size:12px}
+.serif{font-family:Georgia,'Source Han Serif SC','SimSun',serif}
+.mono{font-family:Consolas,'SFMono-Regular',Menlo,monospace}
+.num{font-variant-numeric:tabular-nums}
+/* ---------- 侧栏 ---------- */
+.sidebar{width:318px;flex:none;background:#F6F2E9;border-right:1px solid #E7E0D2;
+  padding:24px 20px 16px;display:flex;flex-direction:column;overflow:hidden}
+.wordmark{font-family:Georgia,'SimSun',serif;font-size:16px;font-weight:700;letter-spacing:.06em}
+.wordmark .dia{color:#2B4A8B;font-size:12px;vertical-align:2px}
+.sub{font-size:8.5px;letter-spacing:.14em;color:#A49B8A;margin:5px 0 16px}
+.snapcard{background:#fff;border:1px solid #E7E0D2;border-radius:10px;padding:13px 13px 11px;margin-bottom:14px}
+.snapcard .ct{font-size:10.5px;color:#7A7264;margin-bottom:9px}
+.flab{font-size:9px;letter-spacing:.05em;color:#A49B8A;margin-bottom:4px}
+.fsel{background:#fff;border:1px solid #E7E0D2;border-radius:8px;padding:6px 9px;font-size:11.5px;
+  display:flex;justify-content:space-between;align-items:center;font-weight:600}
+.fsel .car{color:#A49B8A;font-size:9px}
+.fcap{font-size:9.5px;color:#A49B8A;line-height:1.5;margin:7px 0 9px}
+.sbtn{display:flex;align-items:center;justify-content:center;gap:5px;border:1px solid #E7E0D2;
+  background:#fff;border-radius:999px;padding:5.5px 0;font-size:10.5px;color:#191610;margin-top:6px}
+.sbtn.dark{background:#191610;color:#FAF8F3;border-color:#191610}
+.navgrp{font-size:8.5px;letter-spacing:.13em;color:#A49B8A;margin:10px 2px 4px}
+.navi{font-size:11.5px;color:#5C5546;padding:4.5px 9px;border-radius:8px;margin:1px 0}
+.navi.on{background:#fff;color:#191610;font-weight:600;border-left:2px solid #2B4A8B;border-radius:4px 8px 8px 4px}
+.navi.dim{color:#A49B8A}
+/* ---------- 主区 ---------- */
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.topbar{height:50px;flex:none;display:flex;align-items:center;justify-content:flex-end;gap:13px;padding:0 22px}
+.chip{background:#fff;border:1px solid #E7E0D2;border-radius:999px;padding:5px 13px;font-size:11px;font-weight:600}
+.chip .dot{color:#1F8A5D;font-size:8px;vertical-align:1px;margin-right:4px}
+.deploy{font-size:11px;color:#5C5546}
+.dots{color:#A49B8A;font-size:13px;letter-spacing:1px}
+.content{flex:1;padding:2px 26px 0;overflow:hidden}
+.crumb{display:flex;justify-content:space-between;align-items:center;font-size:10.5px;color:#A49B8A;margin-bottom:7px}
+.crumb .r{display:flex;gap:7px;align-items:center}
+.minichip{border:1px solid #E7E0D2;background:#fff;border-radius:999px;padding:2.5px 9px;font-size:9.5px;color:#5C5546}
+.minichip.ok{color:#1F8A5D;border-color:#CFE3D6;background:#F3F8F4}
+.eyebrow{font-size:9.5px;letter-spacing:.16em;color:#A49B8A;text-transform:uppercase;margin:3px 0 5px}
+.ptitlerow{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:1px solid #E7E0D2;padding-bottom:9px}
+h1.pt{font-family:Georgia,'SimSun',serif;font-size:25px;font-weight:600;letter-spacing:.01em}
+.ptag{font-size:10px;color:#A49B8A}
+.sechead{display:flex;justify-content:space-between;align-items:baseline;margin:13px 0 7px}
+.sechead .t{font-size:12.5px;font-weight:700}
+.sechead .s{font-size:9.5px;color:#A49B8A;letter-spacing:.04em}
+.badge{display:inline-block;border-radius:999px;padding:2px 9px;font-size:9.5px;font-weight:600}
+.badge.ok{background:#E9F3EC;color:#1F8A5D}
+.badge.warn{background:#F6EEDC;color:#9A6B14}
+.badge.bad{background:#F8E9E7;color:#B5544A}
+.badge.n{background:#F1EDE3;color:#5C5546}
+.badge.v{background:#EDE9F6;color:#6B4FA8}
+.tile{background:#fff;border:1px solid #E7E0D2;border-radius:10px;padding:10px 13px}
+.tile .lb{font-size:9px;letter-spacing:.1em;color:#A49B8A;text-transform:uppercase;display:flex;justify-content:space-between}
+.tile .lb .eid{font-family:Consolas,monospace;font-size:8.5px;letter-spacing:0;color:#B9B09E}
+.tile .v{font-family:Georgia,'SimSun',serif;font-size:27px;font-weight:600;margin:4px 0 2px}
+.tile .v small{font-size:13px;font-weight:400;color:#7A7264}
+.tile .sub2{font-size:9.5px;color:#7A7264}
+.up{color:#C53A3A}.dn{color:#1F8A5D}.mut{color:#7A7264}.blu{color:#2B4A8B}
+.route{display:flex;align-items:center;gap:0;font-size:10.5px;color:#A49B8A;flex-wrap:nowrap}
+.route .st{white-space:nowrap}
+.route .st.cur{color:#2B4A8B;font-weight:700;border-bottom:2px solid #2B4A8B;padding-bottom:1px}
+.route .st.done{color:#191610}
+.route .ar{margin:0 7px;color:#D8D0BF;font-size:9px}
+.wcard{background:#fff;border:1px solid #E7E0D2;border-radius:10px;padding:12px 15px}
+table.tb{width:100%;border-collapse:collapse;font-size:11px}
+table.tb th{font-size:9px;letter-spacing:.09em;color:#A49B8A;text-transform:uppercase;font-weight:600;
+  text-align:left;padding:5px 9px;border-bottom:1px solid #191610}
+table.tb td{padding:6.5px 9px;border-bottom:1px solid #EFE9DC;font-variant-numeric:tabular-nums}
+table.tb tr.hl td{background:#F6F1E4}
+table.tb .r{text-align:right}table.tb th.r{text-align:right}
+.narr{border-left:3px solid #6B4FA8;background:#fff;border-top:1px solid #E7E0D2;border-right:1px solid #E7E0D2;
+  border-bottom:1px solid #E7E0D2;border-radius:0 10px 10px 0;padding:11px 14px;font-size:11.5px;line-height:1.75}
+.narr .nt{display:flex;justify-content:space-between;font-size:9px;color:#A49B8A;letter-spacing:.08em;margin-bottom:5px}
+.narr .cite{font-family:Consolas,monospace;font-size:9.5px;color:#2B4A8B;background:#EFF2FA;border-radius:4px;padding:0 4px}
+.pagenote{font-size:9.5px;color:#A49B8A;line-height:1.6}
+.kv{display:flex;gap:22px;font-size:10.5px;color:#5C5546;margin-top:8px}
+.kv b{color:#191610;font-weight:600}
+.btn-dark{background:#191610;color:#FAF8F3;border-radius:999px;padding:7px 16px;font-size:11.5px;font-weight:600;display:inline-block}
+.chatme{display:flex;justify-content:flex-end;margin:2px 0 10px}
+.chatme .b{background:#EFF2FA;border:1px solid #DCE3F2;border-radius:12px 12px 2px 12px;padding:9px 13px;
+  font-size:12px;max-width:430px;line-height:1.6}
+.tstep{display:flex;align-items:center;gap:9px;padding:5.5px 2px;border-bottom:1px solid #EFE9DC;font-size:11px}
+.tstep .no{font-family:Consolas,monospace;font-size:9px;color:#A49B8A;width:16px}
+.tstep .kind{font-weight:700;font-size:10.5px}
+.tstep .det{color:#7A7264;font-size:10.5px}
+.tstep .ms{margin-left:auto;font-family:Consolas,monospace;font-size:9.5px;color:#A49B8A}
+.node{border:1px solid #E7E0D2;background:#fff;border-radius:8px;padding:5px 9px;font-size:9.5px;text-align:center}
+.node .eid{font-family:Consolas,monospace;font-size:8px;color:#2B4A8B;display:block}
+</style></head>
+<body>
+<aside class="sidebar">
+  <div class="wordmark"><span class="dia">◆</span> FINTRACE / CN</div>
+  <div class="sub">A-SHARE RESEARCH OS · LOCAL SNAPSHOTS</div>
+  <div class="snapcard">
+    <div class="ct">快照管理</div>
+    <div class="flab">当前研究版本</div>
+    <div class="fsel">贵州茅台 · 600519.SH <span class="car">▼</span></div>
+    <div class="fcap">当前：联网更新版本 · 收盘数据截至 2026-09-28 · 研究截至 2026-09-28</div>
+    <div class="sbtn">↻&nbsp; 切回本地基准</div>
+    <div class="sbtn dark">联网更新&nbsp;▼</div>
+    <div class="sbtn">◎&nbsp; 查看研究总览</div>
+  </div>
+  <div class="navgrp">研究工作台</div>
+<div class="navi">研究总览</div>
+<div class="navi">市场与行情</div>
+<div class="navi">财务表现</div>
+<div class="navi">财务分析</div>
+<div class="navi">同行估值</div>
+<div class="navgrp">AI 研究</div>
+<div class="navi">AI Agent 研究</div>
+<div class="navi">Agent 执行轨迹</div>
+<div class="navgrp">证据与报告</div>
+<div class="navi">证据与校验</div>
+<div class="navi">文档智能</div>
+<div class="navi">研究报告</div>
+<div class="navgrp">任务中心</div>
+<div class="navi">研究任务</div>
+<div class="navi on">每日复盘</div>
+<div class="navi">评测与消融</div>
+<div class="navgrp">演示与设置</div>
+<div class="navi">案例演示</div>
+</aside><div class="main">
+<header class="topbar">
+  <div class="chip"><span class="dot">●</span>本地账号 · demo</div>
+  <div class="deploy">Deploy</div>
+  <div class="dots">⋮</div>
+</header><div class="content">
+
+<div class="crumb"><div>研究工作台 / 每日复盘</div>
+<div class="r"><span class="minichip ok num">● 校验通过 12/12</span><span class="minichip num">快照 2026-09-28</span></div></div>
+<div class="eyebrow">每日复盘 · 明确标注的演示数据</div>
+<div class="ptitlerow"><h1 class="pt">每日复盘</h1><div class="ptag">synthetic_demo · 非实时</div></div>
+
+<div style="display:flex;gap:7px;margin:10px 0 2px">
+  <span class="badge n">数据来源：synthetic_demo</span><span class="badge warn">永不冒充实时行情</span><span class="badge n">不构成投资建议</span>
+</div>
+
+<div style="display:flex;gap:10px;margin-top:8px">
+  <div class="tile" style="flex:1"><div class="lb"><span>上证指数</span></div><div class="v num">3,342.20</div><div class="sub2 num up">▲ +0.42%</div></div>
+  <div class="tile" style="flex:1"><div class="lb"><span>深证成指</span></div><div class="v num">10,845.13</div><div class="sub2 num up">▲ +0.21%</div></div>
+  <div class="tile" style="flex:1"><div class="lb"><span>创业板指</span></div><div class="v num">2,286.45</div><div class="sub2 num dn">▼ −0.35%</div></div>
+  <div class="tile" style="flex:1"><div class="lb"><span>沪深 300</span></div><div class="v num">3,978.51</div><div class="sub2 num up">▲ +0.18%</div></div>
+</div>
+
+<div style="display:flex;gap:14px;margin-top:12px">
+  <div style="flex:1">
+    <div class="sechead"><div class="t">市场广度</div><div class="s">synthetic_demo · 演示口径</div></div>
+    <div class="wcard" style="padding:13px 16px">
+      <div style="display:flex;gap:20px">
+        <div><div style="font-size:9px;letter-spacing:.1em;color:#A49B8A">上涨家数</div><div class="serif num up" style="font-size:24px;font-weight:600">2,986</div></div>
+        <div><div style="font-size:9px;letter-spacing:.1em;color:#A49B8A">下跌家数</div><div class="serif num dn" style="font-size:24px;font-weight:600">2,104</div></div>
+        <div><div style="font-size:9px;letter-spacing:.1em;color:#A49B8A">平盘</div><div class="serif num" style="font-size:24px;font-weight:600">182</div></div>
+        <div><div style="font-size:9px;letter-spacing:.1em;color:#A49B8A">涨停 / 跌停</div><div class="serif num" style="font-size:24px;font-weight:600">41 / 12</div></div>
+      </div>
+      <div style="display:flex;height:8px;border-radius:5px;overflow:hidden;margin-top:11px">
+        <div style="width:56.8%;background:#C53A3A"></div><div style="width:40%;background:#1F8A5D"></div><div style="width:3.2%;background:#D8D0BF"></div>
+      </div>
+      <div style="font-size:9.5px;color:#A49B8A;margin-top:6px">涨跌家数比 1.42 · 中位数涨幅 +0.31%（synthetic_demo）</div>
+    </div>
+  </div>
+  <div style="flex:1">
+    <div class="sechead"><div class="t">行业涨跌榜</div><div class="s">演示数据 · 覆盖 31 个一级行业</div></div>
+    <div class="wcard" style="padding:4px 15px 2px">
+      <table class="tb">
+        <tr><td style="border-bottom:1px solid #EFE9DC">领涨 · 电力设备</td><td class="r up num" style="border-bottom:1px solid #EFE9DC">+1.62%</td></tr>
+        <tr><td style="border-bottom:1px solid #EFE9DC">领涨 · 通信</td><td class="r up num" style="border-bottom:1px solid #EFE9DC">+1.18%</td></tr>
+        <tr><td style="border-bottom:1px solid #EFE9DC">领跌 · 煤炭</td><td class="r dn num" style="border-bottom:1px solid #EFE9DC">−1.12%</td></tr>
+        <tr><td>领跌 · 白酒</td><td class="r dn num">−0.84%</td></tr>
+      </table>
+    </div>
+    <div class="wcard" style="margin-top:10px;padding:10px 14px;font-size:10.5px;color:#5C5546;line-height:1.7">
+      复盘事实与计算均由服务层生成；<b>演示数据永远带 synthetic_demo 标注</b>，不会混入联网快照，也不会被当作实时行情展示。
+    </div>
+  </div>
+</div>
+
+<div style="display:flex;gap:14px;margin-top:12px">
+  <div style="flex:1.4">
+    <div class="sechead"><div class="t">近 20 个交易日 · 上证指数收盘</div><div class="s">synthetic_demo · 仅演示复盘形态</div></div>
+    <div class="wcard" style="padding:14px 16px 10px">
+      <svg width="620" height="64" viewBox="0 0 620 64">
+        <polyline points="3,46 35,42 67,44 99,39 131,41 163,36 195,38 227,33 259,35 291,30 323,32 355,27 387,29 419,24 451,26 483,21 515,23 547,18 579,20 611,15"
+          fill="none" stroke="#2B4A8B" stroke-width="1.6"/>
+        <line x1="3" y1="58" x2="611" y2="58" stroke="#EFE9DC"/>
+      </svg>
+      <div style="display:flex;justify-content:space-between;font-size:9px;color:#A49B8A;margin-top:3px"><span>08-31</span><span>09-28</span></div>
+    </div>
+  </div>
+  <div style="flex:1">
+    <div class="sechead"><div class="t">数据覆盖与限制</div><div class="s">服务层自述 · 不夸大覆盖</div></div>
+    <div class="wcard" style="padding:12px 16px">
+      <table class="tb">
+        <tr><td style="border-bottom:1px solid #EFE9DC">覆盖范围</td><td class="r" style="border-bottom:1px solid #EFE9DC"><b>沪深北 A 股 · 31 个一级行业</b></td></tr>
+        <tr><td style="border-bottom:1px solid #EFE9DC">指数</td><td class="r num" style="border-bottom:1px solid #EFE9DC">4 只（synthetic_demo）</td></tr>
+        <tr><td style="border-bottom:1px solid #EFE9DC">财报深度</td><td class="r" style="border-bottom:1px solid #EFE9DC">2026H1 · 覆盖不足处明确标注</td></tr>
+        <tr><td>已知限制</td><td class="r"><span class="badge warn">◑ 演示数据 · 非实时</span></td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+</div></div></body></html>

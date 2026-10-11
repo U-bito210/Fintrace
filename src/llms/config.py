@@ -19,6 +19,8 @@ from .openai_compatible import (
     qwen3_max,
     qwen_plus,
     qwen_flash,
+    glm_4_7_flash,
+    glm_5_3,
 )
 
 # Unified model registry (single source of truth for all model metadata)
@@ -46,6 +48,8 @@ _SYNC_MODEL_FUNCTIONS: Dict[str, Callable] = {
     "qwen3-max": qwen3_max,
     "qwen-plus": qwen_plus,
     "qwen-flash": qwen_flash,
+    "glm-4.7-flash": glm_4_7_flash,
+    "glm-5.3": glm_5_3,
 }
 
 
