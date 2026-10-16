@@ -10,9 +10,17 @@ from ..models import DocumentRecord, ParsePageEvent, ParseResult, ParserOutput, 
 
 PARSER_VERSION = "1.0.0"
 
-# A numeric-looking slice: thousands separators, optional sign, optional unit
-# suffix/prefix. Deliberately permissive — CARD-02 owns strict normalization.
-NUMERIC_RE = re.compile(r"[-+]?[\d,]{1,3}(?:,\d{3})*(?:\.\d+)?%?|[-+]?\d+(?:\.\d+)?%?")
+# A whole numeric cell: thousands separators, optional sign and an explicitly
+# supported suffix.  This parser is intentionally stricter than CARD-02
+# normalization: a number embedded in prose (a date, phone number or narrative
+# sentence) must not become a financial fact merely because it appeared in a
+# table cell.
+NUMERIC_RE = re.compile(
+    r"^\s*(?:人民币|RMB|CNY)?\s*"
+    r"(?P<value>[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?%?)\s*"
+    r"(?:人民币|RMB|CNY)?\s*(?:亿元|万元|千元|百万|万股|亿股|元|股)?\s*$",
+    re.IGNORECASE,
+)
 
 
 def looks_numeric(text: str) -> Optional[str]:
@@ -22,14 +30,16 @@ def looks_numeric(text: str) -> Optional[str]:
     invented downstream. Shared by the table, text and excel parsers so every
     ``table_cell`` fact carries a consistent ``raw_value``.
     """
-    text = (text or "").strip().replace(",", "")
+    text = (text or "").strip()
     if not text:
         return None
-    if NUMERIC_RE.fullmatch(text):
-        return text
-    # Allow a leading/trailing unit word like "1,234 元".
-    m = NUMERIC_RE.search(text)
-    return m.group(0) if m else None
+    match = NUMERIC_RE.fullmatch(text)
+    if match is None:
+        return None
+    # Preserve the numeric token, but remove grouping separators for the
+    # downstream deterministic parser.  Units remain in ``raw_text`` and are
+    # interpreted only by normalization with its own validation rules.
+    return match.group("value").replace(",", "")
 
 
 def resolve_textless_page(page_index: int, page, parser_name: str):

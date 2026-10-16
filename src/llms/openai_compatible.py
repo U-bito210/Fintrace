@@ -31,11 +31,24 @@ import os
 import time
 from typing import Tuple, List, Dict
 
+import httpx
 from openai import OpenAI
 from openai import RateLimitError, APITimeoutError, APIConnectionError
 
 from src.logger import get_logger
 from .model_registry import cost_currency, get_model_info
+
+
+def _trust_environment_proxy() -> bool:
+    """Whether OpenAI-compatible calls may inherit OS proxy discovery.
+
+    Some Windows environments expose a broken system proxy to httpx even when
+    no explicit proxy variable is present, causing TLS EOF errors before the
+    request reaches the provider.  Direct connections are the safe default for
+    this local research workbench.  An operator who intentionally uses a
+    corporate proxy can opt in with ``FINTRACE_LLM_TRUST_ENV=true``.
+    """
+    return os.getenv("FINTRACE_LLM_TRUST_ENV", "false").strip().lower() in {"1", "true", "yes", "on"}
 
 
 # ---------------------------------------------------------------------------
@@ -134,6 +147,11 @@ def _call_openai_compatible(
 
     for attempt in range(max_retries):
         try:
+            # Do not silently inherit a machine-level proxy.  The explicit
+            # opt-in keeps corporate proxy deployments possible while making a
+            # stale WinHTTP/OS proxy unable to break all model calls.
+            transport = httpx.Client(trust_env=_trust_environment_proxy(), timeout=60.0)
+            client_kwargs["http_client"] = transport
             client = OpenAI(**client_kwargs)
 
             # Build create kwargs.  Only models whose registry entry says the
@@ -151,7 +169,15 @@ def _call_openai_compatible(
             if info.accepts_thinking_disable:
                 create_kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
 
-            response = client.chat.completions.create(**create_kwargs)
+            try:
+                response = client.chat.completions.create(**create_kwargs)
+            finally:
+                # The transport is ours (rather than OpenAI's default), so
+                # close it after each bounded request.  Test doubles need not
+                # implement ``close``.
+                close = getattr(transport, "close", None)
+                if callable(close):
+                    close()
 
             cost = _calculate_cost(response, model_name)
             # ``cost`` is denominated in the model's own unit of account, which

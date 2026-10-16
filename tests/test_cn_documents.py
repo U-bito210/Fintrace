@@ -47,6 +47,7 @@ from src.cn.documents.models import (
     FACT_STATUS_OK,
 )
 from src.cn.documents.parsers.table import _year_for_cell, _year_header_anchors
+from src.cn.documents.parsers.base import looks_numeric
 from src.cn.documents.parsers.ocr import OCRFallback
 from src.cn.normalization import normalize_financials
 from src.cn.documents.evidence_bridge import register_document_facts
@@ -98,6 +99,23 @@ def test_registry_get_and_list(registry):
 # ---------------------------------------------------------------------------
 # Parsing: annual report (tables, multi-page merge, dual-column)
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("cell", "expected"),
+    [
+        ("7,281", "7281"),
+        ("7,281.50 万元", "7281.50"),
+        ("-12.5%", "-12.5%"),
+        ("人民币 7,281", "7281"),
+        ("2025年度", None),
+        ("联系电话：010-7281-0000", None),
+        ("营业收入为7,281万元", None),
+    ],
+)
+def test_looks_numeric_accepts_only_a_whole_numeric_table_cell(cell, expected):
+    """Narrative table cells must never seed financial calculations."""
+    assert looks_numeric(cell) == expected
 
 def test_annual_pdf_extracts_located_facts(registry):
     pdf = build_annual_pdf(with_continuation=True, with_dual_column=True)

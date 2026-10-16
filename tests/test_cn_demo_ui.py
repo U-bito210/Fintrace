@@ -2,7 +2,7 @@
 
 三组断言，对应卡的三个硬项：
 
-* **挂载面**：8 个 Demo 页面被挂到既有工作台上，且 14 个既有页面一个不少。
+* **挂载面**：9 个 Demo 页面被挂到既有工作台上，且 14 个既有页面一个不少。
   卡 §6 要求"在现有入口追加挂载，不修改既有页面函数"；悄悄少掉几个页面
   比报错更糟，所以这里按标签逐一钉死，而不是只数个数。
 * **服务层契约**：``src.cn.demo_service`` 的公开函数**永不抛**，缺输入返回
@@ -51,13 +51,14 @@ LEGACY_PAGES = (
 
 #: CARD-15 §5（已按 DEMO_FLOW.md v3.2 校正）—— 顺序即导航顺序。
 DEMO_LABELS = (
-    "研报纠错", "ACME 约束", "结论护照", "主张-证据图谱",
+    "竞赛主线", "研报纠错", "ACME 约束", "结论护照", "主张-证据图谱",
     "逻辑脆弱性", "时间重验证", "审计回放", "对抗注入",
 )
 
 #: 页面 → 支撑卡片。三个创新展示步骤（4b/7b/10b）必须各自有页面 ——
 #: 这正是旧版 §5 页面清单缺掉、而 DEMO_FLOW v3.2 要求的部分。
 DEMO_CARDS = {
+    "竞赛主线": "05/12",
     "研报纠错": "05",
     "ACME 约束": "22",
     "结论护照": "23",
@@ -223,7 +224,7 @@ def test_workbench_stays_a_script_with_a_demo_package_beside_it():
     demo_pkg = ROOT / "workbench" / "demo"
     assert (demo_pkg / "__init__.py").is_file()
     submodules = {path.stem for path in demo_pkg.glob("*.py")}
-    assert {"corrections", "acme", "passport", "graph", "fragility", "temporal",
+    assert {"competition", "corrections", "acme", "passport", "graph", "fragility", "temporal",
             "replay", "adversarial"} <= submodules
 
 
@@ -571,7 +572,7 @@ def test_demo_mount_failure_is_not_swallowed(workbench_boot):
     """导入 Demo 页面失败会被降级成侧栏告警 —— 那是**缺陷**，不是可选状态。
 
     ``workbench.py`` 的 try/except 是为了不让整个工作台打不开；但挂载一旦失败，
-    ``NAVIGATION`` 就会少掉那 8 个标签，且侧栏会亮出告警。这里把那条告警也钉住，
+    ``NAVIGATION`` 就会少掉这些标签，且侧栏会亮出告警。这里把那条告警也钉住，
     免得"降级"悄悄变成常态。
     """
     warnings = [element.value for element in workbench_boot.warning]
@@ -589,6 +590,7 @@ def test_demo_page_renders_without_exception(label):
     # 这条测的是「页面会不会炸」，不该把真实材料拖进来：显式钉住合成件，
     # 真实材料的端到端由上一条 integration 用案例覆盖。
     at.session_state["demo_corrections_draft"] = "SYN-DRAFT-FIGURES"
+    at.session_state["demo_competition_draft"] = "SYN-DRAFT-FIGURES"
     at.run()
     if at.exception:
         err = at.exception[0]

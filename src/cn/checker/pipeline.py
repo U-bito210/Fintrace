@@ -357,6 +357,7 @@ async def acheck_draft(
     reference_document_ids: Optional[Iterable[str]] = None,
     as_of: Optional[str] = None,
     llm_client: Optional[ClaimExtractionClient] = None,
+    llm_batch_size: int = 3,
     extra_facts: Sequence[object] = (),
     extra_documents: Sequence[object] = (),
 ) -> Dict[str, Any]:
@@ -370,7 +371,7 @@ async def acheck_draft(
     if document is None:
         raise DraftNotFound(document_id)
     sentences = sentences_from_facts(store.get_facts(document_id), document_id=document_id)
-    extraction = await extract_claims(sentences, llm_client)
+    extraction = await extract_claims(sentences, llm_client, batch_size=llm_batch_size)
 
     return _assemble(
         document_id,

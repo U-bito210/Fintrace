@@ -34,6 +34,7 @@ from .extractor import (
     extract_claims,
     resolve_period_label,
 )
+from .llm_client import ConfiguredClaimExtractionClient
 from .facts import (
     Citation,
     Disclosure,
@@ -73,7 +74,7 @@ __all__ = [
     "format_amount", "format_percent",
     # extraction
     "extract_claims", "extract_claims_rules", "ExtractionOutcome",
-    "ClaimExtractionClient", "EXTRACTOR_RULES", "resolve_period_label",
+    "ClaimExtractionClient", "ConfiguredClaimExtractionClient", "EXTRACTOR_RULES", "resolve_period_label",
     # checker
     "check_report", "summarize", "build_report",
     # pipeline

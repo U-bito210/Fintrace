@@ -214,7 +214,11 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
         name="deepseek-v4-flash",
         provider="deepseek",
         api_style="openai",
-        api_model_id="deepseek-v4-flash",
+        # The project keeps its historical logical name for compatibility with
+        # manifests and prompt bindings.  The request, however, uses DeepSeek's
+        # current official API identifier; the legacy v4-flash alias is only a
+        # server-side compatibility route.
+        api_model_id="deepseek-flash",
         api_key_env="DEEPSEEK_API_KEY",
         base_url_env="DEEPSEEK_BASE_URL",
         default_base_url="https://api.deepseek.com",

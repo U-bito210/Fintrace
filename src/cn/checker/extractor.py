@@ -155,10 +155,15 @@ async def extract_claims(
     sentences: Sequence[DraftSentence],
     llm_client: Optional[ClaimExtractionClient] = None,
     *,
-    batch_size: int = 12,
+    batch_size: int = 3,
     temperature: float = 0.0,
 ) -> ExtractionOutcome:
     """§6 ``extract_claims``: sentences in, :class:`ExtractionOutcome` out.
+
+    ``batch_size`` is intentionally small because the response contains a verbatim
+    copy of every input sentence plus structured fields.  Keeping a bounded batch
+    makes a transient provider stall visible only for the affected sentences,
+    rather than turning an entire page of a draft into an all-or-nothing request.
 
     When *llm_client* is ``None`` nothing is invented: every sentence is reported
     as unextracted with an explicit note, and the caller sees ``status=blocked``

@@ -140,7 +140,7 @@ git status --short
 
 当前基线：`1753 passed, 3 deselected`（2026-10-08 复核，零失败）。
 
-临时目录已在 `pytest.ini` 里固定为 `--basetemp=tmp/pytest-tmp`。这是为了让 Windows 上也能一键复现：不使用该固定值时，`tmp_path` 会落到 `%TEMP%\pytest-of-<用户名>`，在部分 Windows 机器上因 ACL 被拒，表现为成百上千条 `PermissionError` 的 **fixture 装配错误**（不是测试失败、也不是代码缺陷）。若你要改到别处，命令行传 `--basetemp=<目录>` 会覆盖仓库默认值；不要指向 `tmp/` 根目录，pytest 会在每次运行前清空它。
+Windows 上默认测试会在仓库忽略的 `tmp/pytest-*` 下为**每次调用**创建独立临时目录。这避免系统临时目录 ACL 造成成百上千条 `PermissionError` 的 fixture 装配错误，也避免重复调用复用被 pytest 清理过的目录。评审方如需指定位置，仍可显式传入 `--basetemp=<目录>`；不要指向 `tmp/` 根目录，pytest 会清理其基目录。
 
 ## 7. 配置真实数据或模型（可选）
 
@@ -151,6 +151,22 @@ git status --short
 3. 真实联网测试要明确使用 integration 测试，并确认数据的来源、截止时间和授权范围。
 
 不要把 `.env`、API Key、付费数据或真实输出提交到 Git。`--dry-run` 只验证工具契约和 Validator 机制，不能当成真实模型效果。
+
+### 使用真实模型做研报 Claim 提取
+
+竞赛主链中，模型只将草稿原句搬运为结构化 Claim；参考披露、数值计算、错误判定和证据定位均由确定性模块完成。准备好有授权的模型密钥和本地材料后，可显式运行：
+
+~~~powershell
+$env:DASHSCOPE_API_KEY = "<your-key>"
+python scripts\run_llm_report_check.py `
+  --model qwen-plus `
+  --draft .\materials\report_draft.pdf `
+  --annual .\materials\annual_report.pdf `
+  --as-of 2026-10-18 `
+  --out .\output\competition\llm_check.json
+~~~
+
+可重复传入 `--annual`，或使用 `--interim`、`--quarterly`、`--announcement` 增加参考披露。输出会记录模型名、Prompt 组合哈希、明确选中的参考文档 ID、结构化 Claim、规则覆盖范围、finding 和证据索引。未提供密钥、缺少参考披露或模型返回非文本时，命令会失败并说明原因；不会输出“核查通过”的替代结果。
 
 ### 真实 Tushare 快照流程
 

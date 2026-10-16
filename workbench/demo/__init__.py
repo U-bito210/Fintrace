@@ -30,6 +30,7 @@ class DemoPage:
 def _specs() -> Tuple[Tuple[str, str, str, str], ...]:
     """``(模块名, 页面标签, 支撑卡片, 剧本步骤)``，顺序即导航顺序。"""
     return (
+        ("competition", "竞赛主线", "05/12", "总览：材料→核查→证据→审计"),
         ("corrections", "研报纠错", "05", "步骤 6+7 ★高潮一"),
         ("acme", "ACME 约束", "22", "步骤 4b 创新一"),
         ("passport", "结论护照", "23", "步骤 7b ★核心动作"),

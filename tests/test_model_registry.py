@@ -371,7 +371,7 @@ def test_deepseek_flash_registry_metadata():
     info = get_model_info("deepseek-v4-flash")
     assert info.provider == "deepseek"
     assert info.api_style == "openai"
-    assert info.api_model_id == "deepseek-v4-flash"
+    assert info.api_model_id == "deepseek-flash"
     assert info.api_key_env == "DEEPSEEK_API_KEY"
     assert info.base_url_env == "DEEPSEEK_BASE_URL"
     assert info.default_base_url == "https://api.deepseek.com"
@@ -484,11 +484,21 @@ def test_openai_compatible_client_uses_correct_params(monkeypatch):
     assert cost > 0
     assert captured_kwargs["api_key"] == "sk-ds-mock"
     assert captured_kwargs["base_url"] == "https://api.deepseek.com"
-    assert create_calls[0]["model"] == "deepseek-v4-flash"
+    assert create_calls[0]["model"] == "deepseek-flash"
     # CRITICAL: extra_body must be sent to disable thinking
     assert create_calls[0]["extra_body"] == {"thinking": {"type": "disabled"}}, (
         "extra_body must be sent with thinking disabled"
     )
+    assert captured_kwargs["http_client"]._trust_env is False
+
+
+def test_openai_compatible_proxy_inheritance_requires_an_explicit_opt_in(monkeypatch):
+    """A stale system proxy must not silently intercept API TLS by default."""
+    import llms.openai_compatible as oc_module
+
+    assert oc_module._trust_environment_proxy() is False
+    monkeypatch.setenv("FINTRACE_LLM_TRUST_ENV", "true")
+    assert oc_module._trust_environment_proxy() is True
 
 
 def test_openai_compatible_thinking_not_sent(monkeypatch):

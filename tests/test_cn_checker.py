@@ -1349,6 +1349,19 @@ class TestExtractors:
         assert len(outcome.unextracted) == 1
         assert outcome.notes
 
+    def test_the_default_llm_batch_is_bounded_to_three_sentences(self):
+        """A stalled provider must not make a whole draft page all-or-nothing."""
+        client = _ScriptedClient('{"claims": []}')
+        sentences = [
+            DraftSentence(sentence_id=f"D#s{index}", document_id="D", text=f"第{index}句。")
+            for index in range(1, 8)
+        ]
+
+        outcome = asyncio.run(extract_claims(sentences, client))
+
+        assert len(client.calls) == 3
+        assert len(outcome.unextracted) == 7
+
     def test_a_scripted_client_flows_through_the_same_deterministic_core(self):
         payload = json.dumps({"claims": [{
             "sentence_id": "D#s1",

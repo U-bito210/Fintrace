@@ -12,7 +12,7 @@ Exit code is 0 when every page renders cleanly, 1 otherwise.
 **Page list is discovered, not duplicated.** The old version kept a hand-written
 ``PAGES`` list with a "must stay in sync with NAVIGATION" comment — a second
 source of truth that silently rots the moment a page is added (which is exactly
-what CARD-15 does: +8 pages). The list now comes from the sidebar radio's own
+what CARD-15 does: + demo pages). The list now comes from the sidebar radio's own
 options, i.e. from the running app. A separate assertion pins the CARD-15 labels
 so a failed demo import cannot quietly shrink the tested surface.
 """
@@ -34,6 +34,7 @@ if str(ROOT) not in sys.path:
 #: CARD-15 §5 (as corrected against DEMO_FLOW.md v3.2). Their absence means the
 #: demo surface shrank, which must fail loudly rather than reduce the page count.
 EXPECTED_DEMO_PAGES = (
+    "竞赛主线",
     "研报纠错",
     "ACME 约束",
     "结论护照",
@@ -114,6 +115,7 @@ def main() -> int:
         at.session_state["workbench_page"] = page
         # 逐页冒烟测的是「页面会不会炸」，不是真实材料的构建耗时（见 smoke_draft_key）。
         at.session_state["demo_corrections_draft"] = smoke_draft
+        at.session_state["demo_competition_draft"] = smoke_draft
         at.run()
         if at.exception:
             err = at.exception[0]
